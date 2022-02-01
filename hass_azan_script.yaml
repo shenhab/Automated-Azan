@@ -1,10 +1,13 @@
 alias: azan
 sequence:
-  - service: media_player.volume_set
+  - &ref_0
+    service: media_player.volume_up
     target:
       entity_id: media_player.all_speakers
-    data:
-      volume_level: 1
+  - *ref_0
+  - *ref_0
+  - *ref_0
+  - *ref_0
   - service: media_player.play_media
     target:
       entity_id: media_player.all_speakers
