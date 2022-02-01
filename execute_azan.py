@@ -10,6 +10,8 @@ hass_port = "8123"
 device_entity_id = 'media_player.all_speakers'
 
 icci_url = 'https://islamireland.ie/api/timetable/'
+
+#get one for your user from homeassistant https://developers.home-assistant.io/docs/auth_api/#long-lived-access-token
 hass_api_token = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiI5Y2Y0NWQyNWNkNjc0MjUxYTNhNjNkZGFhOTdmNWViYyIsImlhdCI6MTY0MzY4NTgxMCwiZXhwIjoxOTU5MDQ1ODEwfQ.1g8CUn-WdmE3078irFJKorcUeqo6b1BJrW4-LOBkMds'
 auth_value = 'Bearer {}'.format(hass_api_token)
 
