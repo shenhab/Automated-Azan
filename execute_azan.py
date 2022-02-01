@@ -1,17 +1,34 @@
 #! /usr/bin/env python3
+
+#this script will only work for one day.
+#thus you need to add the below crontab records to your system:
+#you can edit cron via this command: crontab -e
+#1 0 * * * /scripts/update_prayers_times.py
+#@reboot /scripts/update_prayers_times.py
+
 from requests import get, post
 from datetime import date, datetime
+
+#you need to install schedule via pip3
+#https://pypi.org/project/schedule/
 import schedule
+
 import time
 import json
 
+#you need to enable the REST API on you homeassistant
+# https://www.home-assistant.io/integrations/api
 hass_node = "192.168.86.111"
 hass_port = "8123"
+
+#you need to get your own entity ID, this won't work with you.
+#find the entity id in the home assistant configuration > devices & services > entities
 device_entity_id = 'media_player.all_speakers'
 
 icci_url = 'https://islamireland.ie/api/timetable/'
 
-#get one for your user from homeassistant https://developers.home-assistant.io/docs/auth_api/#long-lived-access-token
+#get one for your user from homeassistant
+#https://developers.home-assistant.io/docs/auth_api/#long-lived-access-token
 hass_api_token = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiI5Y2Y0NWQyNWNkNjc0MjUxYTNhNjNkZGFhOTdmNWViYyIsImlhdCI6MTY0MzY4NTgxMCwiZXhwIjoxOTU5MDQ1ODEwfQ.1g8CUn-WdmE3078irFJKorcUeqo6b1BJrW4-LOBkMds'
 auth_value = 'Bearer {}'.format(hass_api_token)
 
