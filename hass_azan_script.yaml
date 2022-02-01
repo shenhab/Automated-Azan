@@ -1,0 +1,15 @@
+alias: azan
+sequence:
+  - service: media_player.volume_set
+    target:
+      entity_id: media_player.all_speakers
+    data:
+      volume_level: 1
+  - service: media_player.play_media
+    target:
+      entity_id: media_player.all_speakers
+    data:
+      media_content_type: music
+      media_content_id: https://www.gurutux.com/media/azan.mp3
+mode: single
+icon: mdi:boombox
