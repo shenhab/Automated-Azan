@@ -16,6 +16,9 @@ import schedule
 import time
 import json
 
+#homeassistant have to be up and running somewhere in your network
+#This script will only be able to utilize the devices that are
+#discovered in homeassistant.
 #you need to enable the REST API on you homeassistant
 # https://www.home-assistant.io/integrations/api
 hass_node = "192.168.86.111"
