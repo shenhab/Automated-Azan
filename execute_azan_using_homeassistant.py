@@ -36,14 +36,10 @@ hass_api_token = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiI5Y2Y0NWQyNWNkN
 auth_value = 'Bearer {}'.format(hass_api_token)
 
 def get_azan_times():
-    today = date.today()
-    icci_timetable = get(icci_url).json()['timetable']
-    today_timetable = icci_timetable[str(today.month)][str(today.day)]
-    return {'fajr_time': today_timetable[0],
-            'Duhur_time': today_timetable[2],
-            'Asr_time': today_timetable[3],
-            'maghreb_time': today_timetable[4],
-            'Isha_time': today_timetable[5]}
+    azan_times_url = 'https://3kdru4h1tg.execute-api.eu-west-1.amazonaws.com/default/ICCI_next_prayer'
+    azan_times = get(azan_times_url).json()
+    today_timetable = azan_times["today prayers"]
+    return today_timetable
 
 def execute_azan_on_device():
     azan_url = 'https://www.gurutux.com/media/azan.mp3'
