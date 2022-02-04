@@ -1,0 +1,17 @@
+[Unit]
+Description=Smart devices Azan
+
+Wants=network-online.target systemd-networkd-wait-online.service
+
+StartLimitIntervalSec=500
+StartLimitBurst=5
+
+
+[Service]
+Restart=alwayse
+RestartSec=5s
+
+ExecStart=/scripts/execute_azan.py
+
+[Install]
+WantedBy=multi-user.target

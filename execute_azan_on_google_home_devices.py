@@ -9,6 +9,9 @@
 from requests import get
 from datetime import datetime
 import time
+import logging
+logging.basicConfig(level=20)
+
 
 #you need to install schedule via pip3
 #https://pypi.org/project/schedule/
@@ -22,40 +25,73 @@ import pychromecast
 #find the device name from google home app (a speaker group name can be used)
 google_home_device_name = 'All Speakers'
 
+
 def get_azan_times():
     azan_times_url = 'https://3kdru4h1tg.execute-api.eu-west-1.amazonaws.com/default/ICCI_next_prayer'
-    azan_times = get(azan_times_url).json()
-    today_timetable = azan_times["today prayers"]
+    azan_times = get(azan_times_url)
+    today_timetable = azan_times.json()["today prayers"]
+    logging.debug('get azan times url status code: {}'.format(azan_times.status_code))
+    logging.debug('get azan times url status data: {}'.format(azan_times.json()))
     return today_timetable
 
-def execute_azan_on_device():
-    azan_url = 'https://www.gurutux.com/media/azan.mp3'
-    chromecasts, browser = pychromecast.get_listed_chromecasts(friendly_names=[google_home_device_name])
-    cast = chromecasts[0]
-    cast.wait()
-    cast_media_controler = cast.media_controller
-    cast_media_controler.play_media(azan_url, 'audio/mp3')
-    pychromecast.discovery.stop_discovery(browser)
+
+def execute_azan_on_device(fajr):
+    if fajr:
+        azan_url = 'https://www.gurutux.com/media/adhan_al_fajr.mp3'
+        logging.debug('Adhan Al Fajr.')
+    else:
+        azan_url = 'https://www.gurutux.com/media/azan.mp3'
+        logging.debug('Regular Adhan.')
+    chromecast_devices, browser = pychromecast.get_listed_chromecasts(friendly_names = [google_home_device_name])
+    casting_device = chromecast_devices[0]
+    casting_device.logger.setLevel(30)
+    casting_device.wait()
+    browser.stop_discovery()
+    cast_media_controller = casting_device.media_controller
+    cast_media_controller.play_media(azan_url, 'audio/mp3')
+    cast_media_controller.block_until_active()
     return schedule.CancelJob
+
 
 def scheduler():
     azan_times = get_azan_times()
     now = datetime.now()
+    logging.debug('Generating today\'s jobs.')
     for prayer, azan_time in azan_times.items():
-        if azan_time[0] > now.hour:
-            schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device)
-        elif azan_time[0] == now.hour and azan_time[1] > now.minute:
-            schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device)
+        if azan_time[0] > now.hour and prayer != 'Al Duha':
+            if prayer == "Al Fajr":
+                schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device, True)
+            else:
+                schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device, False)
+        elif azan_time[0] == now.hour and azan_time[1] > now.minute and prayer != 'Al Duha':
+            if prayer == "Al Fajr":
+                schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device, True)
+            else:
+                schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device, False)
+    logging.debug('jobs generated.')
+
 
 def executer():
     scheduler()
+    logging.debug('Generated jobs: {}'.format(schedule.get_jobs()))
     while True:
+        logging.debug('running pending jobs.')
         schedule.run_pending()
         n = schedule.idle_seconds()
         if n is None:
             break
         elif n > 0:
+            logging.debug('sleeping for {} hours.'.format(n/60/60))
             time.sleep(n)
 
-executer()
-exit
+
+def sleep_till_midnight():
+    now = datetime.now()
+    logging.debug('sleeping till midnight')
+    pause.until(datetime(now.year, now.month, now.day+1, 0, 5))
+
+
+while True:
+    logging.debug('calling_executer')
+    executer()
+    sleep_till_midnight()
