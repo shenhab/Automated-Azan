@@ -10,7 +10,8 @@ from requests import get
 from datetime import datetime
 import time
 import logging
-logging.basicConfig(level=20)
+logging_format = '%(asctime)s [%(levelname)s]: %(message)s'
+logging.basicConfig(format=logging_format, filename='/var/log/azan_service.log', level=10)
 
 
 #you need to install schedule via pip3
@@ -42,11 +43,10 @@ def execute_azan_on_device(fajr):
     else:
         azan_url = 'https://www.gurutux.com/media/azan.mp3'
         logging.debug('Regular Adhan.')
-    chromecast_devices, browser = pychromecast.get_listed_chromecasts(friendly_names = [google_home_device_name])
+    chromecast_devices, browser = pychromecast.get_listed_chromecasts(friendly_names = [google_home_device_name], timeout=5)
     casting_device = chromecast_devices[0]
     casting_device.logger.setLevel(30)
     casting_device.wait()
-    browser.stop_discovery()
     cast_media_controller = casting_device.media_controller
     cast_media_controller.play_media(azan_url, 'audio/mp3')
     cast_media_controller.block_until_active()
