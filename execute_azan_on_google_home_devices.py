@@ -8,7 +8,7 @@
 
 from requests import get
 from datetime import datetime
-import time
+import time, pause
 import logging
 logging_format = '%(asctime)s [%(levelname)s]: %(message)s'
 logging.basicConfig(format=logging_format, filename='/var/log/azan_service.log', level=10)
