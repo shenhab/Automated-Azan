@@ -47,7 +47,7 @@ def execute_azan_on_device(prayer):
     logging.debug('**Salat {}.**'.format(prayer))
     chromecast_devices, browser = pychromecast.get_listed_chromecasts(friendly_names = [google_home_device_name], timeout=5)
     casting_device = chromecast_devices[0]
-    casting_device.logger.setLevel(30)
+    casting_device.logger.setLevel(20)
     casting_device.wait()
     cast_media_controller = casting_device.media_controller
     cast_media_controller.play_media(azan_url, 'audio/mp3')
