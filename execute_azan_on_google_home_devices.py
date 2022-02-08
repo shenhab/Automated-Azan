@@ -36,13 +36,15 @@ def get_azan_times():
     return today_timetable
 
 
-def execute_azan_on_device(fajr):
-    if fajr:
+def execute_azan_on_device(prayer):
+    if prayer == "Al Fajr":
         azan_url = 'https://www.gurutux.com/media/adhan_al_fajr.mp3'
         logging.debug('Adhan Al Fajr.')
     else:
         azan_url = 'https://www.gurutux.com/media/azan.mp3'
         logging.debug('Regular Adhan.')
+    
+    logging.debug('**Salat {}.**'.format(prayer))
     chromecast_devices, browser = pychromecast.get_listed_chromecasts(friendly_names = [google_home_device_name], timeout=5)
     casting_device = chromecast_devices[0]
     casting_device.logger.setLevel(30)
@@ -60,14 +62,14 @@ def scheduler():
     for prayer, azan_time in azan_times.items():
         if azan_time[0] > now.hour and prayer != 'Al Duha':
             if prayer == "Al Fajr":
-                schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device, True)
+                schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device, prayer)
             else:
-                schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device, False)
+                schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device, prayer)
         elif azan_time[0] == now.hour and azan_time[1] > now.minute and prayer != 'Al Duha':
             if prayer == "Al Fajr":
-                schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device, True)
+                schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device, prayer)
             else:
-                schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device, False)
+                schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device, prayer)
     logging.debug('jobs generated.')
 
 
