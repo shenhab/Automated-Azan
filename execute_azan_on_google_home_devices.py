@@ -51,6 +51,7 @@ def execute_azan_on_device(prayer):
     casting_device.wait()
     cast_media_controller = casting_device.media_controller
     cast_media_controller.play_media(azan_url, 'audio/mp3')
+    casting_device.set_volume(1)
     cast_media_controller.block_until_active()
     return schedule.CancelJob
 
