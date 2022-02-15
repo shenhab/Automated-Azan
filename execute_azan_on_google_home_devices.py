@@ -39,9 +39,11 @@ def get_azan_times():
 def execute_azan_on_device(prayer):
     if prayer == "Al Fajr":
         azan_url = 'https://www.gurutux.com/media/adhan_al_fajr.mp3'
+        volume = 0.2
         logging.debug('Adhan Al Fajr.')
     else:
         azan_url = 'https://www.gurutux.com/media/azan.mp3'
+        volume = 1
         logging.debug('Regular Adhan.')
     
     logging.debug('**Salat {}.**'.format(prayer))
@@ -51,7 +53,7 @@ def execute_azan_on_device(prayer):
     casting_device.wait()
     cast_media_controller = casting_device.media_controller
     cast_media_controller.play_media(azan_url, 'audio/mp3')
-    casting_device.set_volume(1)
+    casting_device.set_volume(volume)
     cast_media_controller.block_until_active()
     return schedule.CancelJob
 
