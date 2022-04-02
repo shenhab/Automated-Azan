@@ -8,10 +8,11 @@
 
 from requests import get
 from datetime import datetime
+import dateutil.tz
 import time, pause
 import logging
 logging_format = '%(asctime)s [%(levelname)s]: %(message)s'
-logging.basicConfig(format=logging_format, filename='/var/log/azan_service.log', level=10)
+logging.basicConfig(format=logging_format, filename="/var/log/azan_service.log", level=10)
 
 
 #you need to install schedule via pip3
@@ -60,7 +61,8 @@ def execute_azan_on_device(prayer):
 
 def scheduler():
     azan_times = get_azan_times()
-    now = datetime.now()
+    dublin_tz = dateutil.tz.gettz('Europe/Dublin')
+    now = datetime.now(tz=dublin_tz)
     logging.debug('Generating today\'s jobs.')
     for prayer, azan_time in azan_times.items():
         if azan_time[0] > now.hour and prayer != 'Al Duha':
@@ -91,7 +93,8 @@ def executer():
 
 
 def sleep_till_midnight():
-    now = datetime.now()
+    dublin_tz = dateutil.tz.gettz('Europe/Dublin'):
+    now = datetime.now(tz=dublin_tz)
     logging.debug('sleeping till midnight')
     pause.until(datetime(now.year, now.month, now.day+1, 0, 5))
 
