@@ -93,7 +93,7 @@ def executer():
 
 
 def sleep_till_midnight():
-    dublin_tz = dateutil.tz.gettz('Europe/Dublin'):
+    dublin_tz = dateutil.tz.gettz('Europe/Dublin')
     now = datetime.now(tz=dublin_tz)
     logging.debug('sleeping till midnight')
     pause.until(datetime(now.year, now.month, now.day+1, 0, 5))
