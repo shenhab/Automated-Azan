@@ -48,14 +48,18 @@ def execute_azan_on_device(prayer):
         logging.debug('Regular Adhan.')
     
     logging.debug('**Salat {}.**'.format(prayer))
-    chromecast_devices, browser = pychromecast.get_listed_chromecasts(friendly_names = [google_home_device_name], timeout=5)
-    casting_device = chromecast_devices[0]
-    casting_device.logger.setLevel(20)
-    casting_device.wait()
-    cast_media_controller = casting_device.media_controller
-    cast_media_controller.play_media(azan_url, 'audio/mp3')
-    casting_device.set_volume(volume)
-    cast_media_controller.block_until_active()
+    if google_home_device_name == 'All Speakers' :
+        chromecast_devices =  pychromecast.get_chromecasts()[0]
+    else:
+        chromecast_devices, browser = pychromecast.get_listed_chromecasts(friendly_names = [google_home_device_name], timeout=5)
+
+    for casting_device in chromecast_devices:
+        casting_device.logger.setLevel(20)
+        casting_device.wait()
+        cast_media_controller = casting_device.media_controller
+        cast_media_controller.play_media(azan_url, 'audio/mp3')
+        #casting_device.set_volume(volume)
+        cast_media_controller.block_until_active()
     return schedule.CancelJob
 
 
