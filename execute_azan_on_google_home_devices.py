@@ -42,13 +42,15 @@ def execute_azan_on_device(prayer):
         azan_url = 'https://www.gurutux.com/media/adhan_al_fajr.mp3'
         volume = 0.2
         logging.debug('Adhan Al Fajr.')
+    elif prayer == 'elmesa7araty':
+        azan_url = 'https://www.gurutux.com/media/elmese7araty.mp3'
+        volume = 1
+        logging.debug('el mesa7araty.')
     else:
         azan_url = 'https://www.gurutux.com/media/azan.mp3'
         volume = 1
         logging.debug('Regular Adhan.')
-    
-    logging.debug('**Salat {}.**'.format(prayer))
-
+    logging.debug('**{}.**'.format(prayer))
     chromecast_devices, browser = pychromecast.get_listed_chromecasts(friendly_names = [google_home_device_name], timeout=5)
     if len(chromecast_devices) >0:
         casting_device =chromecast_devices[0]
@@ -56,9 +58,8 @@ def execute_azan_on_device(prayer):
         casting_device.wait()
         cast_media_controller = casting_device.media_controller
         cast_media_controller.play_media(azan_url, 'audio/mp3')
-        #casting_device.set_volume(volume)
+        casting_device.set_volume(volume)
         cast_media_controller.block_until_active()
-    
     return schedule.CancelJob
 
 
@@ -70,6 +71,10 @@ def scheduler():
     for prayer, azan_time in azan_times.items():
         if azan_time[0] > now.hour and prayer != 'Al Duha':
             if prayer == "Al Fajr":
+                azantime = datetime.strptime('{:02}:{:02}'.format(azan_time[0],azan_time[1]), "%H:%M")
+                diff = datetime.strptime('00:15', "%H:%M")
+                mesa7aratytime = str(azantime - diff).split(':')
+                schedule.every().day.at('{:02}:{:02}'.format(int(mesa7aratytime[0]),int(mesa7aratytime[1]))).do(execute_azan_on_device, 'elmesa7araty')
                 schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device, prayer)
             else:
                 schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device, prayer)
