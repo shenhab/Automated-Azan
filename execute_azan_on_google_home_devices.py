@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#! /usr/bin/env python3
 
 #this script will only work for one day.
 #thus you need to add the below crontab records to your system:
