@@ -48,7 +48,7 @@ def execute_azan_on_device(prayer):
         logging.debug('el mesa7araty.')
     else:
         azan_url = 'https://www.gurutux.com/media/azan.mp3'
-        volume = 1
+        volume = 0.5
         logging.debug('Regular Adhan.')
     logging.debug('**{}.**'.format(prayer))
     chromecast_devices, browser = pychromecast.get_listed_chromecasts(friendly_names = [google_home_device_name], timeout=5)
@@ -74,7 +74,7 @@ def scheduler():
                 azantime = datetime.strptime('{:02}:{:02}'.format(azan_time[0],azan_time[1]), "%H:%M")
                 diff = datetime.strptime('00:15', "%H:%M")
                 mesa7aratytime = str(azantime - diff).split(':')
-                schedule.every().day.at('{:02}:{:02}'.format(int(mesa7aratytime[0]),int(mesa7aratytime[1]))).do(execute_azan_on_device, 'elmesa7araty')
+                #schedule.every().day.at('{:02}:{:02}'.format(int(mesa7aratytime[0]),int(mesa7aratytime[1]))).do(execute_azan_on_device, 'elmesa7araty')
                 schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device, prayer)
             else:
                 schedule.every().day.at('{:02}:{:02}'.format(azan_time[0],azan_time[1])).do(execute_azan_on_device, prayer)
