@@ -71,5 +71,6 @@ def executer():
         elif n > 0:
             time.sleep(n)
 
-executer()
-exit
+if __name__ == "__main__":
+    executer()
+    exit

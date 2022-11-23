@@ -106,8 +106,8 @@ def sleep_till_midnight():
     logging.debug('sleeping till midnight')
     pause.until(datetime(now.year, now.month, now.day+1, 0, 5))
 
-
-while True:
-    logging.debug('calling_executer')
-    executer()
-    sleep_till_midnight()
+if __name__ == "__main__":
+    while True:
+        logging.debug('calling_executer')
+        executer()
+        sleep_till_midnight()
