@@ -7,10 +7,10 @@ StartLimitIntervalSec=500
 StartLimitBurst=5
 
 [Service]
-Type=simple
+WorkingDirectory=/opt/Automated-Azan/
+ExecStart=pipenv run /opt/Automated-Azan/execute_azan_on_google_home_devices.py
 Restart=always
 RestartSec=1s
-ExecStart=/opt/Automated-Azan/execute_azan_on_google_home_devices.py
 
 [Install]
 WantedBy=multi-user.target

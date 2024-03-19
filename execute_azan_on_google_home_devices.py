@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#!/usr/bin/env pipenv-shebang
 
 #this script will only work for one day.
 #thus you need to add the below crontab records to your system:
@@ -25,7 +25,7 @@ import pychromecast
 
 #you need to get your own google home device name, as the below name won't work with you.
 #find the device name from google home app (a speaker group name can be used)
-google_home_device_name = 'All Speakers'
+google_home_device_name = 'Adahn'
 
 
 def get_azan_times():
