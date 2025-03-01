@@ -36,6 +36,10 @@ pyinstaller-hooks-contrib = ">=2022.3"
 pywin32-ctypes = ">=0.2.0"
 pipenv-shebang = "*"
 pipfile = "*"
+beautifulsoup4 = "*"
+selenium = "*"
+webdriver-manager = "*"
+chromedriver-autoinstaller = "*"
 
 [dev-packages]
 
