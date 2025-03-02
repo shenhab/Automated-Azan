@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 import re
 
 # Configure logging with debug level
-logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
 class PrayerTimesFetcher:
