@@ -53,7 +53,7 @@ class ChromecastManager:
                 return candidate  # Return the device immediately
 
             # If it's a Google Nest Mini, add it to the candidate list
-            elif candidate.model_name.strip() in []"Google Nest Mini", "Google Nest Hub"]:
+            elif candidate.model_name.strip() in ["Google Nest Mini", "Google Nest Hub"]:
                 logging.info(f"Adding Google Nest Mini to candidate list: {candidate.name}")
                 candidate_list.append(candidate)
 
