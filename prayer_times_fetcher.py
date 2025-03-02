@@ -97,7 +97,7 @@ class PrayerTimesFetcher:
             logging.error("Error reading timetable file modification date: %s", e)
             return True  # If any error occurs, assume we need to re-download
 
-    def fetch_prayer_times(self, location: str):
+    def fetch_prayer_times(self, location: str = 'icci'):
         """
         Fetches today's prayer times for the specified location ('naas' or 'icci').
         If it's a new month, it downloads a fresh timetable.

@@ -36,7 +36,7 @@ class ChromecastManager:
             for cast in self.chromecasts:
                 logging.info(f" - {cast.name} ({cast.model_name})")
 
-    def find_casting_candidate(self):
+    def _find_casting_candidate(self):
         """
         Finds a suitable Chromecast device to cast to.
 
@@ -53,7 +53,7 @@ class ChromecastManager:
                 return candidate  # Return the device immediately
 
             # If it's a Google Nest Mini, add it to the candidate list
-            elif candidate.model_name.strip() == "Google Nest Mini":
+            elif candidate.model_name.strip() in []"Google Nest Mini", "Google Nest Hub"]:
                 logging.info(f"Adding Google Nest Mini to candidate list: {candidate.name}")
                 candidate_list.append(candidate)
 
@@ -72,7 +72,7 @@ class ChromecastManager:
 
         :param url: The media URL to play.
         """
-        target_device = self.find_casting_candidate()
+        target_device = self._find_casting_candidate()
 
         if not target_device:
             logging.error("No available Chromecast device to play the media.")
@@ -118,6 +118,19 @@ class ChromecastManager:
             attempts += 1
 
         logging.error("Media failed to load. Chromecast did not start playing.")
+        
+    def start_quran_radio(self):
+        quran_radio_streaming = "https://n03.radiojar.com/8s5u5tpdtwzuv?rj-ttl=5&rj-tok=AAABlVflrAAAJLe-IOoD4VTShA"
+        self.play_url_on_cast(quran_radio_streaming)
+        
+    def start_adahn_alfajr(self):
+        adahn_url = "https://www.gurutux.com/media/adhan_al_fajr.mp3"
+        self.play_url_on_cast(adahn_url)
+    
+    def start_adahn(self):
+        adahn_url = "https://www.gurutux.com/media/Athan.mp3"
+        self.play_url_on_cast(adahn_url)
+        
 
 
 
