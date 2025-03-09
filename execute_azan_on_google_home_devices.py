@@ -132,15 +132,15 @@ class AthanScheduler:
         logging.info("Total prayers scheduled: %d", scheduled_count)
         logging.info("Scheduling process completed.")
 
+
     def run_scheduler(self):
         """
         Continuously runs the scheduler, ensuring that all Athans play at the correct time.
         If the script crashes, it restarts and resumes from where it left off.
         """
         logging.info("Starting Athan scheduler loop.")
-        self.schedule_prayers()
+        self.schedule_prayers()  # Schedule initial prayers
 
-        # Confirm schedule setup
         next_run = schedule.next_run()
         if next_run:
             logging.info("First scheduled task is at: %s", next_run.strftime("%Y-%m-%d %H:%M:%S"))
@@ -148,30 +148,26 @@ class AthanScheduler:
         while True:
             try:
                 now = datetime.now(self.tz)
-                logging.debug("Checking pending tasks at %s", now.strftime("%Y-%m-%d %H:%M:%S"))
+                logging.info("Checking pending tasks at %s", now.strftime("%Y-%m-%d %H:%M:%S"))
 
-                schedule.run_pending()  # Execute any scheduled jobs
+                schedule.run_pending()  # Execute scheduled jobs
 
-                # Log next scheduled job time
+                # Log next job time if available
                 next_run = schedule.next_run()
                 if next_run:
-                    logging.debug("Next scheduled task at: %s", next_run.strftime("%Y-%m-%d %H:%M:%S"))
+                    logging.info("Next scheduled task at: %s", next_run.strftime("%Y-%m-%d %H:%M:%S"))
 
-                # Check if it's close to midnight
-                if now.hour == 23 and now.minute >= 55:
-                    logging.info("Approaching midnight, refreshing schedule soon.")
+                # Use schedule.idle_seconds() to sleep efficiently
+                sleep_time = schedule.idle_seconds()
+                if sleep_time is None or sleep_time < 0:
+                    sleep_time = 30  # Default to 30 seconds if nothing is scheduled
 
-                    # Confirm that the midnight refresh is scheduled
-                    logging.info("Refresh task successfully scheduled for midnight.")
-
-                    self.sleep_until_midnight()
-                
-                time.sleep(30)  # Check every 30 seconds for pending tasks
+                logging.info(f"Sleeping for {sleep_time:.2f} seconds.")
+                time.sleep(sleep_time)
 
             except Exception as e:
                 logging.error("Scheduler encountered an error: %s", e, exc_info=True)
                 time.sleep(10)  # Wait before retrying
-
 
 
     def sleep_until_midnight(self):
