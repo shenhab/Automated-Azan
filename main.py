@@ -3,6 +3,7 @@ import json
 import schedule
 import logging
 import pychromecast
+import configparser
 from datetime import datetime, timedelta
 from dateutil import tz
 from prayer_times_fetcher import PrayerTimesFetcher  # Import the new class
@@ -40,51 +41,6 @@ class AthanScheduler:
             logging.info("Prayer times successfully fetched: %s", json.dumps(self.prayer_times, indent=4))
         except Exception as e:
             logging.error("Failed to fetch prayer times: %s", e)
-
-    # def play_athan(self, prayer):
-    #     """
-    #     Plays the Athan on the specified Google Home device.
-
-    #     :param prayer: The prayer name (e.g., 'Fajr', 'Dhuhr', etc.).
-    #     """
-    #     athan_urls = {
-    #         "Fajr": "https://www.gurutux.com/media/adhan_al_fajr.mp3",
-    #         "default": "https://www.gurutux.com/media/Athan.mp3",
-    #         "elmesa7araty": "https://www.gurutux.com/media/elmese7araty.mp3"
-    #     }
-
-    #     volume_levels = {
-    #         "Fajr": 0.5,
-    #         "elmesa7araty": 1.0,
-    #         "default": 1.0
-    #     }
-
-    #     azan_url = athan_urls.get(prayer, athan_urls["default"])
-    #     volume = volume_levels.get(prayer, volume_levels["default"])
-
-    #     logging.info("Attempting to play Athan for %s", prayer)
-
-    #     try:
-    #         chromecast_devices, _ = pychromecast.get_listed_chromecasts(
-    #             friendly_names=[self.google_device], timeout=5
-    #         )
-
-    #         if not chromecast_devices:
-    #             logging.error("No Chromecast device found with name: %s", self.google_device)
-    #             return
-
-    #         casting_device = chromecast_devices[0]
-    #         casting_device.wait()
-
-    #         cast_media_controller = casting_device.media_controller
-    #         casting_device.set_volume(volume)
-    #         cast_media_controller.play_media(azan_url, 'audio/mp3')
-
-    #         logging.info("Athan is playing for %s", prayer)
-    #         time.sleep(300)  # Allow Athan to play for 5 minutes
-
-    #     except Exception as e:
-    #         logging.error("Failed to play Athan for %s: %s", prayer, e)
 
     def schedule_prayers(self):
         """
@@ -204,58 +160,27 @@ class AthanScheduler:
         self.load_prayer_times()
         self.schedule_prayers()
     
-    # def find_casting_candidate(self):
-    #     """
-    #     Finds a suitable Chromecast device to cast to.
-        
-    #     Priority order:
-    #     1. If a Chromecast device named 'adahn' is found, it is returned immediately.
-    #     2. Otherwise, if any Google Nest Mini devices are found, the first one is returned.
-    #     3. If no suitable devices are found, an empty list is returned.
-        
-    #     :return: A list containing one Chromecast device or an empty list if none are found.
-    #     """
-    #     candidate_list = []  # Stores Google Nest Mini devices as fallback
-
-    #     logging.info("Discovering Chromecast devices...")
-    #     chromecasts, browser = pychromecast.get_chromecasts()  # Discover all Chromecast devices
-
-    #     if not chromecasts:
-    #         logging.warning("No Chromecast devices found.")
-    #         return []
-
-    #     logging.info(f"Found {len(chromecasts)} Chromecast devices.")
-
-    #     for candidate in chromecasts:
-    #         logging.debug(f"Checking device: {candidate.device.friendly_name} ({candidate.model_name})")
-
-    #         # Check if the device name matches 'adahn' (case-insensitive)
-    #         if candidate.device.friendly_name.lower() == 'adahn':
-    #             logging.info(f"Found target Chromecast: {candidate.device.friendly_name}")
-    #             return [candidate]  # Return the device immediately
-
-    #         # If it's a Google Nest Mini, add it to the candidate list
-    #         elif candidate.model_name == "Google Nest Mini":
-    #             logging.info(f"Adding Google Nest Mini to candidate list: {candidate.device.friendly_name}")
-    #             candidate_list.append(candidate)
-
-    #     # If no 'adahn' was found but we have Google Nest Mini devices, return the first one
-    #     if candidate_list:
-    #         logging.info(f"Using fallback Chromecast: {candidate_list[0].device.friendly_name}")
-    #         return [candidate_list[0]]
-
-    #     # No suitable devices found
-    #     logging.warning("No suitable Chromecast candidate found.")
-    #     return []
-
-
-# if __name__ == "__main__":
-#     while True:
-#         scheduler = AthanScheduler(location="naas", google_device="Adahn")
-#         scheduler.run_scheduler()
-#         scheduler.sleep_until_midnight()
-
 
 if __name__ == "__main__":
-    scheduler = AthanScheduler(location="naas", google_device="Adahn")
-    scheduler.run_scheduler()
+    logging.info("Starting Adahn configuration loading...")
+
+    config = configparser.ConfigParser()
+    config.read("adahn.config")
+
+    try:
+        group_name = config["Settings"]["speakers-group-name"]
+        location = config["Settings"]["location"]
+        logging.info(f"Loaded configuration - speakers-group-name: {group_name}, location: {location}")
+    except KeyError as e:
+        logging.error(f"Missing required configuration key: {e}")
+        exit(1)  # Stop execution if a key is missing
+
+    try:
+        scheduler = AthanScheduler(location=location, google_device=group_name)
+        logging.info("AthanScheduler initialized successfully.")
+        
+        scheduler.run_scheduler()
+        logging.info("AthanScheduler started successfully.")
+    except Exception as e:
+        logging.error(f"An error occurred while starting the scheduler: {e}", exc_info=True)
+        exit(1)  # Stop execution on failure
