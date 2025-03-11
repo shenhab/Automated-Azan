@@ -88,14 +88,12 @@ class AthanScheduler:
         logging.info("Total prayers scheduled: %d", scheduled_count)
         logging.info("Scheduling process completed.")
 
-
-    def run_scheduler(self):
+    def daily_schedule(self):
         """
-        Continuously runs the scheduler, ensuring that all Athans play at the correct time.
-        If the script crashes, it restarts and resumes from where it left off.
+        Runs the daily scheduling tasks. Exits when there are no pending tasks.
         """
-        logging.info("Starting Athan scheduler loop.")
-        self.schedule_prayers()  # Schedule initial prayers
+        logging.info("Starting daily Athan scheduler.")
+        self.schedule_prayers()  # Schedule today's prayers
 
         next_run = schedule.next_run()
         if next_run:
@@ -115,45 +113,68 @@ class AthanScheduler:
 
                 # Use schedule.idle_seconds() to sleep efficiently
                 sleep_time = schedule.idle_seconds()
-                if sleep_time is None or sleep_time < 0:
-                    sleep_time = 30  # Default to 30 seconds if nothing is scheduled
+
+                if sleep_time is None:
+                    logging.info("No pending tasks. Exiting daily schedule.")
+                    self.sleep_until_next_1am()
+                    break  # Exit the loop
+                elif sleep_time < 0:
+                    sleep_time = 0.1  # Small sleep to avoid excessive looping
 
                 logging.info(f"Sleeping for {sleep_time:.2f} seconds.")
                 time.sleep(sleep_time)
 
             except Exception as e:
-                logging.error("Scheduler encountered an error: %s", e, exc_info=True)
+                logging.error("Daily scheduler encountered an error: %s", e, exc_info=True)
+                time.sleep(10)  # Wait before retrying
+
+    def run_scheduler(self):
+        """
+        Runs the daily_schedule function once per day at startup or at 1:00 AM.
+        """
+        logging.info("Starting Athan daily scheduler.")
+        
+        while True:
+            try:
+                # Run the daily scheduler immediately on startup
+                self.daily_schedule()
+
+            except Exception as e:
+                logging.error("Main scheduler encountered an error: %s", e, exc_info=True)
                 time.sleep(10)  # Wait before retrying
 
 
-    def sleep_until_midnight(self):
+    def sleep_until_next_1am(self):
         """
-        Sleeps until just after midnight, then refreshes the prayer times and restarts the schedule.
+        Sleeps until just after 1:00 AM, then refreshes the prayer times and restarts the schedule.
         """
         now = datetime.now(self.tz)
-        midnight = datetime(now.year, now.month, now.day, 23, 59, 59, tzinfo=self.tz)
 
-        # If it's already midnight, target the next day's midnight
-        if now.hour == 23 and now.minute >= 59:
-            midnight += timedelta(days=1)
+        # Calculate next 1:00 AM
+        next_1am = now.replace(hour=1, minute=0, second=0, microsecond=0)
 
-        # Calculate the exact sleep duration
-        sleep_duration = (midnight - now).total_seconds() + 1  # Ensures we wake up right after midnight
+        # If it's already past 1:00 AM, schedule for the next day's 1:00 AM
+        if now >= next_1am:
+            next_1am += timedelta(days=1)
 
-        logging.info("Sleeping for %d seconds until midnight (%s).", int(sleep_duration), midnight.strftime("%Y-%m-%d %H:%M:%S"))
+        # Calculate the sleep duration
+        sleep_duration = (next_1am - now).total_seconds()
 
-        # Sleep until midnight
+        logging.info("Sleeping for %d seconds until next 1:00 AM (%s).", 
+                    int(sleep_duration), next_1am.strftime("%Y-%m-%d %H:%M:%S"))
+
+        # Sleep until 1:00 AM
         time.sleep(sleep_duration)
 
         # Confirm wake-up
-        logging.info("Woke up after midnight. Refreshing prayer times for the new day.")
+        logging.info("Woke up at 1:00 AM. Refreshing prayer times for the new day.")
 
         # Refresh prayer times and reschedule
-        self.load_prayer_times()
-        self.schedule_prayers()
+        self.refresh_schedule()
 
         # Confirm refresh completed
         logging.info("Prayer times refreshed and schedule restarted successfully.")
+
         
     def refresh_schedule(self):
         logging.info("Refreshing prayer times for a new day.")
