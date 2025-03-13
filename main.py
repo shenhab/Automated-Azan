@@ -4,6 +4,7 @@ import schedule
 import logging
 import pychromecast
 import configparser
+import subprocess
 from datetime import datetime, timedelta
 from dateutil import tz
 from prayer_times_fetcher import PrayerTimesFetcher  # Import the new class
@@ -128,6 +129,31 @@ class AthanScheduler:
                 logging.error("Daily scheduler encountered an error: %s", e, exc_info=True)
                 time.sleep(10)  # Wait before retrying
 
+
+    def update_ntp_time(self):
+        """
+        Updates the NTP time on the host and verifies synchronization.
+        """
+        logging.info("Updating NTP time on the host...")
+
+        try:
+            # Restart the NTP service
+            subprocess.run(["sudo", "systemctl", "restart", "systemd-timesyncd"], check=True)
+            time.sleep(2)  # Allow time to sync
+
+            # Check NTP synchronization status
+            result = subprocess.run(["timedatectl", "status"], capture_output=True, text=True, check=True)
+            logging.info("NTP status:\n%s", result.stdout)
+
+            if "synchronized: yes" in result.stdout.lower():
+                logging.info("✅ NTP time is properly synchronized.")
+            else:
+                logging.warning("⚠️ NTP time is not properly synchronized. Please check the configuration.")
+
+        except subprocess.CalledProcessError as e:
+            logging.error("❌ Error occurred while updating NTP: %s", e)
+
+
     def run_scheduler(self):
         """
         Runs the daily_schedule function once per day at startup or at 1:00 AM.
@@ -136,7 +162,12 @@ class AthanScheduler:
         
         while True:
             try:
-                # Run the daily scheduler immediately on startup
+                now = datetime.now(self.tz)
+
+                # Run the NTP update before fetching prayer times
+                self.update_ntp_time()
+
+                # Run the daily scheduler
                 self.daily_schedule()
 
             except Exception as e:
@@ -149,30 +180,20 @@ class AthanScheduler:
         Sleeps until just after 1:00 AM, then refreshes the prayer times and restarts the schedule.
         """
         now = datetime.now(self.tz)
-
-        # Calculate next 1:00 AM
         next_1am = now.replace(hour=1, minute=0, second=0, microsecond=0)
 
-        # If it's already past 1:00 AM, schedule for the next day's 1:00 AM
         if now >= next_1am:
             next_1am += timedelta(days=1)
 
-        # Calculate the sleep duration
         sleep_duration = (next_1am - now).total_seconds()
+        logging.info("Sleeping for %d seconds until next 1:00 AM (%s).", int(sleep_duration), next_1am.strftime("%Y-%m-%d %H:%M:%S"))
 
-        logging.info("Sleeping for %d seconds until next 1:00 AM (%s).", 
-                    int(sleep_duration), next_1am.strftime("%Y-%m-%d %H:%M:%S"))
-
-        # Sleep until 1:00 AM
         time.sleep(sleep_duration)
 
-        # Confirm wake-up
-        logging.info("Woke up at 1:00 AM. Refreshing prayer times for the new day.")
+        logging.info("Woke up at 1:00 AM. Updating NTP time before refreshing prayer times.")
+        self.update_ntp_time()  # Run NTP update at 1 AM
 
-        # Refresh prayer times and reschedule
         self.refresh_schedule()
-
-        # Confirm refresh completed
         logging.info("Prayer times refreshed and schedule restarted successfully.")
 
         
