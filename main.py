@@ -216,6 +216,30 @@ class AthanScheduler:
 
 
     def run_scheduler(self):
+        """
+        Updates the NTP time on the host and verifies synchronization.
+        """
+        logging.info("Updating NTP time on the host...")
+
+        try:
+            # Restart the NTP service
+            subprocess.run(["sudo", "systemctl", "restart", "systemd-timesyncd"], check=True)
+            time.sleep(2)  # Allow time to sync
+
+            # Check NTP synchronization status
+            result = subprocess.run(["timedatectl", "status"], capture_output=True, text=True, check=True)
+            logging.info("NTP status:\n%s", result.stdout)
+
+            if "synchronized: yes" in result.stdout.lower():
+                logging.info("✅ NTP time is properly synchronized.")
+            else:
+                logging.warning("⚠️ NTP time is not properly synchronized. Please check the configuration.")
+
+        except subprocess.CalledProcessError as e:
+            logging.error("❌ Error occurred while updating NTP: %s", e)
+
+
+    def run_scheduler(self):
         logging.info("Starting strict-loop Athan scheduler.")
         while True:
             try:
@@ -250,6 +274,7 @@ class AthanScheduler:
     def sleep_until_next_1am(self):
         now = datetime.now(self.tz)
         next_1am = now.replace(hour=1, minute=0, second=0, microsecond=0)
+
         if now >= next_1am:
             next_1am += timedelta(days=1)
 
