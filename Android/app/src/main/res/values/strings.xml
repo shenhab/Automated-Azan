@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Automated Azan</string>
+    
+    <!-- Main Activity Strings -->
+    <string name="next_prayer">Next Prayer</string>
+    <string name="time_remaining">Time Remaining</string>
+    <string name="prayer_times_title">Today\'s Prayer Times</string>
+    <string name="settings">Settings</string>
+    <string name="refresh">Refresh</string>
+    
+    <!-- Prayer Names -->
+    <string name="fajr">Fajr</string>
+    <string name="dhuhr">Dhuhr</string>
+    <string name="asr">Asr</string>
+    <string name="maghrib">Maghrib</string>
+    <string name="isha">Isha</string>
+    
+    <!-- Settings Screen -->
+    <string name="location_settings">Prayer Time Location</string>
+    <string name="location_summary">Select the source for prayer times</string>
+    <string name="location_title">Location</string>
+    <string name="location_icci">ICCI Dublin</string>
+    <string name="location_naas">Naas</string>
+    
+    <!-- Cast Settings -->
+    <string name="cast_settings">Google Home Settings</string>
+    <string name="cast_device_title">Cast Device</string>
+    <string name="cast_device_summary">Select Google Home device for Azan playback</string>
+    <string name="scan_devices">Scan for devices</string>
+    <string name="no_devices_found">No cast devices found</string>
+    
+    <!-- Notification Settings -->
+    <string name="notification_settings">Notification Settings</string>
+    <string name="whatsapp_notification_title">WhatsApp Notifications</string>
+    <string name="whatsapp_notification_summary">Send prayer time notifications via WhatsApp</string>
+    <string name="twilio_account_sid">Twilio Account SID</string>
+    <string name="twilio_auth_token">Twilio Auth Token</string>
+    <string name="twilio_content_sid">Twilio Content SID</string>
+    <string name="twilio_whatsapp_number">Twilio WhatsApp Number</string>
+    <string name="recipient_number">Recipient Number</string>
+    
+    <!-- Messages -->
+    <string name="error_fetching_times">Error fetching prayer times</string>
+    <string name="times_updated">Prayer times updated</string>
+    <string name="setup_complete">Setup complete</string>
+    <string name="setup_required">Please complete setup</string>
+    <string name="prayer_scheduled">Prayer notification scheduled</string>
+</resources>
