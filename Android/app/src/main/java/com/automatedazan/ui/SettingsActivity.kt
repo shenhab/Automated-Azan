@@ -1,7 +1,6 @@
 package com.automatedazan.ui
 
 import android.os.Bundle
-import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.mediarouter.media.MediaRouter
@@ -53,26 +52,9 @@ class SettingsActivity : AppCompatActivity() {
         
         // Cast Device Settings
         binding.castDeviceEditText.setText(PreferenceManager.getCastDeviceName())
-        
-        // WhatsApp Notification Settings
-        binding.whatsappSwitch.isChecked = PreferenceManager.isWhatsAppEnabled()
-        binding.twilioSettingsLayout.visibility = if (binding.whatsappSwitch.isChecked) View.VISIBLE else View.GONE
-        
-        if (PreferenceManager.isWhatsAppEnabled()) {
-            binding.twilioAccountSidEditText.setText(PreferenceManager.getTwilioAccountSid())
-            binding.twilioAuthTokenEditText.setText(PreferenceManager.getTwilioAuthToken())
-            binding.twilioContentSidEditText.setText(PreferenceManager.getTwilioContentSid())
-            binding.twilioWhatsappNumberEditText.setText(PreferenceManager.getTwilioWhatsAppNumber())
-            binding.recipientNumberEditText.setText(PreferenceManager.getRecipientNumber())
-        }
     }
     
     private fun setupEventListeners() {
-        // WhatsApp Switch Toggle
-        binding.whatsappSwitch.setOnCheckedChangeListener { _, isChecked ->
-            binding.twilioSettingsLayout.visibility = if (isChecked) View.VISIBLE else View.GONE
-        }
-        
         // Scan Devices Button
         binding.scanDevicesButton.setOnClickListener {
             // This would typically launch the Cast device discovery dialog
@@ -106,31 +88,6 @@ class SettingsActivity : AppCompatActivity() {
             return
         }
         PreferenceManager.setCastDeviceName(castDeviceName)
-        
-        // Save WhatsApp Settings
-        val whatsappEnabled = binding.whatsappSwitch.isChecked
-        PreferenceManager.setWhatsAppEnabled(whatsappEnabled)
-        
-        if (whatsappEnabled) {
-            // Validate and save Twilio settings
-            val accountSid = binding.twilioAccountSidEditText.text.toString().trim()
-            val authToken = binding.twilioAuthTokenEditText.text.toString().trim()
-            val contentSid = binding.twilioContentSidEditText.text.toString().trim()
-            val twilioNumber = binding.twilioWhatsappNumberEditText.text.toString().trim()
-            val recipientNumber = binding.recipientNumberEditText.text.toString().trim()
-            
-            if (accountSid.isEmpty() || authToken.isEmpty() || contentSid.isEmpty() || 
-                twilioNumber.isEmpty() || recipientNumber.isEmpty()) {
-                Toast.makeText(this, "Please fill all Twilio fields", Toast.LENGTH_SHORT).show()
-                return
-            }
-            
-            PreferenceManager.setTwilioAccountSid(accountSid)
-            PreferenceManager.setTwilioAuthToken(authToken)
-            PreferenceManager.setTwilioContentSid(contentSid)
-            PreferenceManager.setTwilioWhatsAppNumber(twilioNumber)
-            PreferenceManager.setRecipientNumber(recipientNumber)
-        }
         
         // Schedule prayer times if settings are valid
         if (PreferenceManager.isSetupComplete()) {

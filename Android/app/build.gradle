@@ -50,9 +50,6 @@ dependencies {
     implementation 'com.squareup.okhttp3:okhttp:4.10.0'
     implementation 'com.squareup.okhttp3:logging-interceptor:4.10.0'
     
-    // Twilio for WhatsApp notifications
-    implementation 'com.twilio:twilio-android:0.6.0'
-    
     // Testing dependencies
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'

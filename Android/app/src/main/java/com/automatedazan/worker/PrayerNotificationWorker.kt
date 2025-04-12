@@ -13,7 +13,6 @@ import androidx.work.WorkerParameters
 import com.automatedazan.AutomatedAzanApp
 import com.automatedazan.R
 import com.automatedazan.cast.ChromecastManager
-import com.automatedazan.service.WhatsAppNotificationService
 import com.automatedazan.ui.MainActivity
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -31,8 +30,6 @@ class PrayerNotificationWorker(
         private const val NOTIFICATION_ID = 1001
     }
     
-    private val whatsAppNotificationService = WhatsAppNotificationService()
-    
     override suspend fun doWork(): Result {
         val prayerName = inputData.getString(PrayerTimesSchedulerWorker.KEY_PRAYER_NAME) ?: return Result.failure()
         val isFajr = inputData.getBoolean(PrayerTimesSchedulerWorker.KEY_IS_FAJR, false)
@@ -43,13 +40,6 @@ class PrayerNotificationWorker(
         try {
             // Create and show notification
             setForeground(createForegroundInfo(prayerName))
-            
-            val currentTime = LocalTime.now()
-            
-            // Send WhatsApp notification if not a wake-up call
-            if (!isWakeupCall) {
-                whatsAppNotificationService.sendNotification(prayerName, currentTime)
-            }
             
             // Play appropriate audio based on prayer type
             val chromecastManager = ChromecastManager(appContext)
