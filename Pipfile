@@ -40,6 +40,8 @@ selenium = "*"
 webdriver-manager = "*"
 chromedriver-autoinstaller = "*"
 configparser = "*"
+twilio = "*"
+python-dotenv = "*"
 
 [dev-packages]
 
