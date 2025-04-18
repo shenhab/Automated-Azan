@@ -97,10 +97,10 @@ class PrayerTimesFetcher:
             logging.error("Error reading timetable file modification date: %s", e)
             return True  # If any error occurs, assume we need to re-download
 
-    def fetch_prayer_times(self, location: str = 'icci'):
+    def fetch_prayer_times(self, location: str = 'icci', force_download: bool = False):
         """
         Fetches today's prayer times for the specified location ('naas' or 'icci').
-        If it's a new month, it downloads a fresh timetable.
+        If it's a new month or force_download=True, it downloads a fresh timetable.
         """
         if location not in ["naas", "icci"]:
             logging.error("Invalid location provided: %s", location)
@@ -108,10 +108,12 @@ class PrayerTimesFetcher:
 
         logging.info("Fetching prayer times for %s", location)
 
-        if self._is_new_month():
-            logging.info("New month detected. Downloading updated timetables.")
-            if not self._download_icci_timetable() or not self._download_naas_timetable():
-                return {"error": "Failed to download prayer timetable."}
+        if self._is_new_month() or force_download:
+            logging.info("New month detected or force download requested. Downloading updated timetables.")
+            if location == "icci":
+                self._download_icci_timetable()
+            else:
+                self._download_naas_timetable()
 
         filename = self.icci_timetable_file if location == "icci" else self.naas_prayers_timetable_file
         if not os.path.exists(filename):
@@ -151,21 +153,28 @@ class PrayerTimesFetcher:
             }
 
         elif location == "naas":
-            month = today_date.month - 1  # Adjust if needed based on JSON format
+            # Month in the Naas data is 0-indexed (January is 0, April is 3)
+            month = today_date.month - 1
+            
+            # Verify data existence
             if month < 0 or month >= len(data):
-                logging.error("Naas prayer data is missing for the current month!")
-                return {"error": "Naas prayer data not found for this month."}
+                logging.error(f"Naas prayer data is missing for month {today_date.month}!")
+                return {"error": f"Naas prayer data not found for month {today_date.month}."}
             
             if today_day not in data[month]:
-                logging.error(f"No Naas prayer times found for day {today_day}.")
-                return {"error": f"No Naas prayer times found for {today_day}."}
+                logging.error(f"No Naas prayer times found for day {today_day} in month {today_date.month}.")
+                return {"error": f"No Naas prayer times found for day {today_day}."}
+            
+            # Log the prayer times for debugging
+            prayer_times = data[month][today_day]
+            logging.debug(f"Retrieved Naas times for {today_day}-{today_month}: {prayer_times}")
 
             return {
-                "Fajr": data[month][today_day][0],
-                "Dhuhr": data[month][today_day][2],
-                "Asr": data[month][today_day][3],
-                "Maghrib": data[month][today_day][4],
-                "Isha": data[month][today_day][5]
+                "Fajr": prayer_times[0],
+                "Dhuhr": prayer_times[2],
+                "Asr": prayer_times[3],
+                "Maghrib": prayer_times[4],
+                "Isha": prayer_times[5]
             }
 
 # Example usage
