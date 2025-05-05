@@ -2,10 +2,10 @@ FROM python:3.11-slim-buster
 
 WORKDIR /app
 
-COPY Pipfile Pipfile.lock ./
+COPY Pipfile Pipfile.lock requirements.txt ./
 
 RUN pip install --upgrade pip && \
-    pip install -r Pipfile.lock
+    pip install -r requirements.txt
 
 COPY . .
 
