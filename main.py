@@ -53,6 +53,35 @@ class AthanScheduler:
         logging.debug(f"  TWILIO_WHATSAPP_NUMBER: {self.TWILIO_WHATSAPP_NUMBER}")
         logging.debug(f"  RECIPIENT_NUMBER: {self.RECIPIENT_NUMBER}")
 
+    def is_running_in_docker(self):
+        """
+        Checks if the code is running inside a Docker container.
+        
+        Returns:
+            bool: True if running in Docker, False otherwise
+        """
+        # Method 1: Check for /.dockerenv file
+        if os.path.exists('/.dockerenv'):
+            return True
+            
+        # Method 2: Check cgroup info
+        try:
+            with open('/proc/1/cgroup', 'r') as f:
+                return 'docker' in f.read() or 'kubepods' in f.read()
+        except:
+            pass
+            
+        # Method 3: Check hostname (often set to container ID in Docker)
+        try:
+            with open('/etc/hostname', 'r') as f:
+                hostname = f.read().strip()
+                if len(hostname) == 12 and hostname.isalnum():
+                    return True
+        except:
+            pass
+            
+        return False
+
     def send_whatsapp_notification(self, prayer_name, scheduled_time):
         """
         Sends a WhatsApp notification for prayer time with the current system time and scheduled time.
@@ -193,50 +222,49 @@ class AthanScheduler:
 
     def update_ntp_time(self):
         """
-        Updates the NTP time on the host and verifies synchronization.
+        Updates the NTP time based on environment (Docker or regular Linux system).
         """
-        logging.info("Updating NTP time on the host...")
-
+        logging.info("Synchronizing system time...")
+        
         try:
-            # Restart the NTP service
-            subprocess.run(["sudo", "systemctl", "restart", "systemd-timesyncd"], check=True)
-            time.sleep(2)  # Allow time to sync
-
-            # Check NTP synchronization status
-            result = subprocess.run(["timedatectl", "status"], capture_output=True, text=True, check=True)
-            logging.info("NTP status:\n%s", result.stdout)
-
-            if "synchronized: yes" in result.stdout.lower():
-                logging.info("✅ NTP time is properly synchronized.")
+            # Check if running in Docker
+            in_docker = self.is_running_in_docker()
+            logging.info(f"Running in Docker container: {in_docker}")
+            
+            if in_docker:
+                # Docker-friendly approach - no sudo or systemctl
+                logging.info("Using Docker-friendly time synchronization method...")
+                try:
+                    subprocess.run(["which", "ntpdate"], check=True, capture_output=True)
+                    # If available, use ntpdate
+                    result = subprocess.run(["ntpdate", "pool.ntp.org"], capture_output=True, text=True)
+                    logging.info("NTP update result: %s", result.stdout)
+                except subprocess.CalledProcessError:
+                    # If ntpdate isn't available, try with date command
+                    result = subprocess.run(["date"], capture_output=True, text=True)
+                    logging.info("Current system time: %s", result.stdout.strip())
+                    logging.info("✅ Using container's system time. For precise timing, consider mounting the host's /etc/localtime.")
             else:
-                logging.warning("⚠️ NTP time is not properly synchronized. Please check the configuration.")
+                # Regular Linux system approach - use systemctl
+                logging.info("Using standard Linux time synchronization method...")
+                subprocess.run(["sudo", "systemctl", "restart", "systemd-timesyncd"], check=True)
+                time.sleep(2)  # Allow time to sync
 
-        except subprocess.CalledProcessError as e:
-            logging.error("❌ Error occurred while updating NTP: %s", e)
+                # Check NTP synchronization status
+                result = subprocess.run(["timedatectl", "status"], capture_output=True, text=True, check=True)
+                logging.info("NTP status:\n%s", result.stdout)
 
+                if "synchronized: yes" in result.stdout.lower():
+                    logging.info("✅ NTP time is properly synchronized.")
+                else:
+                    logging.warning("⚠️ NTP time is not properly synchronized. Please check the configuration.")
 
-    def run_scheduler(self):
-        """
-        Updates the NTP time on the host and verifies synchronization.
-        """
-        logging.info("Updating NTP time on the host...")
+            # Log current time after sync attempt
+            now = datetime.now()
+            logging.info(f"Current system time after sync attempt: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
-        try:
-            # Restart the NTP service
-            subprocess.run(["sudo", "systemctl", "restart", "systemd-timesyncd"], check=True)
-            time.sleep(2)  # Allow time to sync
-
-            # Check NTP synchronization status
-            result = subprocess.run(["timedatectl", "status"], capture_output=True, text=True, check=True)
-            logging.info("NTP status:\n%s", result.stdout)
-
-            if "synchronized: yes" in result.stdout.lower():
-                logging.info("✅ NTP time is properly synchronized.")
-            else:
-                logging.warning("⚠️ NTP time is not properly synchronized. Please check the configuration.")
-
-        except subprocess.CalledProcessError as e:
-            logging.error("❌ Error occurred while updating NTP: %s", e)
+        except Exception as e:
+            logging.error("❌ Error occurred while updating time: %s", e, exc_info=True)
 
 
     def run_scheduler(self):
