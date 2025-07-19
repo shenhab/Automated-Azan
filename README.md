@@ -10,6 +10,7 @@
 ✅ Runs continuously as a reliable background service  
 ✅ Automatic time synchronization via NTP  
 ✅ Comprehensive logging for debugging and monitoring  
+✅ **Docker support for easy deployment**
 
 ## **🧩 Components**
 The application consists of several components working together:
@@ -20,8 +21,66 @@ The application consists of several components working together:
 4. **`adahn.config`**: Configuration file for specifying location and device settings
 5. **`azan.service`**: SystemD service file for running as a background service
 6. **`.env`**: Optional environment file for Twilio API credentials
+7. **`Dockerfile`** & **`docker-compose.yml`**: Docker deployment configuration
 
 ## **🚀 Installation & Setup**
+
+### **🐳 Option A: Docker Installation (Recommended)**
+
+Docker provides an isolated environment with all dependencies pre-configured.
+
+#### **Prerequisites**
+- **Docker** and **Docker Compose** installed ([Installation Guide](https://docs.docker.com/get-docker/))
+- **Google Home/Chromecast device** on the same network
+- **Twilio account** (optional, for WhatsApp notifications)
+
+#### **Quick Start**
+```bash
+# Clone the repository
+git clone https://github.com/shenhab/Automated-Azan.git
+cd Automated-Azan
+
+# Copy environment template
+cp .env.example .env
+
+# Edit .env file with your Twilio credentials (optional)
+nano .env
+
+# Configure your location and speaker in adahn.config
+nano adahn.config
+
+# Build and run with Docker Compose
+docker-compose up -d
+```
+
+#### **Docker Configuration**
+The Docker setup includes:
+- All system dependencies (Chrome, network tools)
+- Proper network configuration for Chromecast discovery
+- Persistent volumes for logs and data
+- Environment variable support
+
+**Important Docker Notes:**
+- The container runs with `network_mode: host` to enable Chromecast discovery
+- Logs are mounted to `./logs/` directory on your host
+- Prayer timetable data is stored in `./data/` directory
+
+#### **Docker Commands**
+```bash
+# View logs
+docker-compose logs -f
+
+# Stop the service
+docker-compose down
+
+# Rebuild after changes
+docker-compose up --build -d
+
+# Check container status
+docker-compose ps
+```
+
+### **📦 Option B: Manual Installation**
 ### **1️⃣ Prerequisites**
 Before you begin, ensure you have the following installed:
 

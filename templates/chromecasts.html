@@ -1,0 +1,407 @@
+{% extends "base.html" %}
+
+{% block title %}Chromecast Devices - Automated Azan{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pb-2 mb-3 border-bottom">
+    <h1 class="h2">
+        <i class="fas fa-cast islamic-icon me-2"></i>
+        Chromecast Devices
+    </h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <button class="btn btn-primary" id="discover-btn" onclick="discoverDevices()">
+            <i class="fas fa-search"></i> Discover Devices
+        </button>
+    </div>
+</div>
+
+<!-- Discovery Status -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card islamic-card">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <div class="spinner-border discovery-spinner me-3" role="status" id="discovery-spinner">
+                            <span class="visually-hidden">Discovering...</span>
+                        </div>
+                        <i class="fas fa-wifi fa-2x islamic-icon" id="discovery-icon"></i>
+                    </div>
+                    <div class="ms-3">
+                        <h6 class="mb-1">Device Discovery</h6>
+                        <p class="mb-0 text-muted" id="discovery-status">
+                            Click "Discover Devices" to find Chromecast devices on your network
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Current Configuration -->
+{% if config.speakers_group_name %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="alert alert-info">
+            <h6 class="alert-heading">
+                <i class="fas fa-info-circle me-2"></i>
+                Current Configuration
+            </h6>
+            <p class="mb-0">
+                Currently configured to use: <strong>{{ config.speakers_group_name }}</strong>
+            </p>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Device List -->
+<div class="row" id="devices-container">
+    {% if devices and devices|length > 0 %}
+        {% for device in devices %}
+        <div class="col-md-6 col-lg-4 mb-3">
+            <div class="chromecast-device" data-device-name="{{ device.name }}">
+                <div class="d-flex align-items-start">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-cast fa-2x text-primary"></i>
+                    </div>
+                    <div class="ms-3 flex-grow-1">
+                        <h6 class="fw-bold">{{ device.name }}</h6>
+                        <p class="text-muted mb-1">{{ device.model }}</p>
+                        <small class="text-muted">{{ device.host }}:{{ device.port }}</small>
+                        
+                        <div class="mt-2">
+                            <span class="badge bg-secondary status-badge">{{ device.status }}</span>
+                            {% if device.cast_type %}
+                                <span class="badge bg-info status-badge ms-1">{{ device.cast_type }}</span>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-outline-primary me-2" onclick="testDevice('{{ device.name }}')">
+                                <i class="fas fa-check-circle"></i> Test
+                            </button>
+                            <button class="btn btn-sm btn-success" onclick="selectDevice('{{ device.name }}')">
+                                <i class="fas fa-check"></i> Select
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <i class="fas fa-search fa-3x text-muted mb-3"></i>
+                <h5 class="text-muted">No devices found</h5>
+                <p class="text-muted">Click "Discover Devices" to search for Chromecast devices on your network.</p>
+                <button class="btn btn-primary" onclick="discoverDevices()">
+                    <i class="fas fa-search"></i> Discover Now
+                </button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Device Selection Modal -->
+<div class="modal fade" id="selectDeviceModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-cast me-2"></i>
+                    Select Device
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to use <strong id="modal-device-name"></strong> for prayer announcements?</p>
+                <div class="alert alert-info">
+                    <small>
+                        <i class="fas fa-info-circle me-1"></i>
+                        This will update your configuration and restart the scheduler.
+                    </small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="confirm-select-btn">
+                    <i class="fas fa-check"></i> Confirm Selection
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Test Result Modal -->
+<div class="modal fade" id="testResultModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-check-circle me-2"></i>
+                    Device Test Result
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="test-result-body">
+                <!-- Test results will be populated here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let selectedDeviceName = '';
+    
+    function discoverDevices() {
+        const discoverBtn = document.getElementById('discover-btn');
+        const spinner = document.getElementById('discovery-spinner');
+        const icon = document.getElementById('discovery-icon');
+        const status = document.getElementById('discovery-status');
+        
+        // Show loading state
+        discoverBtn.disabled = true;
+        discoverBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Discovering...';
+        spinner.style.display = 'block';
+        icon.style.display = 'none';
+        status.textContent = 'Searching for Chromecast devices on your network...';
+        
+        fetch('/api/discover-chromecasts', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert(`Found ${data.count} device(s)!`, 'success');
+                updateDeviceList(data.devices);
+                status.textContent = `Discovery completed. Found ${data.count} device(s).`;
+            } else {
+                showAlert(`Discovery failed: ${data.error}`, 'danger');
+                status.textContent = 'Discovery failed. Please try again.';
+            }
+        })
+        .catch(error => {
+            showAlert(`Error during discovery: ${error}`, 'danger');
+            status.textContent = 'Error occurred during discovery.';
+        })
+        .finally(() => {
+            // Reset button state
+            discoverBtn.disabled = false;
+            discoverBtn.innerHTML = '<i class="fas fa-search"></i> Discover Devices';
+            spinner.style.display = 'none';
+            icon.style.display = 'block';
+        });
+    }
+    
+    function testDevice(deviceName) {
+        const button = event.target.closest('button');
+        const originalText = button.innerHTML;
+        
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Testing...';
+        
+        fetch('/api/test-chromecast', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ device_name: deviceName })
+        })
+        .then(response => response.json())
+        .then(data => {
+            showTestResult(deviceName, data);
+        })
+        .catch(error => {
+            showTestResult(deviceName, { success: false, error: error.message });
+        })
+        .finally(() => {
+            button.disabled = false;
+            button.innerHTML = originalText;
+        });
+    }
+    
+    function showTestResult(deviceName, result) {
+        const modal = new bootstrap.Modal(document.getElementById('testResultModal'));
+        const body = document.getElementById('test-result-body');
+        
+        if (result.success) {
+            body.innerHTML = `
+                <div class="alert alert-success">
+                    <h6><i class="fas fa-check-circle me-2"></i>Connection Successful!</h6>
+                    <p class="mb-0">Successfully connected to <strong>${deviceName}</strong></p>
+                </div>
+                <div class="mt-3">
+                    <table class="table table-sm">
+                        <tr><td><strong>Status:</strong></td><td>${result.status}</td></tr>
+                        <tr><td><strong>Current App:</strong></td><td>${result.app || 'None'}</td></tr>
+                        <tr><td><strong>Volume Level:</strong></td><td>${Math.round(result.volume * 100)}%</td></tr>
+                    </table>
+                </div>
+            `;
+        } else {
+            body.innerHTML = `
+                <div class="alert alert-danger">
+                    <h6><i class="fas fa-exclamation-triangle me-2"></i>Connection Failed</h6>
+                    <p class="mb-0">Could not connect to <strong>${deviceName}</strong></p>
+                    <small class="text-muted">Error: ${result.error}</small>
+                </div>
+            `;
+        }
+        
+        modal.show();
+    }
+    
+    function selectDevice(deviceName) {
+        selectedDeviceName = deviceName;
+        document.getElementById('modal-device-name').textContent = deviceName;
+        
+        const modal = new bootstrap.Modal(document.getElementById('selectDeviceModal'));
+        modal.show();
+    }
+    
+    function confirmSelection() {
+        if (!selectedDeviceName) return;
+        
+        const confirmBtn = document.getElementById('confirm-select-btn');
+        const originalText = confirmBtn.innerHTML;
+        
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        
+        const currentLocation = '{{ config.location }}';
+        
+        fetch('/api/save-config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                speakers_name: selectedDeviceName,
+                location: currentLocation
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert(`Configuration saved! Now using "${selectedDeviceName}" for prayer announcements.`, 'success');
+                
+                // Update UI to reflect selection
+                document.querySelectorAll('.chromecast-device').forEach(device => {
+                    device.classList.remove('selected');
+                });
+                
+                const selectedDevice = document.querySelector(`[data-device-name="${selectedDeviceName}"]`);
+                if (selectedDevice) {
+                    selectedDevice.classList.add('selected');
+                }
+                
+                // Hide modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('selectDeviceModal'));
+                modal.hide();
+                
+                // Update sidebar
+                document.getElementById('sidebar-speaker').textContent = selectedDeviceName;
+                
+            } else {
+                showAlert(`Error saving configuration: ${data.error}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert(`Error: ${error}`, 'danger');
+        })
+        .finally(() => {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = originalText;
+        });
+    }
+    
+    function updateDeviceList(devices) {
+        const container = document.getElementById('devices-container');
+        
+        if (devices.length === 0) {
+            container.innerHTML = `
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-body text-center py-5">
+                            <i class="fas fa-exclamation-circle fa-3x text-muted mb-3"></i>
+                            <h5 class="text-muted">No devices found</h5>
+                            <p class="text-muted">Make sure your Chromecast devices are powered on and connected to the same network.</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+        
+        const currentSpeaker = '{{ config.speakers_group_name }}';
+        
+        container.innerHTML = devices.map(device => `
+            <div class="col-md-6 col-lg-4 mb-3">
+                <div class="chromecast-device ${device.name === currentSpeaker ? 'selected' : ''}" data-device-name="${device.name}">
+                    <div class="d-flex align-items-start">
+                        <div class="flex-shrink-0">
+                            <i class="fas fa-cast fa-2x text-primary"></i>
+                        </div>
+                        <div class="ms-3 flex-grow-1">
+                            <h6 class="fw-bold">${device.name}</h6>
+                            <p class="text-muted mb-1">${device.model}</p>
+                            <small class="text-muted">${device.host}:${device.port}</small>
+                            
+                            <div class="mt-2">
+                                <span class="badge bg-secondary status-badge">${device.status}</span>
+                                ${device.cast_type ? `<span class="badge bg-info status-badge ms-1">${device.cast_type}</span>` : ''}
+                                ${device.name === currentSpeaker ? `<span class="badge bg-success status-badge ms-1">Selected</span>` : ''}
+                            </div>
+                            
+                            <div class="mt-2">
+                                <button class="btn btn-sm btn-outline-primary me-2" onclick="testDevice('${device.name}')">
+                                    <i class="fas fa-check-circle"></i> Test
+                                </button>
+                                <button class="btn btn-sm btn-success" onclick="selectDevice('${device.name}')">
+                                    <i class="fas fa-check"></i> Select
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    // Socket event handlers
+    socket.on('chromecasts_discovered', function(data) {
+        updateDeviceList(data.devices);
+        const status = document.getElementById('discovery-status');
+        status.textContent = `Auto-discovery completed. Found ${data.devices.length} device(s).`;
+        
+        if (data.devices.length > 0) {
+            showAlert(`Auto-discovered ${data.devices.length} device(s)`, 'info');
+        }
+    });
+    
+    // Setup modal event handler
+    document.addEventListener('DOMContentLoaded', function() {
+        document.getElementById('confirm-select-btn').addEventListener('click', confirmSelection);
+        
+        // Auto-discover on page load if no devices shown
+        const devicesContainer = document.getElementById('devices-container');
+        const hasDevices = devicesContainer.querySelector('.chromecast-device') !== null;
+        
+        if (!hasDevices) {
+            setTimeout(() => {
+                discoverDevices();
+            }, 1000);
+        }
+    });
+</script>
+{% endblock %}

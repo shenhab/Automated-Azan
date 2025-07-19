@@ -1,0 +1,364 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Automated Azan{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pb-2 mb-3 border-bottom">
+    <h1 class="h2">
+        <i class="fas fa-tachometer-alt islamic-icon me-2"></i>
+        Dashboard
+    </h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <button class="btn btn-outline-primary" onclick="refreshData()">
+            <i class="fas fa-sync-alt"></i> Refresh
+        </button>
+    </div>
+</div>
+
+<!-- Status Cards Row -->
+<div class="row mb-4">
+    <!-- Configuration Status -->
+    <div class="col-md-3 mb-3">
+        <div class="card islamic-card h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-cog fa-2x islamic-icon"></i>
+                    </div>
+                    <div class="ms-3">
+                        <h6 class="card-title mb-1">Configuration</h6>
+                        <p class="card-text mb-0">
+                            {% if config.speakers_group_name %}
+                                <span class="badge bg-success">Configured</span>
+                            {% else %}
+                                <span class="badge bg-warning">Not Set</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Prayer Times Status -->
+    <div class="col-md-3 mb-3">
+        <div class="card islamic-card h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-clock fa-2x islamic-icon"></i>
+                    </div>
+                    <div class="ms-3">
+                        <h6 class="card-title mb-1">Prayer Times</h6>
+                        <p class="card-text mb-0">
+                            {% if prayer_times and 'error' not in prayer_times %}
+                                <span class="badge bg-success">Loaded</span>
+                            {% else %}
+                                <span class="badge bg-danger">Error</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Scheduler Status -->
+    <div class="col-md-3 mb-3">
+        <div class="card islamic-card h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-play-circle fa-2x islamic-icon"></i>
+                    </div>
+                    <div class="ms-3">
+                        <h6 class="card-title mb-1">Scheduler</h6>
+                        <p class="card-text mb-0">
+                            {% if scheduler_status.running %}
+                                <span class="badge bg-success">Running</span>
+                            {% else %}
+                                <span class="badge bg-secondary">Stopped</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Speaker Status -->
+    <div class="col-md-3 mb-3">
+        <div class="card islamic-card h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-volume-up fa-2x islamic-icon"></i>
+                    </div>
+                    <div class="ms-3">
+                        <h6 class="card-title mb-1">Speaker</h6>
+                        <p class="card-text mb-0">
+                            <span class="badge bg-secondary" id="speaker-status">Unknown</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Content Row -->
+<div class="row">
+    <!-- Prayer Times -->
+    <div class="col-md-6 mb-4">
+        <div class="card prayer-time-card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-pray me-2"></i>
+                    Today's Prayer Times
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if prayer_times and 'error' not in prayer_times %}
+                    <div class="row" id="prayer-times-container">
+                        {% for prayer, time in prayer_times.items() %}
+                            <div class="col-6 mb-3">
+                                <div class="text-center">
+                                    <h6 class="fw-bold">{{ prayer }}</h6>
+                                    <div class="h5">{{ time }}</div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    
+                    <!-- Next Prayer Highlight -->
+                    <div class="next-prayer rounded p-3 mt-3" id="next-prayer-info">
+                        <div class="text-center">
+                            <h6 class="mb-1">Next Prayer</h6>
+                            <div class="h5" id="next-prayer-display">Calculating...</div>
+                            <small id="time-remaining">Loading...</small>
+                        </div>
+                    </div>
+                {% else %}
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        {% if prayer_times.error %}
+                            {{ prayer_times.error }}
+                        {% else %}
+                            Prayer times not available
+                        {% endif %}
+                    </div>
+                    <button class="btn btn-light" onclick="refreshPrayerTimes()">
+                        <i class="fas fa-sync-alt"></i> Refresh Prayer Times
+                    </button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Current Configuration -->
+    <div class="col-md-6 mb-4">
+        <div class="card islamic-card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-cogs me-2"></i>
+                    Current Configuration
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Speaker/Group Name:</label>
+                    <div class="text-muted">
+                        {% if config.speakers_group_name %}
+                            {{ config.speakers_group_name }}
+                        {% else %}
+                            <span class="text-warning">Not configured</span>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Prayer Location:</label>
+                    <div class="text-muted">
+                        {{ config.location|title }} Mosque
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Last Updated:</label>
+                    <div class="text-muted" id="last-updated">
+                        Just now
+                    </div>
+                </div>
+                
+                <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                    <a href="/settings" class="btn btn-outline-primary">
+                        <i class="fas fa-edit"></i> Edit Settings
+                    </a>
+                    <a href="/chromecasts" class="btn btn-primary">
+                        <i class="fas fa-cast"></i> Manage Devices
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Activity -->
+<div class="row">
+    <div class="col-12">
+        <div class="card islamic-card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-history me-2"></i>
+                    Recent Activity
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="log-container rounded p-3" style="max-height: 200px;">
+                    <div id="recent-logs">Loading recent activity...</div>
+                </div>
+                <div class="mt-2 text-end">
+                    <a href="/logs" class="btn btn-sm btn-outline-secondary">
+                        <i class="fas fa-file-alt"></i> View Full Logs
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let prayerTimes = {{ prayer_times|tojson if prayer_times else '{}' }};
+    
+    function updateNextPrayer() {
+        if (!prayerTimes || Object.keys(prayerTimes).length === 0 || prayerTimes.error) {
+            document.getElementById('next-prayer-display').textContent = 'Prayer times unavailable';
+            document.getElementById('time-remaining').textContent = '';
+            return;
+        }
+        
+        const now = new Date();
+        const currentTime = now.getHours() * 100 + now.getMinutes();
+        
+        let nextPrayer = null;
+        let nextTime = null;
+        let found = false;
+        
+        // Prayer order
+        const prayers = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
+        
+        for (const prayer of prayers) {
+            if (prayerTimes[prayer]) {
+                const [hours, minutes] = prayerTimes[prayer].split(':').map(Number);
+                const prayerTime = hours * 100 + minutes;
+                
+                if (prayerTime > currentTime) {
+                    nextPrayer = prayer;
+                    nextTime = prayerTimes[prayer];
+                    found = true;
+                    break;
+                }
+            }
+        }
+        
+        // If no prayer found for today, next prayer is Fajr tomorrow
+        if (!found && prayerTimes['Fajr']) {
+            nextPrayer = 'Fajr';
+            nextTime = prayerTimes['Fajr'];
+        }
+        
+        if (nextPrayer && nextTime) {
+            document.getElementById('next-prayer-display').textContent = `${nextPrayer} at ${formatTime(nextTime)}`;
+            
+            // Calculate time remaining
+            const [hours, minutes] = nextTime.split(':').map(Number);
+            const prayerDate = new Date();
+            prayerDate.setHours(hours, minutes, 0, 0);
+            
+            // If prayer is tomorrow
+            if (!found) {
+                prayerDate.setDate(prayerDate.getDate() + 1);
+            }
+            
+            const timeDiff = prayerDate - now;
+            if (timeDiff > 0) {
+                const hoursRemaining = Math.floor(timeDiff / (1000 * 60 * 60));
+                const minutesRemaining = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
+                document.getElementById('time-remaining').textContent = `in ${hoursRemaining}h ${minutesRemaining}m`;
+            }
+            
+            // Update sidebar
+            document.getElementById('sidebar-next-prayer').textContent = `${nextPrayer} at ${formatTime(nextTime)}`;
+        }
+    }
+    
+    function refreshData() {
+        showAlert('Refreshing data...', 'info');
+        socket.emit('request_status');
+        loadRecentLogs();
+    }
+    
+    function refreshPrayerTimes() {
+        fetch('/api/refresh-prayer-times', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Prayer times refreshed successfully!', 'success');
+                location.reload();
+            } else {
+                showAlert(`Error: ${data.error}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert(`Error refreshing prayer times: ${error}`, 'danger');
+        });
+    }
+    
+    function loadRecentLogs() {
+        fetch('/api/logs')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const logContainer = document.getElementById('recent-logs');
+                const lines = data.logs.split('\n').slice(-10).join('\n');
+                logContainer.textContent = lines || 'No recent logs available';
+            }
+        })
+        .catch(error => {
+            document.getElementById('recent-logs').textContent = 'Error loading logs';
+        });
+    }
+    
+    // Socket event handlers
+    socket.on('prayer_times_updated', function(data) {
+        if (data.prayer_times && !data.prayer_times.error) {
+            prayerTimes = data.prayer_times;
+            updateNextPrayer();
+            showAlert('Prayer times updated!', 'success');
+        }
+    });
+    
+    socket.on('status_update', function(data) {
+        if (data.prayer_times) {
+            prayerTimes = data.prayer_times;
+            updateNextPrayer();
+        }
+    });
+    
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+        updateNextPrayer();
+        loadRecentLogs();
+        
+        // Update every minute
+        setInterval(updateNextPrayer, 60000);
+        
+        // Update last updated time
+        document.getElementById('last-updated').textContent = new Date().toLocaleString();
+    });
+</script>
+{% endblock %}
