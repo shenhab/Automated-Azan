@@ -4,4 +4,14 @@ __pycache__
 *.log
 .git
 .idea
+.env
+logs/*
+data/*
+!data/.gitkeep
+!logs/.gitkeep
+.pytest_cache
+*.egg-info
+.coverage
+htmlcov/
+.DS_Store
 

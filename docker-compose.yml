@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  automated-azan:
+    build: .
+    container_name: automated-azan
+    # Use host network for Chromecast discovery
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      # Mount config file
+      - ./adahn.config:/app/adahn.config:ro
+      # Mount for persistent data (prayer timetables)
+      - ./data:/app/data
+      # Mount logs to host for easier access
+      - ./logs:/var/log
+    environment:
+      # Twilio configuration
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_CONTENT_SID=${TWILIO_CONTENT_SID}
+      - TWILIO_WHATSAPP_NUMBER=${TWILIO_WHATSAPP_NUMBER}
+      - RECIPIENT_NUMBER=${RECIPIENT_NUMBER}
+      # Set log file to mounted volume
+      - LOG_FILE=/var/log/azan_service.log
+    command: python main.py
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/var/log/azan_service.log') else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  web-interface:
+    build: .
+    container_name: automated-azan-web
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      - FLASK_ENV=production
+      - LOG_FILE=/var/log/azan_service.log
+    volumes:
+      - ./data:/app/data
+      - ./logs:/var/log
+      - ./adahn.config:/app/adahn.config
+    ports:
+      - "5000:5000"
+    command: python web_interface.py
+    depends_on:
+      - automated-azan
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

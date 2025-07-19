@@ -1,0 +1,418 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Automated Azan{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pb-2 mb-3 border-bottom">
+    <h1 class="h2">
+        <i class="fas fa-cog islamic-icon me-2"></i>
+        Settings
+    </h1>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <!-- Configuration Form -->
+        <div class="card islamic-card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-sliders-h me-2"></i>
+                    Prayer Configuration
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="settings-form">
+                    <div class="mb-3">
+                        <label for="speakers-name" class="form-label">
+                            <i class="fas fa-volume-up me-2"></i>
+                            Speaker/Group Name
+                        </label>
+                        <input type="text" class="form-control" id="speakers-name" 
+                               value="{{ config.speakers_group_name }}" 
+                               placeholder="Enter Chromecast device or group name"
+                               required>
+                        <div class="form-text">
+                            The exact name of your Google Home device or speaker group as it appears in your Google Home app.
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="location" class="form-label">
+                            <i class="fas fa-map-marker-alt me-2"></i>
+                            Prayer Times Location
+                        </label>
+                        <select class="form-select" id="location" required>
+                            <option value="naas" {{ 'selected' if config.location == 'naas' else '' }}>
+                                Naas Mosque (Ireland)
+                            </option>
+                            <option value="icci" {{ 'selected' if config.location == 'icci' else '' }}>
+                                ICCI Mosque (Ireland)
+                            </option>
+                        </select>
+                        <div class="form-text">
+                            Choose the mosque whose prayer timetable you want to follow.
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <button type="button" class="btn btn-outline-secondary me-md-2" onclick="resetForm()">
+                            <i class="fas fa-undo"></i> Reset
+                        </button>
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-save"></i> Save Configuration
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Environment Variables -->
+        <div class="card islamic-card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-envelope me-2"></i>
+                    WhatsApp Notifications (Optional)
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <h6 class="alert-heading">
+                        <i class="fas fa-info-circle me-2"></i>
+                        Environment Variables
+                    </h6>
+                    <p class="mb-0">
+                        To enable WhatsApp notifications via Twilio, create a <code>.env</code> file in your project directory with the following variables:
+                    </p>
+                </div>
+                
+                <div class="bg-dark text-light p-3 rounded">
+                    <pre><code># Twilio Configuration
+TWILIO_ACCOUNT_SID=your_account_sid_here
+TWILIO_AUTH_TOKEN=your_auth_token_here
+TWILIO_CONTENT_SID=your_content_sid_here
+TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
+RECIPIENT_NUMBER=whatsapp:+your_phone_number_here</code></pre>
+                </div>
+                
+                <div class="mt-3">
+                    <small class="text-muted">
+                        <i class="fas fa-exclamation-triangle me-1"></i>
+                        These settings are configured outside the web interface for security reasons.
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <!-- Quick Actions -->
+        <div class="card islamic-card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-bolt me-2"></i>
+                    Quick Actions
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="/chromecasts" class="btn btn-outline-primary">
+                        <i class="fas fa-cast me-2"></i>
+                        Manage Chromecast Devices
+                    </a>
+                    
+                    <button class="btn btn-outline-info" onclick="refreshPrayerTimes()">
+                        <i class="fas fa-sync-alt me-2"></i>
+                        Refresh Prayer Times
+                    </button>
+                    
+                    <button class="btn btn-outline-warning" onclick="testConfiguration()">
+                        <i class="fas fa-check-circle me-2"></i>
+                        Test Configuration
+                    </button>
+                    
+                    <a href="/logs" class="btn btn-outline-secondary">
+                        <i class="fas fa-file-alt me-2"></i>
+                        View Logs
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Current Status -->
+        <div class="card islamic-card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Current Status
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <strong>Configuration:</strong>
+                    {% if config.speakers_group_name %}
+                        <span class="badge bg-success">Complete</span>
+                    {% else %}
+                        <span class="badge bg-warning">Incomplete</span>
+                    {% endif %}
+                </div>
+                
+                <div class="mb-2">
+                    <strong>Speaker Device:</strong><br>
+                    <span class="text-muted">
+                        {{ config.speakers_group_name or 'Not configured' }}
+                    </span>
+                </div>
+                
+                <div class="mb-2">
+                    <strong>Prayer Location:</strong><br>
+                    <span class="text-muted">
+                        {{ config.location|title }} Mosque
+                    </span>
+                </div>
+                
+                <div class="mb-2">
+                    <strong>Last Updated:</strong><br>
+                    <span class="text-muted" id="last-update-time">
+                        Just now
+                    </span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Help & Tips -->
+        <div class="card islamic-card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-lightbulb me-2"></i>
+                    Tips & Help
+                </h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled">
+                    <li class="mb-2">
+                        <i class="fas fa-check-circle text-success me-2"></i>
+                        <small>Make sure your Chromecast device is on the same network</small>
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check-circle text-success me-2"></i>
+                        <small>Use the exact device name from Google Home app</small>
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check-circle text-success me-2"></i>
+                        <small>Test your configuration after making changes</small>
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check-circle text-success me-2"></i>
+                        <small>Check logs if prayers are not playing</small>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Test Configuration Modal -->
+<div class="modal fade" id="testConfigModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-check-circle me-2"></i>
+                    Configuration Test
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="test-config-body">
+                <div class="text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Testing...</span>
+                    </div>
+                    <p class="mt-2">Testing configuration...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function resetForm() {
+        document.getElementById('speakers-name').value = '{{ config.speakers_group_name }}';
+        document.getElementById('location').value = '{{ config.location }}';
+        showAlert('Form reset to current values', 'info');
+    }
+    
+    function refreshPrayerTimes() {
+        const button = event.target;
+        const originalText = button.innerHTML;
+        
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Refreshing...';
+        
+        fetch('/api/refresh-prayer-times', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Prayer times refreshed successfully!', 'success');
+            } else {
+                showAlert(`Error: ${data.error}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert(`Error refreshing prayer times: ${error}`, 'danger');
+        })
+        .finally(() => {
+            button.disabled = false;
+            button.innerHTML = originalText;
+        });
+    }
+    
+    function testConfiguration() {
+        const speakersName = document.getElementById('speakers-name').value.trim();
+        
+        if (!speakersName) {
+            showAlert('Please enter a speaker name before testing', 'warning');
+            return;
+        }
+        
+        const modal = new bootstrap.Modal(document.getElementById('testConfigModal'));
+        modal.show();
+        
+        // Test the Chromecast device
+        fetch('/api/test-chromecast', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ device_name: speakersName })
+        })
+        .then(response => response.json())
+        .then(data => {
+            showTestResult(data, speakersName);
+        })
+        .catch(error => {
+            showTestResult({ success: false, error: error.message }, speakersName);
+        });
+    }
+    
+    function showTestResult(result, deviceName) {
+        const body = document.getElementById('test-config-body');
+        
+        if (result.success) {
+            body.innerHTML = `
+                <div class="alert alert-success">
+                    <h6><i class="fas fa-check-circle me-2"></i>Configuration Test Passed!</h6>
+                    <p class="mb-0">Successfully connected to <strong>${deviceName}</strong></p>
+                </div>
+                <div class="mt-3">
+                    <h6>Device Information:</h6>
+                    <table class="table table-sm">
+                        <tr><td><strong>Status:</strong></td><td>${result.status}</td></tr>
+                        <tr><td><strong>Current App:</strong></td><td>${result.app || 'None'}</td></tr>
+                        <tr><td><strong>Volume:</strong></td><td>${Math.round(result.volume * 100)}%</td></tr>
+                    </table>
+                </div>
+                <div class="alert alert-info mt-3">
+                    <small>
+                        <i class="fas fa-info-circle me-1"></i>
+                        Your device is ready for prayer announcements!
+                    </small>
+                </div>
+            `;
+        } else {
+            body.innerHTML = `
+                <div class="alert alert-danger">
+                    <h6><i class="fas fa-exclamation-triangle me-2"></i>Configuration Test Failed</h6>
+                    <p class="mb-0">Could not connect to <strong>${deviceName}</strong></p>
+                    <small class="text-muted">Error: ${result.error}</small>
+                </div>
+                <div class="alert alert-warning mt-3">
+                    <h6>Troubleshooting Tips:</h6>
+                    <ul class="mb-0">
+                        <li>Ensure the device name is exactly as shown in Google Home app</li>
+                        <li>Check that the device is powered on and connected to WiFi</li>
+                        <li>Verify you're on the same network as the Chromecast</li>
+                        <li>Try discovering devices again from the Chromecast page</li>
+                    </ul>
+                </div>
+            `;
+        }
+    }
+    
+    // Form submission handler
+    document.getElementById('settings-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const speakersName = document.getElementById('speakers-name').value.trim();
+        const location = document.getElementById('location').value;
+        
+        if (!speakersName) {
+            showAlert('Please enter a speaker name', 'warning');
+            return;
+        }
+        
+        const submitBtn = this.querySelector('button[type="submit"]');
+        const originalText = submitBtn.innerHTML;
+        
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
+        
+        fetch('/api/save-config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                speakers_name: speakersName,
+                location: location
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Configuration saved successfully!', 'success');
+                
+                // Update last update time
+                document.getElementById('last-update-time').textContent = new Date().toLocaleString();
+                
+                // Update sidebar
+                document.getElementById('sidebar-speaker').textContent = speakersName;
+                
+            } else {
+                showAlert(`Error saving configuration: ${data.error}`, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert(`Error: ${error}`, 'danger');
+        })
+        .finally(() => {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+        });
+    });
+    
+    // Socket event handlers
+    socket.on('config_updated', function(data) {
+        showAlert('Configuration updated!', 'info');
+        
+        // Update form with new values
+        if (data.config.speakers_group_name) {
+            document.getElementById('speakers-name').value = data.config.speakers_group_name;
+        }
+        if (data.config.location) {
+            document.getElementById('location').value = data.config.location;
+        }
+    });
+    
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+        document.getElementById('last-update-time').textContent = new Date().toLocaleString();
+    });
+</script>
+{% endblock %}

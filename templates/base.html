@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Automated Azan{% endblock %}</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- Socket.IO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    
+    <style>
+        :root {
+            --islamic-green: #2e7d32;
+            --islamic-gold: #ffd700;
+            --islamic-blue: #1976d2;
+        }
+        
+        .navbar-brand {
+            color: var(--islamic-green) !important;
+            font-weight: bold;
+        }
+        
+        .islamic-card {
+            border-left: 4px solid var(--islamic-green);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .prayer-time-card {
+            background: linear-gradient(135deg, var(--islamic-green), var(--islamic-blue));
+            color: white;
+            border: none;
+        }
+        
+        .status-badge {
+            font-size: 0.8em;
+        }
+        
+        .chromecast-device {
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            transition: all 0.3s;
+        }
+        
+        .chromecast-device:hover {
+            border-color: var(--islamic-green);
+            box-shadow: 0 2px 8px rgba(46, 125, 50, 0.2);
+        }
+        
+        .chromecast-device.selected {
+            border-color: var(--islamic-green);
+            background-color: rgba(46, 125, 50, 0.1);
+        }
+        
+        .discovery-spinner {
+            display: none;
+        }
+        
+        .log-container {
+            background-color: #1e1e1e;
+            color: #f8f9fa;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .next-prayer {
+            background: linear-gradient(45deg, var(--islamic-gold), #ff9800);
+            color: #333;
+            font-weight: bold;
+        }
+        
+        .sidebar {
+            background-color: #f8f9fa;
+            min-height: calc(100vh - 56px);
+        }
+        
+        .nav-link {
+            color: #495057;
+            border-radius: 5px;
+            margin: 2px 0;
+        }
+        
+        .nav-link:hover, .nav-link.active {
+            background-color: var(--islamic-green);
+            color: white !important;
+        }
+        
+        .islamic-icon {
+            color: var(--islamic-green);
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-mosque me-2"></i>
+                Automated Azan
+            </a>
+            
+            <div class="navbar-nav ms-auto">
+                <div class="nav-item">
+                    <span class="nav-link">
+                        <i class="fas fa-circle text-success" id="status-indicator"></i>
+                        <span id="connection-status">Connected</span>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <nav class="col-md-2 sidebar">
+                <div class="position-sticky pt-3">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="/">
+                                <i class="fas fa-tachometer-alt me-2"></i>
+                                Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'chromecasts' %}active{% endif %}" href="/chromecasts">
+                                <i class="fas fa-cast me-2"></i>
+                                Chromecast Devices
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'settings' %}active{% endif %}" href="/settings">
+                                <i class="fas fa-cog me-2"></i>
+                                Settings
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'logs' %}active{% endif %}" href="/logs">
+                                <i class="fas fa-file-alt me-2"></i>
+                                Logs
+                            </a>
+                        </li>
+                    </ul>
+                    
+                    <hr>
+                    
+                    <!-- Quick Status -->
+                    <div class="px-3">
+                        <h6 class="text-muted">Quick Status</h6>
+                        <div class="mb-2">
+                            <small class="text-muted">Configured Speaker:</small><br>
+                            <span class="fw-bold" id="sidebar-speaker">{{ config.speakers_group_name or 'Not Set' }}</span>
+                        </div>
+                        <div class="mb-2">
+                            <small class="text-muted">Location:</small><br>
+                            <span class="fw-bold">{{ config.location|title }}</span>
+                        </div>
+                        <div class="mb-2">
+                            <small class="text-muted">Next Prayer:</small><br>
+                            <span class="fw-bold text-warning" id="sidebar-next-prayer">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- Main Content -->
+            <main class="col-md-10 ms-sm-auto px-md-4">
+                <div class="pt-3">
+                    {% block content %}{% endblock %}
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Bootstrap JavaScript -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Common JavaScript -->
+    <script>
+        // Initialize Socket.IO connection
+        const socket = io();
+        
+        // Connection status handling
+        socket.on('connect', function() {
+            document.getElementById('status-indicator').className = 'fas fa-circle text-success';
+            document.getElementById('connection-status').textContent = 'Connected';
+        });
+        
+        socket.on('disconnect', function() {
+            document.getElementById('status-indicator').className = 'fas fa-circle text-danger';
+            document.getElementById('connection-status').textContent = 'Disconnected';
+        });
+        
+        // Real-time updates
+        socket.on('config_updated', function(data) {
+            if (data.config.speakers_group_name) {
+                const sidebarSpeaker = document.getElementById('sidebar-speaker');
+                if (sidebarSpeaker) {
+                    sidebarSpeaker.textContent = data.config.speakers_group_name;
+                }
+            }
+        });
+        
+        socket.on('status_update', function(data) {
+            // Update sidebar with current status
+            if (data.config && data.config.speakers_group_name) {
+                const sidebarSpeaker = document.getElementById('sidebar-speaker');
+                if (sidebarSpeaker) {
+                    sidebarSpeaker.textContent = data.config.speakers_group_name;
+                }
+            }
+        });
+        
+        // Utility functions
+        function showAlert(message, type = 'info') {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            // Find or create alerts container
+            let alertContainer = document.getElementById('alerts-container');
+            if (!alertContainer) {
+                alertContainer = document.createElement('div');
+                alertContainer.id = 'alerts-container';
+                alertContainer.className = 'mb-3';
+                document.querySelector('main .pt-3').insertBefore(alertContainer, document.querySelector('main .pt-3').firstChild);
+            }
+            
+            alertContainer.appendChild(alertDiv);
+            
+            // Auto-dismiss after 5 seconds
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.parentNode.removeChild(alertDiv);
+                }
+            }, 5000);
+        }
+        
+        function formatTime(timeString) {
+            // Convert 24-hour to 12-hour format
+            const time = new Date(`2000-01-01 ${timeString}`);
+            return time.toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+            });
+        }
+        
+        // Request initial status
+        socket.emit('request_status');
+    </script>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html>

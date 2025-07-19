@@ -1,0 +1,462 @@
+{% extends "base.html" %}
+
+{% block title %}Logs - Automated Azan{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pb-2 mb-3 border-bottom">
+    <h1 class="h2">
+        <i class="fas fa-file-alt islamic-icon me-2"></i>
+        Application Logs
+    </h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <button class="btn btn-outline-primary" onclick="refreshLogs()">
+            <i class="fas fa-sync-alt"></i> Refresh
+        </button>
+        <button class="btn btn-outline-secondary ms-2" onclick="clearDisplay()">
+            <i class="fas fa-eraser"></i> Clear Display
+        </button>
+    </div>
+</div>
+
+<!-- Log Controls -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card islamic-card">
+            <div class="card-body">
+                <h6 class="card-title">
+                    <i class="fas fa-sliders-h me-2"></i>
+                    Log Settings
+                </h6>
+                <div class="row">
+                    <div class="col-md-6">
+                        <label for="log-level" class="form-label">Filter Level:</label>
+                        <select class="form-select form-select-sm" id="log-level" onchange="filterLogs()">
+                            <option value="all">All Levels</option>
+                            <option value="ERROR">Error Only</option>
+                            <option value="WARNING">Warning & Above</option>
+                            <option value="INFO">Info & Above</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="auto-refresh" class="form-label">Auto Refresh:</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="auto-refresh" onchange="toggleAutoRefresh()">
+                            <label class="form-check-label" for="auto-refresh">
+                                <small>Every 10s</small>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card islamic-card">
+            <div class="card-body">
+                <h6 class="card-title">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Log Statistics
+                </h6>
+                <div class="row text-center">
+                    <div class="col-3">
+                        <div class="fw-bold text-danger" id="error-count">0</div>
+                        <small class="text-muted">Errors</small>
+                    </div>
+                    <div class="col-3">
+                        <div class="fw-bold text-warning" id="warning-count">0</div>
+                        <small class="text-muted">Warnings</small>
+                    </div>
+                    <div class="col-3">
+                        <div class="fw-bold text-info" id="info-count">0</div>
+                        <small class="text-muted">Info</small>
+                    </div>
+                    <div class="col-3">
+                        <div class="fw-bold text-secondary" id="total-count">0</div>
+                        <small class="text-muted">Total</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Log Display -->
+<div class="row">
+    <div class="col-12">
+        <div class="card islamic-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-terminal me-2"></i>
+                    Live Logs
+                </h5>
+                <div>
+                    <span class="badge bg-secondary" id="connection-status-badge">Connecting...</span>
+                    <span class="badge bg-info ms-1" id="last-update-badge">Never</span>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="log-container" id="log-display" style="height: 600px; overflow-y: auto;">
+                    <div class="p-3 text-muted text-center">
+                        <i class="fas fa-spinner fa-spin me-2"></i>
+                        Loading logs...
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer">
+                <div class="row">
+                    <div class="col-md-6">
+                        <small class="text-muted">
+                            <i class="fas fa-info-circle me-1"></i>
+                            Logs auto-scroll to bottom. Use scroll bar to view history.
+                        </small>
+                    </div>
+                    <div class="col-md-6 text-end">
+                        <div class="form-check form-switch d-inline-block">
+                            <input class="form-check-input" type="checkbox" id="auto-scroll" checked>
+                            <label class="form-check-label" for="auto-scroll">
+                                <small>Auto-scroll</small>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Search Modal -->
+<div class="modal fade" id="searchModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-search me-2"></i>
+                    Search Logs
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <input type="text" class="form-control" id="search-input" placeholder="Enter search term...">
+                </div>
+                <div class="mb-3">
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" id="case-sensitive">
+                        <label class="form-check-label" for="case-sensitive">Case sensitive</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" id="regex-search">
+                        <label class="form-check-label" for="regex-search">Regular expression</label>
+                    </div>
+                </div>
+                <div id="search-results">
+                    <!-- Search results will appear here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="performSearch()">Search</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let autoRefreshInterval = null;
+    let rawLogs = '';
+    let filteredLogs = '';
+    
+    function refreshLogs() {
+        fetch('/api/logs')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                rawLogs = data.logs;
+                updateLogDisplay(rawLogs);
+                updateLastUpdate();
+                updateConnectionStatus('Connected');
+            } else {
+                showAlert(`Error loading logs: ${data.error}`, 'danger');
+                updateConnectionStatus('Error');
+            }
+        })
+        .catch(error => {
+            showAlert(`Error fetching logs: ${error}`, 'danger');
+            updateConnectionStatus('Disconnected');
+        });
+    }
+    
+    function updateLogDisplay(logs) {
+        const logDisplay = document.getElementById('log-display');
+        const shouldScroll = document.getElementById('auto-scroll').checked;
+        const wasAtBottom = logDisplay.scrollTop + logDisplay.clientHeight >= logDisplay.scrollHeight - 10;
+        
+        if (!logs || logs.trim() === '') {
+            logDisplay.innerHTML = '<div class="p-3 text-muted text-center">No logs available</div>';
+            updateLogStats([], []);
+            return;
+        }
+        
+        const lines = logs.trim().split('\n');
+        const filteredLines = filterLogLines(lines);
+        
+        // Format logs with syntax highlighting
+        const formattedLogs = filteredLines.map(line => formatLogLine(line)).join('');
+        
+        logDisplay.innerHTML = formattedLogs;
+        
+        // Auto-scroll to bottom if enabled and was already at bottom
+        if (shouldScroll && (wasAtBottom || logDisplay.children.length === 1)) {
+            logDisplay.scrollTop = logDisplay.scrollHeight;
+        }
+        
+        // Update statistics
+        updateLogStats(lines, filteredLines);
+    }
+    
+    function filterLogLines(lines) {
+        const level = document.getElementById('log-level').value;
+        
+        if (level === 'all') {
+            return lines;
+        }
+        
+        const levelPriority = {
+            'DEBUG': 1,
+            'INFO': 2,
+            'WARNING': 3,
+            'ERROR': 4
+        };
+        
+        const minPriority = levelPriority[level] || 1;
+        
+        return lines.filter(line => {
+            // Extract log level from line (assuming format: TIMESTAMP - LEVEL - MESSAGE)
+            const levelMatch = line.match(/\[(DEBUG|INFO|WARNING|ERROR)\]/i);
+            if (!levelMatch) return true; // Include lines without clear level
+            
+            const lineLevel = levelMatch[1].toUpperCase();
+            return levelPriority[lineLevel] >= minPriority;
+        });
+    }
+    
+    function formatLogLine(line) {
+        if (!line.trim()) return '<br>';
+        
+        // Extract components: timestamp, level, message
+        const timestampMatch = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[,\d]*)/);
+        const levelMatch = line.match(/\[(DEBUG|INFO|WARNING|ERROR)\]/i);
+        
+        let cssClass = 'log-line';
+        let levelBadge = '';
+        
+        if (levelMatch) {
+            const level = levelMatch[1].toUpperCase();
+            switch(level) {
+                case 'ERROR':
+                    cssClass += ' text-danger';
+                    levelBadge = '<span class="badge bg-danger me-2">ERROR</span>';
+                    break;
+                case 'WARNING':
+                    cssClass += ' text-warning';
+                    levelBadge = '<span class="badge bg-warning me-2">WARN</span>';
+                    break;
+                case 'INFO':
+                    cssClass += ' text-info';
+                    levelBadge = '<span class="badge bg-info me-2">INFO</span>';
+                    break;
+                case 'DEBUG':
+                    cssClass += ' text-muted';
+                    levelBadge = '<span class="badge bg-secondary me-2">DEBUG</span>';
+                    break;
+            }
+        }
+        
+        let formattedLine = line;
+        
+        // Highlight timestamps
+        if (timestampMatch) {
+            formattedLine = formattedLine.replace(timestampMatch[1], 
+                `<span class="text-muted">${timestampMatch[1]}</span>`);
+        }
+        
+        // Highlight important keywords
+        formattedLine = formattedLine.replace(/\b(Starting|Started|Completed|Failed|Error|Success)\b/gi, 
+            '<span class="fw-bold">$1</span>');
+        
+        // Highlight file paths and URLs
+        formattedLine = formattedLine.replace(/([a-zA-Z]:)?[\\\/][\w\\\/\.-]+\.\w+/g, 
+            '<span class="text-primary">$&</span>');
+        
+        return `<div class="${cssClass}" style="padding: 2px 10px; font-family: monospace; font-size: 12px; line-height: 1.4; border-left: 3px solid transparent;">
+                    ${levelBadge}${formattedLine}
+                </div>`;
+    }
+    
+    function updateLogStats(allLines, filteredLines) {
+        let errorCount = 0, warningCount = 0, infoCount = 0;
+        
+        allLines.forEach(line => {
+            if (line.includes('[ERROR]') || line.includes('ERROR')) errorCount++;
+            else if (line.includes('[WARNING]') || line.includes('WARNING')) warningCount++;
+            else if (line.includes('[INFO]') || line.includes('INFO')) infoCount++;
+        });
+        
+        document.getElementById('error-count').textContent = errorCount;
+        document.getElementById('warning-count').textContent = warningCount;
+        document.getElementById('info-count').textContent = infoCount;
+        document.getElementById('total-count').textContent = filteredLines.length;
+    }
+    
+    function updateConnectionStatus(status) {
+        const badge = document.getElementById('connection-status-badge');
+        badge.textContent = status;
+        
+        badge.className = 'badge ';
+        switch(status) {
+            case 'Connected':
+                badge.className += 'bg-success';
+                break;
+            case 'Error':
+                badge.className += 'bg-danger';
+                break;
+            default:
+                badge.className += 'bg-secondary';
+        }
+    }
+    
+    function updateLastUpdate() {
+        const badge = document.getElementById('last-update-badge');
+        badge.textContent = new Date().toLocaleTimeString();
+    }
+    
+    function filterLogs() {
+        if (rawLogs) {
+            updateLogDisplay(rawLogs);
+        }
+    }
+    
+    function clearDisplay() {
+        const logDisplay = document.getElementById('log-display');
+        logDisplay.innerHTML = '<div class="p-3 text-muted text-center">Display cleared. Click refresh to reload logs.</div>';
+        updateLogStats([], []);
+    }
+    
+    function toggleAutoRefresh() {
+        const checkbox = document.getElementById('auto-refresh');
+        
+        if (checkbox.checked) {
+            autoRefreshInterval = setInterval(refreshLogs, 10000); // 10 seconds
+            showAlert('Auto-refresh enabled (every 10 seconds)', 'info');
+        } else {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+            showAlert('Auto-refresh disabled', 'info');
+        }
+    }
+    
+    function performSearch() {
+        const searchTerm = document.getElementById('search-input').value;
+        const caseSensitive = document.getElementById('case-sensitive').checked;
+        const useRegex = document.getElementById('regex-search').checked;
+        const resultsDiv = document.getElementById('search-results');
+        
+        if (!searchTerm.trim()) {
+            resultsDiv.innerHTML = '<div class="alert alert-warning">Please enter a search term</div>';
+            return;
+        }
+        
+        if (!rawLogs) {
+            resultsDiv.innerHTML = '<div class="alert alert-warning">No logs available to search</div>';
+            return;
+        }
+        
+        try {
+            const lines = rawLogs.split('\n');
+            let regex;
+            
+            if (useRegex) {
+                regex = new RegExp(searchTerm, caseSensitive ? 'g' : 'gi');
+            } else {
+                const escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                regex = new RegExp(escapedTerm, caseSensitive ? 'g' : 'gi');
+            }
+            
+            const matches = [];
+            lines.forEach((line, index) => {
+                if (regex.test(line)) {
+                    matches.push({
+                        lineNumber: index + 1,
+                        content: line,
+                        highlighted: line.replace(regex, '<mark>$&</mark>')
+                    });
+                }
+            });
+            
+            if (matches.length === 0) {
+                resultsDiv.innerHTML = '<div class="alert alert-info">No matches found</div>';
+            } else {
+                resultsDiv.innerHTML = `
+                    <div class="alert alert-success">Found ${matches.length} match(es)</div>
+                    <div style="max-height: 300px; overflow-y: auto;">
+                        ${matches.map(match => `
+                            <div class="border-bottom pb-2 mb-2">
+                                <small class="text-muted">Line ${match.lineNumber}:</small><br>
+                                <code style="font-size: 12px;">${match.highlighted}</code>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+        } catch (error) {
+            resultsDiv.innerHTML = `<div class="alert alert-danger">Search error: ${error.message}</div>`;
+        }
+    }
+    
+    // Keyboard shortcuts
+    document.addEventListener('keydown', function(e) {
+        if (e.ctrlKey || e.metaKey) {
+            switch(e.key) {
+                case 'r':
+                    e.preventDefault();
+                    refreshLogs();
+                    break;
+                case 'f':
+                    e.preventDefault();
+                    const searchModal = new bootstrap.Modal(document.getElementById('searchModal'));
+                    searchModal.show();
+                    setTimeout(() => document.getElementById('search-input').focus(), 300);
+                    break;
+            }
+        }
+    });
+    
+    // Socket event handlers for real-time logs (if available)
+    socket.on('log_update', function(data) {
+        if (data.logs) {
+            rawLogs = data.logs;
+            updateLogDisplay(rawLogs);
+            updateLastUpdate();
+        }
+    });
+    
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+        refreshLogs();
+        
+        // Setup search modal
+        document.getElementById('search-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                performSearch();
+            }
+        });
+        
+        updateConnectionStatus('Connecting...');
+    });
+</script>
+{% endblock %}

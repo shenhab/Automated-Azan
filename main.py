@@ -16,8 +16,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configure logging
+log_file = os.environ.get('LOG_FILE', '/var/log/azan_service.log')
 logging.basicConfig(format='%(asctime)s [%(levelname)s]: %(message)s', 
-                    filename="/var/log/azan_service.log", level=logging.INFO)
+                    filename=log_file, level=logging.INFO)
+
+# Also log to console for Docker logs
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s]: %(message)s'))
+logging.getLogger().addHandler(console_handler)
 
 class AthanScheduler:
     """
@@ -198,6 +204,11 @@ class AthanScheduler:
         logging.info("Updating NTP time on the host...")
 
         try:
+            # Check if running in Docker container
+            if os.path.exists('/.dockerenv'):
+                logging.info("Running in Docker container, skipping NTP service restart")
+                return
+            
             # Restart the NTP service
             subprocess.run(["sudo", "systemctl", "restart", "systemd-timesyncd"], check=True)
             time.sleep(2)  # Allow time to sync

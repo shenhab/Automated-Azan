@@ -20,8 +20,10 @@ class PrayerTimesFetcher:
             "icci": "https://islamireland.ie/api/timetable/",  # API source for ICCI
             "naas": "https://mawaqit.net/en/m/-34"  # Web scraping source for Naas
         }
-        self.naas_prayers_timetable_file = "naas_prayers_timetable.json"
-        self.icci_timetable_file = "icci_timetable.json"
+        # Use data directory for persistent storage, fallback to current directory
+        data_dir = "data" if os.path.exists("data") else "."
+        self.naas_prayers_timetable_file = os.path.join(data_dir, "naas_prayers_timetable.json")
+        self.icci_timetable_file = os.path.join(data_dir, "icci_timetable.json")
         self.tz = tz.gettz("Europe/Dublin")  # Set timezone to Dublin
 
     def _download_icci_timetable(self):
