@@ -25,6 +25,10 @@ console_handler = logging.StreamHandler()
 console_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s]: %(message)s'))
 logging.getLogger().addHandler(console_handler)
 
+# Reduce pychromecast logging verbosity to reduce connection error spam
+logging.getLogger('pychromecast').setLevel(logging.WARNING)
+logging.getLogger('pychromecast.socket_client').setLevel(logging.ERROR)
+
 class AthanScheduler:
     """
     A class to fetch prayer times, schedule Athan playback, and handle execution failures gracefully.
@@ -252,34 +256,67 @@ class AthanScheduler:
 
     def run_scheduler(self):
         logging.info("Starting strict-loop Athan scheduler.")
+        last_update_date = None  # Track when we last updated prayer times
+        
         while True:
             try:
-                self.update_ntp_time()
-                self.load_prayer_times()
+                current_date = datetime.now(self.tz).date()
+                
+                # Only update prayer times once per day or on first run
+                if last_update_date != current_date:
+                    logging.info(f"Updating prayer times for new day: {current_date}")
+                    self.update_ntp_time()
+                    self.load_prayer_times()
+                    last_update_date = current_date
+                else:
+                    logging.debug(f"Using cached prayer times for {current_date}")
 
                 while True:
                     prayer, next_prayer_time = self.get_next_prayer_time()
                     if not prayer:
                         logging.info("No remaining prayers for today. Sleeping until 1:00 AM.")
                         self.sleep_until_next_1am()
+                        last_update_date = None  # Force update on next iteration
                         break
 
                     sleep_duration = (next_prayer_time - datetime.now(self.tz)).total_seconds()
                     logging.info(f"Next prayer: {prayer} at {next_prayer_time.strftime('%H:%M')}. Sleeping for {sleep_duration:.2f} seconds.")
 
                     if sleep_duration > 0:
-                        time.sleep(sleep_duration)
+                        # Sleep in chunks to allow for graceful shutdown and reduce log spam
+                        chunk_size = min(sleep_duration, 300)  # Sleep in 5-minute chunks max
+                        while sleep_duration > 0:
+                            sleep_time = min(chunk_size, sleep_duration)
+                            time.sleep(sleep_time)
+                            sleep_duration -= sleep_time
+                            
+                            # Check if we've moved to a new day during sleep
+                            if datetime.now(self.tz).date() != current_date:
+                                logging.info("Date changed during sleep, will update prayer times")
+                                last_update_date = None
+                                break
 
-                    self.send_whatsapp_notification(prayer, next_prayer_time.strftime('%H:%M'))
-                    # Execute the Athan playback at precise time
-                    if prayer == "Fajr":
-                        self.chromecast_manager.start_adahn_alfajr()
-                    else:
-                        self.chromecast_manager.start_adahn()
+                    # Only execute if we're still on the same day
+                    if datetime.now(self.tz).date() == current_date:
+                        try:
+                            self.send_whatsapp_notification(prayer, next_prayer_time.strftime('%H:%M'))
+                            # Execute the Athan playback at precise time
+                            if prayer == "Fajr":
+                                success = self.chromecast_manager.start_adahn_alfajr()
+                            else:
+                                success = self.chromecast_manager.start_adahn()
+                                
+                            if not success:
+                                logging.error(f"Failed to play Athan for {prayer}")
+                            else:
+                                logging.info(f"Successfully played Athan for {prayer}")
+                                
+                        except Exception as e:
+                            logging.error(f"Error executing Athan for {prayer}: {e}")
 
             except Exception as e:
                 logging.error("Scheduler encountered an error: %s", e, exc_info=True)
-                time.sleep(10)  # Small delay before retrying
+                time.sleep(60)  # Wait 1 minute before retrying to avoid spam
 
 
     def sleep_until_next_1am(self):
@@ -290,12 +327,20 @@ class AthanScheduler:
             next_1am += timedelta(days=1)
 
         sleep_duration = (next_1am - now).total_seconds()
-        logging.info("Sleeping until 1:00 AM (%s).", next_1am.strftime("%Y-%m-%d %H:%M:%S"))
-        time.sleep(sleep_duration)
+        logging.info("Sleeping until 1:00 AM (%s). Sleep duration: %.2f seconds", next_1am.strftime("%Y-%m-%d %H:%M:%S"), sleep_duration)
+        
+        # Sleep in chunks to avoid very long sleep periods that are hard to interrupt
+        while sleep_duration > 0:
+            sleep_time = min(sleep_duration, 1800)  # Sleep in 30-minute chunks
+            time.sleep(sleep_time)
+            sleep_duration -= sleep_time
+            
+            # Check if we're close to 1 AM
+            now = datetime.now(self.tz)
+            if now >= next_1am:
+                break
 
-        logging.info("Woke up at 1:00 AM. Refreshing prayer times.")
-        self.update_ntp_time()
-        self.load_prayer_times()
+        logging.info("Woke up at 1:00 AM. Will refresh prayer times on next iteration.")
 
         
     def refresh_schedule(self):

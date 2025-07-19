@@ -13,13 +13,14 @@ from datetime import datetime
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from flask_socketio import SocketIO, emit
 import pychromecast
+from pychromecast.discovery import CastBrowser, SimpleCastListener
 from prayer_times_fetcher import PrayerTimesFetcher
 from chromecast_manager import ChromecastManager
 import threading
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-change-this'  # Change this in production
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", allow_unsafe_werkzeug=True)
 
 # Global variables for real-time updates
 discovered_devices = []
@@ -31,34 +32,57 @@ class WebChromecastManager:
     """Enhanced Chromecast manager for web interface"""
     
     def __init__(self):
-        self.devices = []
+        self.devices = {}
         self.discovery_timeout = 10
+        self.browser = None
+        self.listener = None
+        self.discovery_complete = threading.Event()
         
     def discover_devices(self, timeout=10):
-        """Discover available Chromecast devices"""
+        """Discover available Chromecast devices using CastBrowser"""
         global discovered_devices
         
         try:
-            logging.info("Starting Chromecast discovery...")
-            # Use the simplified pychromecast.get_chromecasts() for better compatibility
-            import pychromecast
-            chromecasts, browser = pychromecast.get_chromecasts()
+            logging.info("Starting Chromecast discovery with CastBrowser...")
+            
+            # Stop previous browser if exists
+            if self.browser:
+                self.browser.stop_discovery()
+                
+            # Clear previous discoveries
+            self.devices.clear()
+            self.discovery_complete.clear()
+            
+            # Create a cast listener
+            self.listener = SimpleCastListener(self._add_cast, self._remove_cast)
+            
+            # Create and start browser
+            self.browser = CastBrowser(self.listener, None, None)
+            self.browser.start_discovery()
+            
+            # Wait for discovery to find devices
+            if self.discovery_complete.wait(timeout=timeout):
+                logging.info(f"Discovery completed. Found {len(self.devices)} devices")
+            else:
+                logging.info(f"Discovery timeout reached. Found {len(self.devices)} devices so far")
             
             devices = []
-            for chromecast in chromecasts:
-                device_info = {
-                    'name': chromecast.name,
-                    'uuid': chromecast.uuid,
-                    'model': chromecast.model_name,
-                    'host': chromecast.host,
-                    'port': chromecast.port,
-                    'cast_type': chromecast.cast_type,
+            for uuid, device_info in self.devices.items():
+                devices.append({
+                    'name': device_info['name'],
+                    'uuid': device_info['uuid'],
+                    'model': device_info['model_name'],
+                    'host': device_info['host'],
+                    'port': device_info['port'],
+                    'cast_type': device_info.get('cast_type', 'Unknown'),
                     'status': 'Available'
-                }
-                devices.append(device_info)
+                })
                 
             discovered_devices = devices
-            browser.stop_discovery()
+            
+            # Stop browser to prevent resource leaks
+            if self.browser:
+                self.browser.stop_discovery()
             
             logging.info(f"Found {len(devices)} Chromecast devices")
             return devices
@@ -66,28 +90,62 @@ class WebChromecastManager:
         except Exception as e:
             logging.error(f"Error discovering Chromecasts: {e}")
             return []
+            
+    def _add_cast(self, uuid, service):
+        """Callback when a new cast device is discovered."""
+        try:
+            cast_info = {
+                'uuid': uuid,
+                'name': service.friendly_name,
+                'host': service.host,
+                'port': service.port,
+                'model_name': service.model_name,
+                'manufacturer': service.manufacturer,
+                'cast_type': getattr(service, 'cast_type', 'Unknown'),
+                'service': service
+            }
+            self.devices[uuid] = cast_info
+            logging.debug(f"Added cast device: {service.friendly_name} ({service.model_name})")
+            
+            # Signal discovery completion if we found some devices
+            if len(self.devices) >= 1:
+                self.discovery_complete.set()
+                
+        except Exception as e:
+            logging.error(f"Error adding cast device {uuid}: {e}")
+            
+    def _remove_cast(self, uuid, service):
+        """Callback when a cast device is removed."""
+        if uuid in self.devices:
+            cast_info = self.devices.pop(uuid)
+            logging.debug(f"Removed cast device: {cast_info['name']}")
     
     def test_connection(self, device_name):
         """Test connection to a specific Chromecast device"""
         try:
-            import pychromecast
-            chromecasts, browser = pychromecast.get_chromecasts()
-            
-            for chromecast in chromecasts:
-                if chromecast.name == device_name:
-                    chromecast.wait()
-                    status = chromecast.status
-                    browser.stop_discovery()
+            # Find device in our discovered devices
+            target_device = None
+            for uuid, device_info in self.devices.items():
+                if device_info['name'] == device_name:
+                    target_device = device_info
+                    break
                     
-                    return {
-                        'success': True,
-                        'status': 'Connected',
-                        'app': status.display_name if status else 'Unknown',
-                        'volume': status.volume_level if status else 0
-                    }
+            if not target_device:
+                return False, "Device not found"
+                
+            # Create Chromecast instance
+            chromecast = pychromecast.get_chromecast_from_service(
+                target_device['service'],
+                zconf=self.browser.zc if self.browser else None
+            )
             
-            browser.stop_discovery()
-            return {'success': False, 'error': 'Device not found'}
+            chromecast.wait(timeout=5)
+            logging.info(f"Successfully connected to {device_name}")
+            return True, "Connection successful"
+            
+        except Exception as e:
+            logging.error(f"Error testing connection to {device_name}: {e}")
+            return False, str(e)
             
         except Exception as e:
             logging.error(f"Error testing connection to {device_name}: {e}")
