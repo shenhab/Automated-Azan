@@ -83,6 +83,7 @@ class WebChromecastManager:
             # Stop browser to prevent resource leaks
             if self.browser:
                 self.browser.stop_discovery()
+
             
             logging.info(f"Found {len(devices)} Chromecast devices")
             return devices
@@ -146,6 +147,7 @@ class WebChromecastManager:
         except Exception as e:
             logging.error(f"Error testing connection to {device_name}: {e}")
             return False, str(e)
+
             
         except Exception as e:
             logging.error(f"Error testing connection to {device_name}: {e}")

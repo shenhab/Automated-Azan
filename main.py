@@ -29,6 +29,7 @@ logging.getLogger().addHandler(console_handler)
 logging.getLogger('pychromecast').setLevel(logging.WARNING)
 logging.getLogger('pychromecast.socket_client').setLevel(logging.ERROR)
 
+
 class AthanScheduler:
     """
     A class to fetch prayer times, schedule Athan playback, and handle execution failures gracefully.
