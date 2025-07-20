@@ -1,0 +1,36 @@
+# Web Interface Dockerfile for Automated Azan
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install pipenv
+RUN pip install --upgrade pip pipenv
+
+# Copy Pipfiles
+COPY Pipfile Pipfile.lock ./
+
+# Install dependencies using pipenv
+RUN pipenv install --system --deploy
+
+# Copy application files
+COPY . .
+
+# Create log directory
+RUN mkdir -p /var/log
+
+# Expose port for web interface
+EXPOSE 5000
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV FLASK_ENV=production
+
+# Start the web interface
+CMD ["python", "web_interface.py"]

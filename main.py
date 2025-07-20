@@ -10,7 +10,6 @@ from dateutil import tz
 from prayer_times_fetcher import PrayerTimesFetcher  # Import the new class
 from chromecast_manager import ChromecastManager
 import os
-from twilio.rest import Client
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -47,50 +46,7 @@ class AthanScheduler:
         self.tz = tz.gettz('Europe/Dublin')
         self.load_prayer_times()  # Fetch prayer times immediately
         self.chromecast_manager = ChromecastManager()
-        
-        # Load environment variables
-        self.ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-        self.AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-        self.CONTENT_SID = os.getenv("TWILIO_CONTENT_SID")
-        self.TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
-        self.RECIPIENT_NUMBER = os.getenv("RECIPIENT_NUMBER")
 
-        # Debugging: Log loaded values
-        logging.debug("Loaded Twilio Environment Variables:")
-        logging.debug(f"  TWILIO_ACCOUNT_SID: {self.ACCOUNT_SID}")
-        logging.debug(f"  TWILIO_AUTH_TOKEN: {'Set' if self.AUTH_TOKEN else 'Not Set'}")  # Mask token
-        logging.debug(f"  TWILIO_CONTENT_SID: {self.CONTENT_SID}")
-        logging.debug(f"  TWILIO_WHATSAPP_NUMBER: {self.TWILIO_WHATSAPP_NUMBER}")
-        logging.debug(f"  RECIPIENT_NUMBER: {self.RECIPIENT_NUMBER}")
-
-    def send_whatsapp_notification(self, prayer_name, scheduled_time):
-        """
-        Sends a WhatsApp notification for prayer time with the current system time and scheduled time.
-
-        :param prayer_name: The name of the prayer (e.g., Fajr, Dhuhr).
-        :param scheduled_time: The scheduled time of the prayer (formatted as HH:MM).
-        """
-        try:
-            current_time = datetime.now(self.tz).strftime('%H:%M:%S')  # Get the current system time
-
-            # Initialize Twilio client
-            client = Client(self.ACCOUNT_SID, self.AUTH_TOKEN)
-
-            # Send WhatsApp message
-            message = client.messages.create(
-                from_=self.TWILIO_WHATSAPP_NUMBER,
-                content_sid=self.CONTENT_SID,
-                content_variables=f'{{"1":"{prayer_name}","2":"{scheduled_time}","3":"{current_time}"}}',
-                to=self.RECIPIENT_NUMBER
-            )
-
-            logging.info(f"✅ WhatsApp notification sent successfully. Message SID: {message.sid}")
-            return message.sid
-        except Exception as e:
-            logging.error(f"❌ Error sending WhatsApp notification: {e}", exc_info=True)
-
-
-            
     def get_next_prayer_time(self):
         now = datetime.now(self.tz)
         for prayer, time_tuple in self.prayer_times.items():
@@ -299,7 +255,6 @@ class AthanScheduler:
                     # Only execute if we're still on the same day
                     if datetime.now(self.tz).date() == current_date:
                         try:
-                            self.send_whatsapp_notification(prayer, next_prayer_time.strftime('%H:%M'))
                             # Execute the Athan playback at precise time
                             if prayer == "Fajr":
                                 success = self.chromecast_manager.start_adahn_alfajr()

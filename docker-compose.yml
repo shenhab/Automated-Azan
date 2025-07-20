@@ -15,12 +15,6 @@ services:
       # Mount logs to host for easier access
       - ./logs:/var/log
     environment:
-      # Twilio configuration
-      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
-      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
-      - TWILIO_CONTENT_SID=${TWILIO_CONTENT_SID}
-      - TWILIO_WHATSAPP_NUMBER=${TWILIO_WHATSAPP_NUMBER}
-      - RECIPIENT_NUMBER=${RECIPIENT_NUMBER}
       # Set log file to mounted volume
       - LOG_FILE=/var/log/azan_service.log
     command: python main.py
