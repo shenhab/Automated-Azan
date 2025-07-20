@@ -3,29 +3,6 @@
 
 .PHONY: help setup test clean docker-build docker-run web install update shell
 
-# Default target
-help:
-	@echo "🕌 Automated Azan - Development Commands"
-	@echo "======================================="
-	@echo ""
-	@echo "Development:"
-	@echo "  setup     - Set up development environment with pipenv"
-	@echo "  install   - Install dependencies"
-	@echo "  update    - Update dependencies"
-	@echo "  test      - Run test suite"
-	@echo "  shell     - Activate pipenv shell"
-	@echo "  run       - Run main application"
-	@echo "  web       - Run web interface"
-	@echo ""
-	@echo "Docker:"
-	@echo "  docker-build - Build Docker images"
-	@echo "  docker-run   - Run with Docker Compose"
-	@echo "  docker-logs  - View Docker logs"
-	@echo "  docker-stop  - Stop Docker containers"
-	@echo ""
-	@echo "Cleanup:"
-	@echo "  clean     - Clean up temporary files"
-
 # Development setup
 setup:
 	@echo "🚀 Setting up development environment..."
@@ -47,6 +24,17 @@ shell:
 test:
 	@echo "🧪 Running test suite..."
 	@./test-pipenv.sh
+
+test-chromecast:
+	@echo "📡 Running comprehensive Chromecast discovery tests..."
+	@./test-chromecast-discovery.sh
+
+test-quick:
+	@echo "⚡ Running quick Chromecast method comparison..."
+	@pipenv run python chromecast_comparison.py
+
+test-all: test test-chromecast test-quick
+	@echo "✅ All tests completed!"
 
 # Running applications
 run:
@@ -95,3 +83,40 @@ dev: setup test
 	@echo "✅ Development environment ready!"
 	@echo "Run 'make run' to start the application"
 	@echo "Run 'make web' to start the web interface"
+
+# Help
+help:
+	@echo "🕌 Automated Azan - Available Commands"
+	@echo "========================================="
+	@echo ""
+	@echo "🏗️  Setup & Environment:"
+	@echo "  make setup         Setup pipenv environment"
+	@echo "  make install       Install dependencies"
+	@echo "  make update        Update dependencies"
+	@echo "  make shell         Activate pipenv shell"
+	@echo "  make clean         Clean up temporary files"
+	@echo ""
+	@echo "🧪 Testing:"
+	@echo "  make test          Run application tests"
+	@echo "  make test-chromecast    Run comprehensive Chromecast tests"
+	@echo "  make test-quick    Quick Chromecast method comparison"
+	@echo "  make test-all      Run all tests"
+	@echo ""
+	@echo "🚀 Running:"
+	@echo "  make run           Run main application"
+	@echo "  make web           Run web interface"
+	@echo ""
+	@echo "🐳 Docker:"
+	@echo "  make docker-build  Build Docker images"
+	@echo "  make docker-run    Start containers"
+	@echo "  make docker-logs   Show container logs"
+	@echo "  make docker-stop   Stop containers"
+	@echo ""
+	@echo "🔍 Utilities:"
+	@echo "  make check         Check system requirements"
+	@echo "  make dev           Complete development setup"
+	@echo "  make help          Show this help message"
+	@echo ""
+
+.DEFAULT_GOAL := help
+.PHONY: setup install update shell test test-chromecast test-quick test-all run web docker-build docker-run docker-logs docker-stop clean check dev help

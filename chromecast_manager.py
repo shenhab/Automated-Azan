@@ -33,7 +33,7 @@ class ChromecastManager:
         self.discover_devices()
 
     def discover_devices(self, force_rediscovery=False):
-        """Discovers all available Chromecast devices using CastBrowser."""
+        """Discovers all available Chromecast devices using CastBrowser with fallback."""
         current_time = time.time()
         
         # Skip discovery if within cooldown period (unless forced)
@@ -41,10 +41,22 @@ class ChromecastManager:
             logging.debug(f"Skipping device discovery (cooldown: {self.discovery_cooldown}s)")
             return
             
-        logging.info("Discovering Chromecast devices using CastBrowser...")
+        logging.info("Discovering Chromecast devices...")
         self.last_discovery_time = current_time
 
+        # Try CastBrowser first (modern approach)
+        if self._discover_with_castbrowser():
+            return
+            
+        # Fallback to get_chromecasts() if CastBrowser fails
+        logging.info("CastBrowser failed, falling back to get_chromecasts()...")
+        self._discover_with_get_chromecasts()
+
+    def _discover_with_castbrowser(self):
+        """Try discovery with CastBrowser (modern approach) - FIXED VERSION."""
         try:
+            logging.debug("Attempting discovery with CastBrowser...")
+            
             # Stop previous browser if exists
             if self.browser:
                 self.browser.stop_discovery()
@@ -53,33 +65,193 @@ class ChromecastManager:
             self.chromecasts.clear()
             self.discovery_complete.clear()
             
-            # Create a cast listener
-            self.listener = SimpleCastListener(self._add_cast, self._remove_cast)
-            
-            # Create and start browser
+            # Method 1: Try traditional CastBrowser with callbacks first
+            logging.debug("Trying CastBrowser with callbacks...")
+            self.listener = SimpleCastListener(self._add_cast, self._remove_cast, self._update_cast)
             self.browser = CastBrowser(self.listener, None, None)
             self.browser.start_discovery()
             
-            # Wait for discovery to find devices (timeout after 10 seconds)
-            if self.discovery_complete.wait(timeout=10):
-                logging.info(f"Discovery completed. Found {len(self.chromecasts)} devices")
-            else:
-                logging.info(f"Discovery timeout reached. Found {len(self.chromecasts)} devices so far")
+            # Wait briefly for callbacks (3 seconds max)
+            if self.discovery_complete.wait(timeout=3):
+                logging.debug(f"CastBrowser callbacks worked! Found {len(self.chromecasts)} devices")
+                if self.chromecasts:
+                    logging.info(f"✅ CastBrowser found {len(self.chromecasts)} Chromecast devices:")
+                    for uuid, cast_info in self.chromecasts.items():
+                        logging.info(f" - {cast_info['name']} ({cast_info['model_name']}) at {cast_info['host']}:{cast_info['port']}")
+                    self.browser.stop_discovery()
+                    return True
             
-            if not self.chromecasts:
-                logging.warning("No Chromecast devices found.")
-            else:
-                logging.info(f"Found {len(self.chromecasts)} Chromecast devices:")
+            # Method 2: If callbacks didn't work, use the working get_chromecasts() approach
+            logging.debug("CastBrowser callbacks didn't work, using get_chromecasts() hybrid approach...")
+            
+            # Stop our non-working browser
+            self.browser.stop_discovery()
+            
+            # Use get_chromecasts to get a properly working browser
+            chromecasts, working_browser = pychromecast.get_chromecasts(timeout=8)
+            logging.debug(f"get_chromecasts() found {len(chromecasts)} cast objects")
+            
+            if working_browser and hasattr(working_browser, 'devices') and working_browser.devices:
+                logging.debug(f"Working browser has {len(working_browser.devices)} devices in storage")
+                
+                # Extract device information from the working browser
+                devices_extracted = 0
+                for device_uuid, device_info in working_browser.devices.items():
+                    device_uuid_str = str(device_uuid)
+                    
+                    try:
+                        if hasattr(device_info, 'friendly_name'):
+                            cast_info = {
+                                'uuid': device_uuid_str,
+                                'name': device_info.friendly_name,
+                                'host': getattr(device_info, 'host', 'unknown'),
+                                'port': getattr(device_info, 'port', 8009),
+                                'model_name': getattr(device_info, 'model_name', 'Unknown'),
+                                'manufacturer': getattr(device_info, 'manufacturer', 'Unknown'),
+                                'service': device_info
+                            }
+                            self.chromecasts[device_uuid_str] = cast_info
+                            devices_extracted += 1
+                            logging.debug(f"Extracted: {device_info.friendly_name} ({cast_info['model_name']})")
+                            
+                    except Exception as e:
+                        logging.debug(f"Error extracting device {device_uuid}: {e}")
+                        continue
+                
+                # Also extract from chromecasts list as backup
+                for cast in chromecasts:
+                    try:
+                        cast_uuid = getattr(cast, 'uuid', cast.name)
+                        if hasattr(cast, 'uuid') and cast.uuid:
+                            cast_uuid = str(cast.uuid)
+                        
+                        # Skip if we already have this device
+                        if cast_uuid in self.chromecasts:
+                            continue
+                        
+                        cast_info = {
+                            'uuid': cast_uuid,
+                            'name': cast.name,
+                            'host': getattr(cast, 'host', 'unknown'),
+                            'port': getattr(cast, 'port', 8009),
+                            'model_name': getattr(cast, 'model_name', 'Unknown'),
+                            'manufacturer': getattr(cast, 'device', {}).get('manufacturer', 'Unknown') if hasattr(cast, 'device') else 'Unknown',
+                            'cast_object': cast  # Store the actual cast object for later use
+                        }
+                        self.chromecasts[cast_uuid] = cast_info
+                        devices_extracted += 1
+                        logging.debug(f"From cast object: {cast.name} ({cast_info['model_name']})")
+                        
+                    except Exception as e:
+                        logging.debug(f"Error processing cast object {cast.name}: {e}")
+                        continue
+                
+                # Cleanup the working browser
+                working_browser.stop_discovery()
+                
+                # Set our browser to the working one (already stopped)
+                self.browser = None
+                
+                logging.debug(f"Extracted {devices_extracted} devices from working browser")
+            
+            # Consider CastBrowser successful if we found any devices
+            if self.chromecasts:
+                logging.info(f"✅ CastBrowser (hybrid) found {len(self.chromecasts)} Chromecast devices:")
                 for uuid, cast_info in self.chromecasts.items():
                     logging.info(f" - {cast_info['name']} ({cast_info['model_name']}) at {cast_info['host']}:{cast_info['port']}")
+                return True
+            else:
+                logging.debug("CastBrowser hybrid approach found no devices")
+                return False
                     
         except Exception as e:
-            logging.error(f"Error during device discovery: {e}")
+            logging.debug(f"CastBrowser hybrid discovery failed: {e}")
+            self.chromecasts.clear()
+            return False
+
+    def _poll_browser_devices(self):
+        """Poll browser's internal device storage (fallback when callbacks don't work)."""
+        # This method is no longer needed as we use the hybrid approach above
+        # but keeping it for backwards compatibility
+        return 0
+
+    def _discover_with_get_chromecasts(self):
+        """Fallback discovery using deprecated get_chromecasts()."""
+        try:
+            logging.debug("Using get_chromecasts() fallback method...")
+            
+            # Clear previous discoveries
+            self.chromecasts.clear()
+            
+            # Use get_chromecasts for discovery
+            chromecasts, browser = pychromecast.get_chromecasts()
+            
+            # Convert to our format
+            for cast in chromecasts:
+                try:
+                    # Get UUID (fallback to name if not available)
+                    uuid = getattr(cast, 'uuid', cast.name)
+                    if hasattr(cast, 'uuid') and cast.uuid:
+                        uuid = str(cast.uuid)
+                    
+                    # Get host/port with fallback
+                    host = getattr(cast, 'host', 'unknown')
+                    port = getattr(cast, 'port', 8009)
+                    
+                    cast_info = {
+                        'uuid': uuid,
+                        'name': cast.name,
+                        'host': host,
+                        'port': port,
+                        'model_name': getattr(cast, 'model_name', 'Unknown'),
+                        'manufacturer': getattr(cast, 'device', {}).get('manufacturer', 'Unknown') if hasattr(cast, 'device') else 'Unknown',
+                        'cast_object': cast  # Store the actual cast object for later use
+                    }
+                    self.chromecasts[uuid] = cast_info
+                    
+                except Exception as e:
+                    logging.warning(f"Error processing cast device {cast.name}: {e}")
+                    continue
+            
+            # Cleanup the browser
+            if browser:
+                browser.stop_discovery()
+            
+            if self.chromecasts:
+                logging.info(f"✅ Fallback method found {len(self.chromecasts)} Chromecast devices:")
+                for uuid, cast_info in self.chromecasts.items():
+                    logging.info(f" - {cast_info['name']} ({cast_info['model_name']}) at {cast_info['host']}:{cast_info['port']}")
+            else:
+                logging.warning("No Chromecast devices found with fallback method either.")
+                
+        except Exception as e:
+            logging.error(f"Error during fallback device discovery: {e}")
             self.chromecasts.clear()
             
     def _add_cast(self, uuid, service):
         """Callback when a new cast device is discovered."""
         try:
+            # Handle different callback signatures in different pychromecast versions
+            if isinstance(service, str):
+                # In some versions, the second parameter is the service name string
+                # Try to get the actual service info from the browser
+                logging.debug(f"Received string service callback: {service}")
+                if self.browser and hasattr(self.browser, 'devices'):
+                    # Look up the device in browser's devices
+                    if uuid in self.browser.devices:
+                        device_info = self.browser.devices[uuid]
+                        if hasattr(device_info, 'friendly_name'):
+                            service = device_info
+                        else:
+                            logging.debug(f"Device info doesn't have expected attributes: {type(device_info)}")
+                            return
+                    else:
+                        logging.debug(f"UUID {uuid} not found in browser devices")
+                        return
+                else:
+                    logging.debug("Browser not available or doesn't have devices attribute")
+                    return
+            
             cast_info = {
                 'uuid': uuid,
                 'name': service.friendly_name,
@@ -98,6 +270,10 @@ class ChromecastManager:
                 
         except Exception as e:
             logging.error(f"Error adding cast device {uuid}: {e}")
+
+    def _update_cast(self, uuid, service):
+        """Callback when a cast device is updated - treat as add."""
+        self._add_cast(uuid, service)
             
     def _remove_cast(self, uuid, service):
         """Callback when a cast device is removed."""
@@ -130,13 +306,12 @@ class ChromecastManager:
                 # Check if the device name matches 'Adahn' (case-insensitive)
                 if cast_info['name'].lower() == 'adahn':
                     logging.info(f"Found target Chromecast: {cast_info['name']} at {cast_info['host']}")
-                    # Create Chromecast instance
-                    cast_device = pychromecast.get_chromecast_from_service(
-                        cast_info['service'],
-                        zconf=self.browser.zc
-                    )
-                    self.target_device = cast_device  # Cache the device
-                    return cast_device
+                    
+                    # Create Chromecast instance - handle both discovery methods
+                    cast_device = self._create_cast_device(cast_info)
+                    if cast_device:
+                        self.target_device = cast_device  # Cache the device
+                        return cast_device
 
                 # If it's a Google Nest device, add it to the candidate list
                 elif cast_info['model_name'].strip() in ["Google Nest Mini", "Google Nest Hub", "Google Home", "Google Home Mini"]:
@@ -151,15 +326,10 @@ class ChromecastManager:
         if candidate_list:
             cast_info = candidate_list[0]
             logging.info(f"Using fallback Chromecast: {cast_info['name']}")
-            try:
-                cast_device = pychromecast.get_chromecast_from_service(
-                    cast_info['service'],
-                    zconf=self.browser.zc
-                )
+            cast_device = self._create_cast_device(cast_info)
+            if cast_device:
                 self.target_device = cast_device  # Cache the device
                 return cast_device
-            except Exception as e:
-                logging.error(f"Error creating Chromecast instance for {cast_info['name']}: {e}")
 
         # If no suitable devices found and retry is enabled, try rediscovering
         if retry_discovery:
@@ -171,6 +341,94 @@ class ChromecastManager:
         logging.warning("No suitable Chromecast candidate found.")
         self.target_device = None
         return None
+
+    def _create_cast_device(self, cast_info):
+        """Create a Chromecast device from cast_info, handling both discovery methods."""
+        try:
+            # If we have a cast_object from get_chromecasts(), use it directly
+            if 'cast_object' in cast_info and cast_info['cast_object']:
+                logging.info(f"Using cached cast object for {cast_info['name']}")
+                return cast_info['cast_object']
+            
+            # If we have a service from CastBrowser, create from service
+            elif 'service' in cast_info and cast_info['service']:
+                logging.debug(f"Creating cast device from service for {cast_info['name']}")
+                try:
+                    # Create CastInfo from service and use Chromecast constructor
+                    from pychromecast.models import CastInfo
+                    from uuid import UUID
+                    
+                    # Convert string UUID to UUID object if needed
+                    uuid_obj = cast_info['uuid']
+                    if isinstance(uuid_obj, str):
+                        try:
+                            uuid_obj = UUID(uuid_obj)
+                        except Exception as uuid_error:
+                            logging.debug(f"Invalid UUID format '{uuid_obj}': {uuid_error}")
+                            # Generate a fallback UUID based on host/port
+                            import hashlib
+                            uuid_str = hashlib.md5(f"{cast_info['host']}:{cast_info['port']}".encode()).hexdigest()
+                            uuid_obj = UUID(uuid_str[:8] + '-' + uuid_str[8:12] + '-' + uuid_str[12:16] + '-' + uuid_str[16:20] + '-' + uuid_str[20:32])
+                    
+                    cast_info_obj = CastInfo(
+                        services=frozenset([cast_info['service']]) if cast_info['service'] else frozenset(),
+                        uuid=uuid_obj,
+                        model_name=cast_info['model_name'],
+                        friendly_name=cast_info['name'],
+                        host=cast_info['host'],
+                        port=cast_info['port'],
+                        cast_type=cast_info.get('cast_type', 'cast'),  # Default to 'cast'
+                        manufacturer=cast_info.get('manufacturer', 'Google Inc.')
+                    )
+                    
+                    logging.info(f"Creating Chromecast from CastInfo object for {cast_info['name']}")
+                    return pychromecast.Chromecast(
+                        cast_info_obj,
+                        timeout=5,
+                        zconf=self.browser.zc if self.browser and hasattr(self.browser, 'zc') else None
+                    )
+                    
+                except Exception as service_error:
+                    logging.debug(f"Service creation failed: {service_error}")
+                    # Fall through to host/port creation
+            
+            # Fallback: create from host/port using get_chromecast_from_host
+            logging.debug(f"Creating cast device from host/port for {cast_info['name']}")
+            try:
+                from uuid import UUID
+                
+                # Convert string UUID to UUID object if needed
+                uuid_obj = cast_info['uuid']
+                if isinstance(uuid_obj, str):
+                    try:
+                        uuid_obj = UUID(uuid_obj)
+                    except Exception:
+                        # Generate a fallback UUID based on host/port
+                        import hashlib
+                        uuid_str = hashlib.md5(f"{cast_info['host']}:{cast_info['port']}".encode()).hexdigest()
+                        uuid_obj = UUID(uuid_str[:8] + '-' + uuid_str[8:12] + '-' + uuid_str[12:16] + '-' + uuid_str[16:20] + '-' + uuid_str[20:32])
+                
+                # The function expects a tuple: (host, port, uuid, friendly_name, model_name)
+                host_tuple = (
+                    cast_info['host'],
+                    int(cast_info['port']),  # Ensure port is integer
+                    uuid_obj,  # Use UUID object, not string
+                    cast_info['name'],
+                    cast_info['model_name']
+                )
+                logging.info(f"Trying get_chromecast_from_host with tuple for {cast_info['name']}")
+                return pychromecast.get_chromecast_from_host(
+                    host_tuple,
+                    timeout=5
+                )
+            except Exception as host_error:
+                logging.debug(f"Host creation with tuple failed: {host_error}")
+                # Last resort - return None and skip this device
+                return None
+                
+        except Exception as e:
+            logging.error(f"Error creating cast device for {cast_info['name']}: {e}")
+            return None
         
     def _is_device_available(self, cast_info):
         """Check if a device info dict is still available and responsive."""
