@@ -9,6 +9,7 @@
       "categories": ["IoT", "Automation", "Religion"],
       "platform": "linux",
       "logo": "https://raw.githubusercontent.com/docker-library/docs/master/python/logo.png",
+      "image": "shenhab/athan:latest",
       "repository": {
         "url": "https://github.com/shenhab/Automated-Azan",
         "stackfile": "portainer-stack.yml"

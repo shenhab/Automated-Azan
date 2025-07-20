@@ -16,7 +16,6 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     # Time synchronization
     ntpdate \
-
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -50,7 +49,6 @@ RUN touch /app/data/.gitkeep /app/logs/.gitkeep
 # Create a non-root user for security
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app && \
-
     chown -R appuser:appuser /var/log && \
     mkdir -p /app/config && \
     chown -R appuser:appuser /app/config

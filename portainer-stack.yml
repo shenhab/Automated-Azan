@@ -2,10 +2,7 @@ version: '3.8'
 
 services:
   automated-azan:
-    build: 
-      context: .
-      dockerfile: Dockerfile
-    image: automated-azan:latest
+    image: shenhab/athan:latest
     container_name: automated-azan-main
     restart: unless-stopped
     
@@ -20,9 +17,6 @@ services:
     volumes:
       # Configuration - using volume for better security and persistence
       - azan_config:/app/config
-      
-      # Configuration file (for initial setup) - read-only is secure
-      - ./adahn.config:/app/adahn.config:ro
       
       # Persistent data storage
       - azan_logs:/var/log
