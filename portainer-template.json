@@ -1,0 +1,47 @@
+{
+  "version": "2",
+  "templates": [
+    {
+      "type": 2,
+      "title": "Automated Azan",
+      "description": "Islamic prayer time automation system with Chromecast support and web management interface",
+      "note": "This application requires host networking for Chromecast discovery. Ensure your Chromecast devices are on the same network.",
+      "categories": ["IoT", "Automation", "Religion"],
+      "platform": "linux",
+      "logo": "https://raw.githubusercontent.com/docker-library/docs/master/python/logo.png",
+      "repository": {
+        "url": "https://github.com/shenhab/Automated-Azan",
+        "stackfile": "portainer-stack.yml"
+      },
+      "env": [
+        {
+          "name": "TZ",
+          "label": "Timezone",
+          "default": "Europe/Dublin",
+          "description": "Container timezone (e.g., Europe/Dublin, America/New_York)"
+        },
+        {
+          "name": "SPEAKERS_GROUP_NAME",
+          "label": "Chromecast Device Name",
+          "default": "Adahn",
+          "description": "Name of your Chromecast device or speaker group"
+        },
+        {
+          "name": "LOCATION",
+          "label": "Prayer Times Location",
+          "default": "icci",
+          "description": "Location for prayer times (icci or naas)"
+        }
+      ],
+      "volumes": [
+        {
+          "bind": "/var/run/docker.sock",
+          "container": "/var/run/docker.sock"
+        }
+      ],
+      "ports": [
+        "5000:5000/tcp"
+      ]
+    }
+  ]
+}

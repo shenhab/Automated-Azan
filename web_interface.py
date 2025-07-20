@@ -19,7 +19,7 @@ import threading
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-change-this'  # Change this in production
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", allow_unsafe_werkzeug=True)
 
 # Global variables for real-time updates
 discovered_devices = []
@@ -27,73 +27,7 @@ current_config = {}
 prayer_times = {}
 scheduler_status = {"running": False, "next_prayer": None, "last_update": None}
 
-class WebChromecastManager:
-    """Enhanced Chromecast manager for web interface"""
-    
-    def __init__(self):
-        self.devices = []
-        self.discovery_timeout = 10
-        
-    def discover_devices(self, timeout=10):
-        """Discover available Chromecast devices"""
-        global discovered_devices
-        
-        try:
-            logging.info("Starting Chromecast discovery...")
-            # Use the simplified pychromecast.get_chromecasts() for better compatibility
-            import pychromecast
-            chromecasts, browser = pychromecast.get_chromecasts()
-            
-            devices = []
-            for chromecast in chromecasts:
-                device_info = {
-                    'name': chromecast.name,
-                    'uuid': chromecast.uuid,
-                    'model': chromecast.model_name,
-                    'host': chromecast.host,
-                    'port': chromecast.port,
-                    'cast_type': chromecast.cast_type,
-                    'status': 'Available'
-                }
-                devices.append(device_info)
-                
-            discovered_devices = devices
-            browser.stop_discovery()
-            
-            logging.info(f"Found {len(devices)} Chromecast devices")
-            return devices
-            
-        except Exception as e:
-            logging.error(f"Error discovering Chromecasts: {e}")
-            return []
-    
-    def test_connection(self, device_name):
-        """Test connection to a specific Chromecast device"""
-        try:
-            import pychromecast
-            chromecasts, browser = pychromecast.get_chromecasts()
-            
-            for chromecast in chromecasts:
-                if chromecast.name == device_name:
-                    chromecast.wait()
-                    status = chromecast.status
-                    browser.stop_discovery()
-                    
-                    return {
-                        'success': True,
-                        'status': 'Connected',
-                        'app': status.display_name if status else 'Unknown',
-                        'volume': status.volume_level if status else 0
-                    }
-            
-            browser.stop_discovery()
-            return {'success': False, 'error': 'Device not found'}
-            
-        except Exception as e:
-            logging.error(f"Error testing connection to {device_name}: {e}")
-            return {'success': False, 'error': str(e)}
-
-web_cast_manager = WebChromecastManager()
+# Use our working ChromecastManager instead of WebChromecastManager
 
 def load_config():
     """Load current configuration"""
@@ -181,7 +115,21 @@ def logs():
 def api_discover_chromecasts():
     """API endpoint to discover Chromecast devices"""
     try:
-        devices = web_cast_manager.discover_devices()
+        # Use ChromecastManager's discover_devices method
+        web_cast_manager.discover_devices(force_rediscovery=True)
+        
+        devices = []
+        if web_cast_manager.chromecasts:
+            # Convert ChromecastManager's format to web interface format
+            for uuid, cast_info in web_cast_manager.chromecasts.items():
+                devices.append({
+                    'name': cast_info['name'],
+                    'host': cast_info['host'],
+                    'port': cast_info['port'],
+                    'uuid': uuid,
+                    'model_name': cast_info['model_name'],
+                    'manufacturer': cast_info['manufacturer']
+                })
         
         # Emit real-time update to connected clients
         socketio.emit('chromecasts_discovered', {'devices': devices})
@@ -208,8 +156,43 @@ def api_test_chromecast():
     if not device_name:
         return jsonify({'success': False, 'error': 'Device name required'}), 400
     
-    result = web_cast_manager.test_connection(device_name)
-    return jsonify(result)
+    try:
+        # Use ChromecastManager to test connection
+        web_cast_manager.discover_devices(force_rediscovery=True)
+        
+        if web_cast_manager.chromecasts:
+            # Look for device by name
+            target_device = None
+            for uuid, cast_info in web_cast_manager.chromecasts.items():
+                if cast_info['name'] == device_name:
+                    target_device = cast_info
+                    break
+            
+            if target_device:
+                return jsonify({
+                    'success': True, 
+                    'message': f'Successfully found {device_name}',
+                    'device_info': {
+                        'name': target_device['name'],
+                        'host': target_device['host'],
+                        'port': target_device['port'],
+                        'model': target_device['model_name']
+                    }
+                })
+            else:
+                return jsonify({
+                    'success': False, 
+                    'error': f'Device "{device_name}" not found'
+                })
+        else:
+            return jsonify({
+                'success': False, 
+                'error': 'No devices discovered'
+            })
+            
+    except Exception as e:
+        logging.error(f"Error testing connection to {device_name}: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/save-config', methods=['POST'])
 def api_save_config():
@@ -313,10 +296,31 @@ def handle_status_request():
 
 def background_discovery():
     """Background task to periodically discover devices"""
+    global discovered_devices
     while True:
         try:
-            devices = web_cast_manager.discover_devices(timeout=5)
-            socketio.emit('chromecasts_discovered', {'devices': devices})
+            # Use ChromecastManager's discovery method
+            web_cast_manager.discover_devices(force_rediscovery=True)
+            
+            if web_cast_manager.chromecasts:
+                # Convert ChromecastManager format to web interface format
+                devices = []
+                for uuid, cast_info in web_cast_manager.chromecasts.items():
+                    devices.append({
+                        'name': cast_info['name'],
+                        'uuid': uuid,
+                        'model': cast_info['model_name'],
+                        'host': cast_info['host'],
+                        'port': cast_info['port'],
+                        'cast_type': cast_info.get('manufacturer', 'Unknown'),
+                        'status': 'Available'
+                    })
+                
+                discovered_devices = devices
+                socketio.emit('chromecasts_discovered', {'devices': devices})
+                logging.info(f"Background discovery found {len(devices)} devices")
+            else:
+                logging.warning("Background discovery found no devices")
             time.sleep(30)  # Refresh every 30 seconds
         except Exception as e:
             logging.error(f"Background discovery error: {e}")

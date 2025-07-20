@@ -6,8 +6,10 @@
 ✅ Supports Google Home speakers and speaker groups via `pychromecast`  
 ✅ Multiple prayer time sources (ICCI and Naas mosque timetables)  
 ✅ Special handling for Fajr prayer with optional pre-Fajr Quran radio  
-✅ WhatsApp notifications via Twilio integration  
-✅ Runs continuously as a reliable background service  
+- **adding web interface**
+- **using CastBrowser**
+- **adding portainer compatability**
+- **correcting the web interface**
 ✅ Automatic time synchronization via NTP  
 ✅ Comprehensive logging for debugging and monitoring  
 ✅ **Docker support for easy deployment**
@@ -25,26 +27,57 @@ The application consists of several components working together:
 
 ## **🚀 Installation & Setup**
 
-### **🐳 Option A: Docker Installation (Recommended)**
+### **� Prerequisites**
+- **Python 3.9+** (recommended: Python 3.11)
+- **pipenv** for dependency management
+- **Chromecast/Google Home device** on the same network
+- **Docker** (for containerized deployment)
+
+### **🐍 Option A: Python Development Setup (pipenv)**
+
+For development or local testing:
+
+```bash
+# Clone the repository
+git clone https://github.com/shenhab/Automated-Azan.git
+cd Automated-Azan
+
+# Install pipenv if not already installed
+pip install pipenv
+
+# Install dependencies
+pipenv install
+
+# Configure your settings
+cp adahn.config.example adahn.config
+nano adahn.config
+
+# Run the application
+pipenv run python main.py
+
+# Or activate the virtual environment
+pipenv shell
+python main.py
+```
+
+#### **Quick Setup Script**
+```bash
+# Run the automated setup script
+./setup-dev.sh
+```
+
 
 Docker provides an isolated environment with all dependencies pre-configured.
 
 #### **Prerequisites**
 - **Docker** and **Docker Compose** installed ([Installation Guide](https://docs.docker.com/get-docker/))
 - **Google Home/Chromecast device** on the same network
-- **Twilio account** (optional, for WhatsApp notifications)
 
 #### **Quick Start**
 ```bash
 # Clone the repository
 git clone https://github.com/shenhab/Automated-Azan.git
 cd Automated-Azan
-
-# Copy environment template
-cp .env.example .env
-
-# Edit .env file with your Twilio credentials (optional)
-nano .env
 
 # Configure your location and speaker in adahn.config
 nano adahn.config
@@ -113,17 +146,6 @@ Edit the `adahn.config` file to set your speaker group name and preferred prayer
 [Settings]
 speakers-group-name = YourGoogleSpeakerName
 location = naas  # Options: naas, icci
-```
-
-#### WhatsApp Notification Setup (Optional)
-If you want to receive WhatsApp notifications, create a `.env` file with your Twilio credentials:
-
-```
-TWILIO_ACCOUNT_SID=your_account_sid
-TWILIO_AUTH_TOKEN=your_auth_token
-TWILIO_CONTENT_SID=your_content_sid
-TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
-RECIPIENT_NUMBER=whatsapp:+your_number
 ```
 
 ### **4️⃣ Run the Application**

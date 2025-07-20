@@ -10,7 +10,6 @@ from dateutil import tz
 from prayer_times_fetcher import PrayerTimesFetcher  # Import the new class
 from chromecast_manager import ChromecastManager
 import os
-from twilio.rest import Client
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,6 +23,11 @@ logging.basicConfig(format='%(asctime)s [%(levelname)s]: %(message)s',
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s]: %(message)s'))
 logging.getLogger().addHandler(console_handler)
+
+# Reduce pychromecast logging verbosity to reduce connection error spam
+logging.getLogger('pychromecast').setLevel(logging.WARNING)
+logging.getLogger('pychromecast.socket_client').setLevel(logging.ERROR)
+
 
 class AthanScheduler:
     """
@@ -43,50 +47,7 @@ class AthanScheduler:
         self.tz = tz.gettz('Europe/Dublin')
         self.load_prayer_times()  # Fetch prayer times immediately
         self.chromecast_manager = ChromecastManager()
-        
-        # Load environment variables
-        self.ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-        self.AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-        self.CONTENT_SID = os.getenv("TWILIO_CONTENT_SID")
-        self.TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
-        self.RECIPIENT_NUMBER = os.getenv("RECIPIENT_NUMBER")
 
-        # Debugging: Log loaded values
-        logging.debug("Loaded Twilio Environment Variables:")
-        logging.debug(f"  TWILIO_ACCOUNT_SID: {self.ACCOUNT_SID}")
-        logging.debug(f"  TWILIO_AUTH_TOKEN: {'Set' if self.AUTH_TOKEN else 'Not Set'}")  # Mask token
-        logging.debug(f"  TWILIO_CONTENT_SID: {self.CONTENT_SID}")
-        logging.debug(f"  TWILIO_WHATSAPP_NUMBER: {self.TWILIO_WHATSAPP_NUMBER}")
-        logging.debug(f"  RECIPIENT_NUMBER: {self.RECIPIENT_NUMBER}")
-
-    def send_whatsapp_notification(self, prayer_name, scheduled_time):
-        """
-        Sends a WhatsApp notification for prayer time with the current system time and scheduled time.
-
-        :param prayer_name: The name of the prayer (e.g., Fajr, Dhuhr).
-        :param scheduled_time: The scheduled time of the prayer (formatted as HH:MM).
-        """
-        try:
-            current_time = datetime.now(self.tz).strftime('%H:%M:%S')  # Get the current system time
-
-            # Initialize Twilio client
-            client = Client(self.ACCOUNT_SID, self.AUTH_TOKEN)
-
-            # Send WhatsApp message
-            message = client.messages.create(
-                from_=self.TWILIO_WHATSAPP_NUMBER,
-                content_sid=self.CONTENT_SID,
-                content_variables=f'{{"1":"{prayer_name}","2":"{scheduled_time}","3":"{current_time}"}}',
-                to=self.RECIPIENT_NUMBER
-            )
-
-            logging.info(f"✅ WhatsApp notification sent successfully. Message SID: {message.sid}")
-            return message.sid
-        except Exception as e:
-            logging.error(f"❌ Error sending WhatsApp notification: {e}", exc_info=True)
-
-
-            
     def get_next_prayer_time(self):
         now = datetime.now(self.tz)
         for prayer, time_tuple in self.prayer_times.items():
@@ -252,34 +213,66 @@ class AthanScheduler:
 
     def run_scheduler(self):
         logging.info("Starting strict-loop Athan scheduler.")
+        last_update_date = None  # Track when we last updated prayer times
+        
         while True:
             try:
-                self.update_ntp_time()
-                self.load_prayer_times()
+                current_date = datetime.now(self.tz).date()
+                
+                # Only update prayer times once per day or on first run
+                if last_update_date != current_date:
+                    logging.info(f"Updating prayer times for new day: {current_date}")
+                    self.update_ntp_time()
+                    self.load_prayer_times()
+                    last_update_date = current_date
+                else:
+                    logging.debug(f"Using cached prayer times for {current_date}")
 
                 while True:
                     prayer, next_prayer_time = self.get_next_prayer_time()
                     if not prayer:
                         logging.info("No remaining prayers for today. Sleeping until 1:00 AM.")
                         self.sleep_until_next_1am()
+                        last_update_date = None  # Force update on next iteration
                         break
 
                     sleep_duration = (next_prayer_time - datetime.now(self.tz)).total_seconds()
                     logging.info(f"Next prayer: {prayer} at {next_prayer_time.strftime('%H:%M')}. Sleeping for {sleep_duration:.2f} seconds.")
 
                     if sleep_duration > 0:
-                        time.sleep(sleep_duration)
+                        # Sleep in chunks to allow for graceful shutdown and reduce log spam
+                        chunk_size = min(sleep_duration, 300)  # Sleep in 5-minute chunks max
+                        while sleep_duration > 0:
+                            sleep_time = min(chunk_size, sleep_duration)
+                            time.sleep(sleep_time)
+                            sleep_duration -= sleep_time
+                            
+                            # Check if we've moved to a new day during sleep
+                            if datetime.now(self.tz).date() != current_date:
+                                logging.info("Date changed during sleep, will update prayer times")
+                                last_update_date = None
+                                break
 
-                    self.send_whatsapp_notification(prayer, next_prayer_time.strftime('%H:%M'))
-                    # Execute the Athan playback at precise time
-                    if prayer == "Fajr":
-                        self.chromecast_manager.start_adahn_alfajr()
-                    else:
-                        self.chromecast_manager.start_adahn()
+                    # Only execute if we're still on the same day
+                    if datetime.now(self.tz).date() == current_date:
+                        try:
+                            # Execute the Athan playback at precise time
+                            if prayer == "Fajr":
+                                success = self.chromecast_manager.start_adahn_alfajr()
+                            else:
+                                success = self.chromecast_manager.start_adahn()
+                                
+                            if not success:
+                                logging.error(f"Failed to play Athan for {prayer}")
+                            else:
+                                logging.info(f"Successfully played Athan for {prayer}")
+                                
+                        except Exception as e:
+                            logging.error(f"Error executing Athan for {prayer}: {e}")
 
             except Exception as e:
                 logging.error("Scheduler encountered an error: %s", e, exc_info=True)
-                time.sleep(10)  # Small delay before retrying
+                time.sleep(60)  # Wait 1 minute before retrying to avoid spam
 
 
     def sleep_until_next_1am(self):
@@ -290,12 +283,20 @@ class AthanScheduler:
             next_1am += timedelta(days=1)
 
         sleep_duration = (next_1am - now).total_seconds()
-        logging.info("Sleeping until 1:00 AM (%s).", next_1am.strftime("%Y-%m-%d %H:%M:%S"))
-        time.sleep(sleep_duration)
+        logging.info("Sleeping until 1:00 AM (%s). Sleep duration: %.2f seconds", next_1am.strftime("%Y-%m-%d %H:%M:%S"), sleep_duration)
+        
+        # Sleep in chunks to avoid very long sleep periods that are hard to interrupt
+        while sleep_duration > 0:
+            sleep_time = min(sleep_duration, 1800)  # Sleep in 30-minute chunks
+            time.sleep(sleep_time)
+            sleep_duration -= sleep_time
+            
+            # Check if we're close to 1 AM
+            now = datetime.now(self.tz)
+            if now >= next_1am:
+                break
 
-        logging.info("Woke up at 1:00 AM. Refreshing prayer times.")
-        self.update_ntp_time()
-        self.load_prayer_times()
+        logging.info("Woke up at 1:00 AM. Will refresh prayer times on next iteration.")
 
         
     def refresh_schedule(self):

@@ -75,30 +75,22 @@
                 </h5>
             </div>
             <div class="card-body">
-                <div class="alert alert-info">
-                    <h6 class="alert-heading">
+                                <div class="card-header d-flex align-items-center">
+                    <h6 class="mb-0">
                         <i class="fas fa-info-circle me-2"></i>
-                        Environment Variables
+                        Configuration Information
                     </h6>
+                </div>
+                
+                <div class="card-body">
                     <p class="mb-0">
-                        To enable WhatsApp notifications via Twilio, create a <code>.env</code> file in your project directory with the following variables:
+                        <i class="fas fa-check-circle text-success me-2"></i>
+                        All configuration is managed through the web interface above.
                     </p>
-                </div>
-                
-                <div class="bg-dark text-light p-3 rounded">
-                    <pre><code># Twilio Configuration
-TWILIO_ACCOUNT_SID=your_account_sid_here
-TWILIO_AUTH_TOKEN=your_auth_token_here
-TWILIO_CONTENT_SID=your_content_sid_here
-TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
-RECIPIENT_NUMBER=whatsapp:+your_phone_number_here</code></pre>
-                </div>
-                
-                <div class="mt-3">
-                    <small class="text-muted">
-                        <i class="fas fa-exclamation-triangle me-1"></i>
-                        These settings are configured outside the web interface for security reasons.
-                    </small>
+                    <p class="mt-2 mb-0">
+                        <i class="fas fa-save text-primary me-2"></i>
+                        Changes are automatically saved and applied to the system.
+                    </p>
                 </div>
             </div>
         </div>

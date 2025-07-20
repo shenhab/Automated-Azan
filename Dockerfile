@@ -17,10 +17,14 @@ WORKDIR /app
 # Create log directory with proper permissions
 RUN mkdir -p /var/log && chmod 755 /var/log
 
-COPY requirements.txt ./
+# Install pipenv
+RUN pip install --upgrade pip pipenv
 
-RUN pip install --upgrade pip && \
-    pip install -r requirements.txt
+# Copy Pipfiles
+COPY Pipfile Pipfile.lock ./
+
+# Install dependencies using pipenv
+RUN pipenv install --system --deploy
 
 COPY . .
 
