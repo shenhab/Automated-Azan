@@ -45,7 +45,7 @@ cd Automated-Azan
 make setup     # Installs pipenv and dependencies
 make run       # Run prayer scheduler
 # OR
-make web       # Run web interface only
+make deploy       # Run web interface only
 ```
 
 ## **⚙️ Configuration**
@@ -111,7 +111,7 @@ make setup    # Setup environment
 make install  # Install dependencies  
 make test     # Run tests
 make run      # Start main application
-make web      # Start web interface
+make deploy   # deploy the docker
 ```
 
 **Development Commands:**
