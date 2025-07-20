@@ -5,38 +5,43 @@ services:
     build: 
       context: .
       dockerfile: Dockerfile
+    image: automated-azan:latest
     container_name: automated-azan-main
     restart: unless-stopped
+    
+    # REQUIRED: Use host network for Chromecast discovery
+    network_mode: host
+    
     environment:
       - LOG_FILE=/var/log/azan_service.log
       - TZ=Europe/Dublin
+      - PYTHONUNBUFFERED=1
+    
     volumes:
-      - azan_logs:/var/log
+      # Configuration - using volume for better security and persistence
       - azan_config:/app/config
+      
+      # Configuration file (for initial setup) - read-only is secure
       - ./adahn.config:/app/adahn.config:ro
-    network_mode: host  # Required for Chromecast discovery
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  web-interface:
-    build:
-      context: .
-      dockerfile: Dockerfile.web
-    container_name: automated-azan-web
-    restart: unless-stopped
-    environment:
-      - TZ=Europe/Dublin
-    ports:
-      - "5000:5000"
-    volumes:
+      
+      # Persistent data storage
       - azan_logs:/var/log
-      - azan_config:/app/config
-      - ./adahn.config:/app/adahn.config:ro
-    depends_on:
-      - automated-azan
+      - azan_data:/app/data
+      
+      # Optional: Custom Media files (uncomment if using custom audio)
+      # - ./Media:/app/Media:ro
+    
+    # Health check for monitoring
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    command: python main.py
+    
+    # Container logging configuration
     logging:
       driver: "json-file"
       options:
@@ -46,9 +51,7 @@ services:
 volumes:
   azan_logs:
     driver: local
+  azan_data:
+    driver: local
   azan_config:
     driver: local
-
-networks:
-  default:
-    name: automated-azan-network

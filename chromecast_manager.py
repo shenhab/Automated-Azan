@@ -6,8 +6,7 @@ from typing import Optional
 import socket
 import threading
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# Get logger (don't configure here - let main.py handle it)
 
 class ChromecastManager:
     """
@@ -30,7 +29,33 @@ class ChromecastManager:
         self.browser = None
         self.listener = None
         self.discovery_complete = threading.Event()
+        
+        # Discover devices on initialization
         self.discover_devices()
+
+    def _get_media_url(self, filename):
+        """Get the appropriate media URL for the given filename."""
+        # Try to determine the correct base URL
+        import socket
+        
+        # Get the local IP address that the web interface is running on
+        try:
+            # Create a socket to determine local IP
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(0)
+            try:
+                # Connect to a non-existent IP to trigger routing
+                s.connect(('10.254.254.254', 1))
+                local_ip = s.getsockname()[0]
+            except Exception:
+                local_ip = '127.0.0.1'
+            finally:
+                s.close()
+        except Exception:
+            local_ip = '127.0.0.1'
+        
+        # Return the local media URL
+        return f"http://{local_ip}:5000/media/{filename}"
 
     def discover_devices(self, force_rediscovery=False):
         """Discovers all available Chromecast devices using CastBrowser with fallback."""
@@ -215,7 +240,14 @@ class ChromecastManager:
             
             # Cleanup the browser
             if browser:
-                browser.stop_discovery()
+                try:
+                    browser.stop_discovery()
+                except Exception as e:
+                    # Ignore common threading/loop errors during cleanup
+                    if "loop must be running" in str(e).lower():
+                        logging.debug(f"Ignoring Zeroconf cleanup error: {e}")
+                    else:
+                        logging.warning(f"Error during browser cleanup: {e}")
             
             if self.chromecasts:
                 logging.info(f"✅ Fallback method found {len(self.chromecasts)} Chromecast devices:")
@@ -466,10 +498,23 @@ class ChromecastManager:
                 return True
                 
             except Exception as e:
-                logging.warning(f"Connection attempt {attempt + 1} failed for {device.name}: {e}")
-                if attempt < max_retries - 1:
+                error_msg = str(e)
+                logging.warning(f"Connection attempt {attempt + 1} failed for {device.name}: {error_msg}")
+                
+                # If it's a threading error, clear the cached device and force rediscovery
+                if "threads can only be started once" in error_msg:
+                    logging.info("Threading error detected, clearing cached device")
+                    self.target_device = None
+                    if attempt < max_retries - 1:
+                        time.sleep(2)
+                        self.discover_devices(force_rediscovery=True)
+                        device = self._find_casting_candidate(retry_discovery=False)
+                        if not device:
+                            logging.error("Device no longer available after rediscovery")
+                            return False
+                elif attempt < max_retries - 1:
                     time.sleep(2)  # Wait before retry
-                    # Try rediscovering the device
+                    # Try rediscovering the device for other types of errors
                     self.discover_devices(force_rediscovery=True)
                     device = self._find_casting_candidate(retry_discovery=False)
                     if not device:
@@ -479,15 +524,21 @@ class ChromecastManager:
         logging.error(f"Failed to connect to {device.name} after {max_retries} attempts")
         return False
 
-    def play_url_on_cast(self, url, max_retries=2):
+    def play_url_on_cast(self, url, max_retries=2, preserve_target=False):
         """
         Plays an MP3 URL on the selected Chromecast device with robust error handling.
 
         :param url: The media URL to play.
         :param max_retries: Maximum number of retries for playback
+        :param preserve_target: If True, don't clear target_device on retry (for specific device testing)
         """
         for retry in range(max_retries + 1):
-            target_device = self._find_casting_candidate()
+            # Use existing target device if set, otherwise find one
+            if hasattr(self, 'target_device') and self.target_device:
+                target_device = self.target_device
+                logging.debug("Using pre-set target device for playback")
+            else:
+                target_device = self._find_casting_candidate()
 
             if not target_device:
                 logging.error("No available Chromecast device to play the media.")
@@ -508,7 +559,8 @@ class ChromecastManager:
 
                 # Check if a media session is already active before stopping
                 try:
-                    media_controller.update_status(blocking=True, timeout=5)
+                    media_controller.update_status()
+                    time.sleep(1)  # Give time for status update
                     if media_controller.status.content_id:
                         logging.info("Stopping previous media session...")
                         media_controller.stop()
@@ -518,6 +570,9 @@ class ChromecastManager:
 
                 # Send the media play request
                 logging.info(f"Streaming {url} on {target_device.name}...")
+                logging.debug(f"Device details - Host: {getattr(target_device, 'host', 'unknown')}, "
+                            f"Port: {getattr(target_device, 'port', 'unknown')}, "
+                            f"Model: {getattr(target_device, 'model_name', 'unknown')}")
                 media_controller.play_media(url, "audio/mp3")
 
                 # Wait for Chromecast to fully load the media with better error handling
@@ -529,8 +584,11 @@ class ChromecastManager:
                 else:
                     logging.warning(f"Media failed to load on attempt {retry + 1}")
                     if retry < max_retries:
-                        logging.info("Retrying with fresh device discovery...")
-                        self.target_device = None  # Clear cached device
+                        if preserve_target:
+                            logging.info("Retrying with same target device...")
+                        else:
+                            logging.info("Retrying with fresh device discovery...")
+                            self.target_device = None  # Clear cached device
                         time.sleep(2)
                         continue
                     else:
@@ -540,7 +598,8 @@ class ChromecastManager:
             except Exception as e:
                 logging.error(f"Error during playback attempt {retry + 1}: {e}")
                 if retry < max_retries:
-                    self.target_device = None  # Clear cached device on error
+                    if not preserve_target:
+                        self.target_device = None  # Clear cached device on error
                     time.sleep(2)
                     continue
                 else:
@@ -562,7 +621,8 @@ class ChromecastManager:
 
         while attempts < max_attempts:
             try:
-                media_controller.update_status(blocking=True, timeout=3)
+                media_controller.update_status()
+                time.sleep(0.5)  # Give time for status update
 
                 # Debugging: Show player state
                 logging.debug(f"Attempt {attempts+1}: Player State - {media_controller.status.player_state}")
@@ -602,7 +662,8 @@ class ChromecastManager:
         
     def start_adahn_alfajr(self):
         """Start Fajr Adhan with error handling."""
-        adahn_url = "https://www.gurutux.com/media/adhan_al_fajr.mp3"
+        # Use local media served by Flask web interface
+        adahn_url = self._get_media_url("media_adhan_al_fajr.mp3")
         success = self.play_url_on_cast(adahn_url)
         if not success:
             logging.error("Failed to play Fajr Adhan")
@@ -610,7 +671,8 @@ class ChromecastManager:
     
     def start_adahn(self):
         """Start regular Adhan with error handling."""
-        adahn_url = "https://www.gurutux.com/media/Athan.mp3"
+        # Use local media served by Flask web interface
+        adahn_url = self._get_media_url("media_Athan.mp3")
         success = self.play_url_on_cast(adahn_url)
         if not success:
             logging.error("Failed to play Adhan")

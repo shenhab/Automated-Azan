@@ -7,8 +7,7 @@ from dateutil import tz
 from bs4 import BeautifulSoup
 import re
 
-# Configure logging with debug level
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# Get logger (don't configure here - let main.py handle it)
 
 
 class PrayerTimesFetcher:
@@ -107,8 +106,6 @@ class PrayerTimesFetcher:
         if location not in ["naas", "icci"]:
             logging.error("Invalid location provided: %s", location)
             raise ValueError("Invalid location. Choose either 'naas' or 'icci'.")
-
-        logging.info("Fetching prayer times for %s", location)
 
         if self._is_new_month() or force_download:
             logging.info("New month detected or force download requested. Downloading updated timetables.")

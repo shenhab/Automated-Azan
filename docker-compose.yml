@@ -2,47 +2,63 @@ version: '3.8'
 
 services:
   automated-azan:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    image: automated-azan:latest
     container_name: automated-azan
-    # Use host network for Chromecast discovery
-    network_mode: host
     restart: unless-stopped
+    
+    # REQUIRED: Use host network for Chromecast discovery
+    # Chromecast devices need to be discoverable on the local network
+    network_mode: host
+    
+    # Environment variables
+    environment:
+      - LOG_FILE=/var/log/azan_service.log
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC  # Change to your timezone (e.g., Europe/Dublin, America/New_York)
+    
+    # Volume mounts
     volumes:
-      # Mount config file
+      # Configuration - using volume for better security and persistence
+      - azan_config:/app/config
+      
+      # Configuration file (for initial setup) - read-only is secure
       - ./adahn.config:/app/adahn.config:ro
-      # Mount for persistent data (prayer timetables)
-      - ./data:/app/data
-      # Mount logs to host for easier access
-      - ./logs:/var/log
-    environment:
-      # Set log file to mounted volume
-      - LOG_FILE=/var/log/azan_service.log
+      
+      # Persistent data storage
+      - azan_logs:/var/log
+      - azan_data:/app/data
+      
+      # Optional: Custom Media files (uncomment if you want to use custom audio)
+      # - ./Media:/app/Media:ro
+      
+      # Optional: Custom templates (uncomment if you want to customize the web UI)
+      # - ./templates:/app/templates:ro
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    # Command to run (starts both prayer service and web interface)
     command: python main.py
-    healthcheck:
-      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/var/log/azan_service.log') else 1)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
-  web-interface:
-    build: .
-    container_name: automated-azan-web
-    network_mode: host
-    restart: unless-stopped
-    environment:
-      - FLASK_ENV=production
-      - LOG_FILE=/var/log/azan_service.log
-    volumes:
-      - ./data:/app/data
-      - ./logs:/var/log
-      - ./adahn.config:/app/adahn.config
-    ports:
-      - "5000:5000"
-    command: python web_interface.py
-    depends_on:
-      - automated-azan
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+# Named volumes for persistent data
+volumes:
+  azan_logs:
+    driver: local
+  azan_data:
+    driver: local
+  azan_config:
+    driver: local
+
+# Networks (host mode is used, but this is here for documentation)
+# networks:
+#   default:
+#     # When using host networking, containers share the host's network stack
+#     # This is required for Chromecast discovery but reduces isolation

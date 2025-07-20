@@ -1,0 +1,416 @@
+{% extends "base.html" %}
+
+{% block title %}Test Adhan - Automated Azan{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2"><i class="fas fa-play-circle islamic-icon me-2"></i>Test Adhan Playback</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <button class="btn btn-outline-secondary" onclick="discoverDevices()">
+                <i class="fas fa-search me-1"></i>
+                <span class="discovery-spinner spinner-border spinner-border-sm me-1" role="status"></span>
+                Discover Devices
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Media Information Card -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card islamic-card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-music me-2"></i>Available Media Files
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="media-info" class="row">
+                    <div class="col-12">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading media info...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Global Controls Card -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card islamic-card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-broadcast-tower me-2"></i>Global Controls
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6 class="text-muted mb-3">Test on Default Device</h6>
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-primary" onclick="testGlobalAdhan('regular')">
+                                <i class="fas fa-play me-1"></i>Test Regular Adhan
+                            </button>
+                            <button class="btn btn-warning" onclick="testGlobalAdhan('fajr')">
+                                <i class="fas fa-sun me-1"></i>Test Fajr Adhan
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="text-muted mb-3">Global Actions</h6>
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-danger" onclick="stopAllPlayback()">
+                                <i class="fas fa-stop me-1"></i>Stop All Playback
+                            </button>
+                            <button class="btn btn-info" onclick="refreshDevices()">
+                                <i class="fas fa-sync me-1"></i>Refresh Device List
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Device Grid Card -->
+<div class="row">
+    <div class="col-12">
+        <div class="card islamic-card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-cast me-2"></i>Device-Specific Testing
+                    <span id="device-count" class="badge bg-secondary ms-2">0 devices</span>
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="device-grid" class="row g-3">
+                    <div class="col-12 text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading devices...</span>
+                        </div>
+                        <p class="mt-2 text-muted">Discovering Chromecast devices...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Status Messages -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div id="status-messages"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Test page specific JavaScript
+    let devices = [];
+    
+    // Initialize page
+    document.addEventListener('DOMContentLoaded', function() {
+        loadMediaInfo();
+        discoverDevices();
+    });
+    
+    // Socket.IO event handlers for real-time updates
+    socket.on('device_discovered', function(data) {
+        updateDeviceGrid(data.devices);
+    });
+    
+    socket.on('test_result', function(data) {
+        showTestResult(data);
+    });
+    
+    socket.on('playback_status', function(data) {
+        updateDeviceStatus(data);
+    });
+    
+    // Load media information
+    function loadMediaInfo() {
+        fetch('/api/media-info')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayMediaInfo(data.media_files);
+                } else {
+                    document.getElementById('media-info').innerHTML = `
+                        <div class="col-12">
+                            <div class="alert alert-warning">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                Error loading media info: ${data.error}
+                            </div>
+                        </div>
+                    `;
+                }
+            })
+            .catch(error => {
+                console.error('Error loading media info:', error);
+                document.getElementById('media-info').innerHTML = `
+                    <div class="col-12">
+                        <div class="alert alert-danger">
+                            <i class="fas fa-times me-2"></i>
+                            Failed to load media information
+                        </div>
+                    </div>
+                `;
+            });
+    }
+    
+    function displayMediaInfo(mediaFiles) {
+        const mediaInfoContainer = document.getElementById('media-info');
+        let html = '';
+        
+        mediaFiles.forEach(file => {
+            const statusClass = file.exists ? 'text-success' : 'text-danger';
+            const statusIcon = file.exists ? 'fas fa-check-circle' : 'fas fa-times-circle';
+            const sizeText = file.exists ? `(${(file.size / 1024 / 1024).toFixed(2)} MB)` : '';
+            
+            html += `
+                <div class="col-md-6">
+                    <div class="d-flex align-items-center">
+                        <i class="${statusIcon} ${statusClass} me-2"></i>
+                        <div>
+                            <strong>${file.filename}</strong> ${sizeText}<br>
+                            <small class="text-muted">${file.exists ? 'Available' : 'Missing'}</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        mediaInfoContainer.innerHTML = html;
+    }
+    
+    // Discover Chromecast devices
+    function discoverDevices() {
+        const spinner = document.querySelector('.discovery-spinner');
+        spinner.style.display = 'inline-block';
+        
+        fetch('/api/discover-chromecasts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            spinner.style.display = 'none';
+            if (data.success) {
+                devices = data.devices;
+                updateDeviceGrid(devices);
+                showAlert(`Discovered ${devices.length} Chromecast devices`, 'success');
+            } else {
+                showAlert(`Error discovering devices: ${data.error}`, 'danger');
+            }
+        })
+        .catch(error => {
+            spinner.style.display = 'none';
+            console.error('Error discovering devices:', error);
+            showAlert('Failed to discover devices', 'danger');
+        });
+    }
+    
+    // Update device grid
+    function updateDeviceGrid(deviceList) {
+        const deviceGrid = document.getElementById('device-grid');
+        const deviceCount = document.getElementById('device-count');
+        
+        deviceCount.textContent = `${deviceList.length} devices`;
+        
+        if (deviceList.length === 0) {
+            deviceGrid.innerHTML = `
+                <div class="col-12 text-center">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        No Chromecast devices found. Make sure they are on the same network.
+                    </div>
+                </div>
+            `;
+            return;
+        }
+        
+        let html = '';
+        deviceList.forEach(device => {
+            const iconClass = getDeviceIcon(device.model_name);
+            html += `
+                <div class="col-md-6 col-lg-4">
+                    <div class="card h-100 device-card" data-device-id="${device.uuid}">
+                        <div class="card-body">
+                            <div class="d-flex align-items-start mb-3">
+                                <i class="${iconClass} fa-2x text-primary me-3"></i>
+                                <div class="flex-grow-1">
+                                    <h6 class="card-title mb-1">${device.name}</h6>
+                                    <small class="text-muted">${device.model_name}</small><br>
+                                    <small class="text-muted">${device.host}:${device.port}</small>
+                                </div>
+                                <span class="badge bg-secondary device-status" id="status-${device.uuid}">Ready</span>
+                            </div>
+                            
+                            <div class="d-grid gap-2">
+                                <button class="btn btn-primary btn-sm" onclick="testDeviceAdhan('${device.uuid}', '${device.name}', 'regular')">
+                                    <i class="fas fa-play me-1"></i>Regular Adhan
+                                </button>
+                                <button class="btn btn-warning btn-sm" onclick="testDeviceAdhan('${device.uuid}', '${device.name}', 'fajr')">
+                                    <i class="fas fa-sun me-1"></i>Fajr Adhan
+                                </button>
+                                <button class="btn btn-danger btn-sm" onclick="stopDevicePlayback('${device.uuid}', '${device.name}')">
+                                    <i class="fas fa-stop me-1"></i>Stop
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        deviceGrid.innerHTML = html;
+    }
+    
+    // Get appropriate icon for device type
+    function getDeviceIcon(modelName) {
+        if (modelName.includes('Group')) return 'fas fa-layer-group';
+        if (modelName.includes('TV') || modelName.includes('SHIELD')) return 'fas fa-tv';
+        if (modelName.includes('Hub') || modelName.includes('display')) return 'fas fa-tablet-alt';
+        if (modelName.includes('Mini') || modelName.includes('speaker')) return 'fas fa-volume-up';
+        if (modelName.includes('Audio') || modelName.includes('Bar')) return 'fas fa-speaker';
+        if (modelName.includes('Chromecast')) return 'fab fa-chromecast';
+        return 'fas fa-cast';
+    }
+    
+    // Test global adhan (default device)
+    function testGlobalAdhan(type) {
+        const button = event.target;
+        const originalText = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Testing...';
+        
+        fetch('/api/test-adhan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: type })
+        })
+        .then(response => response.json())
+        .then(data => {
+            button.disabled = false;
+            button.innerHTML = originalText;
+            
+            if (data.success) {
+                showAlert(`${type === 'fajr' ? 'Fajr' : 'Regular'} Adhan test started successfully`, 'success');
+            } else {
+                showAlert(`Test failed: ${data.error}`, 'danger');
+            }
+        })
+        .catch(error => {
+            button.disabled = false;
+            button.innerHTML = originalText;
+            console.error('Error testing adhan:', error);
+            showAlert('Test request failed', 'danger');
+        });
+    }
+    
+    // Test device-specific adhan
+    function testDeviceAdhan(deviceId, deviceName, type) {
+        const statusBadge = document.getElementById(`status-${deviceId}`);
+        const originalStatus = statusBadge.textContent;
+        statusBadge.textContent = 'Testing...';
+        statusBadge.className = 'badge bg-warning';
+        
+        fetch('/api/test-device-adhan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_id: deviceId,
+                device_name: deviceName,
+                type: type
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                statusBadge.textContent = 'Playing';
+                statusBadge.className = 'badge bg-success';
+                showAlert(`${type === 'fajr' ? 'Fajr' : 'Regular'} Adhan started on ${deviceName}`, 'success');
+            } else {
+                statusBadge.textContent = 'Failed';
+                statusBadge.className = 'badge bg-danger';
+                showAlert(`Test failed on ${deviceName}: ${data.error}`, 'danger');
+            }
+        })
+        .catch(error => {
+            statusBadge.textContent = 'Error';
+            statusBadge.className = 'badge bg-danger';
+            console.error('Error testing device adhan:', error);
+            showAlert(`Test request failed for ${deviceName}`, 'danger');
+        });
+    }
+    
+    // Stop playback on specific device
+    function stopDevicePlayback(deviceId, deviceName) {
+        const statusBadge = document.getElementById(`status-${deviceId}`);
+        statusBadge.textContent = 'Stopping...';
+        statusBadge.className = 'badge bg-warning';
+        
+        fetch('/api/stop-device-playback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_id: deviceId,
+                device_name: deviceName
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                statusBadge.textContent = 'Ready';
+                statusBadge.className = 'badge bg-secondary';
+                showAlert(`Playback stopped on ${deviceName}`, 'info');
+            } else {
+                statusBadge.textContent = 'Error';
+                statusBadge.className = 'badge bg-danger';
+                showAlert(`Stop failed on ${deviceName}: ${data.error}`, 'warning');
+            }
+        })
+        .catch(error => {
+            statusBadge.textContent = 'Error';
+            statusBadge.className = 'badge bg-danger';
+            console.error('Error stopping playback:', error);
+            showAlert(`Stop request failed for ${deviceName}`, 'danger');
+        });
+    }
+    
+    // Stop all playback
+    function stopAllPlayback() {
+        devices.forEach(device => {
+            stopDevicePlayback(device.uuid, device.name);
+        });
+    }
+    
+    // Refresh device list
+    function refreshDevices() {
+        discoverDevices();
+    }
+    
+    // Show test result
+    function showTestResult(data) {
+        const alertType = data.success ? 'success' : 'danger';
+        showAlert(data.message, alertType);
+    }
+    
+    // Update device status
+    function updateDeviceStatus(data) {
+        if (data.device_id) {
+            const statusBadge = document.getElementById(`status-${data.device_id}`);
+            if (statusBadge) {
+                statusBadge.textContent = data.status;
+                statusBadge.className = `badge bg-${data.status_class || 'secondary'}`;
+            }
+        }
+    }
+</script>
+{% endblock %}
