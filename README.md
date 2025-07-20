@@ -6,7 +6,10 @@
 ✅ Supports Google Home speakers and speaker groups via `pychromecast`  
 ✅ Multiple prayer time sources (ICCI and Naas mosque timetables)  
 ✅ Special handling for Fajr prayer with optional pre-Fajr Quran radio  
-✅ Runs continuously as a reliable background service  
+- **adding web interface**
+- **using CastBrowser**
+- **adding portainer compatability**
+- **correcting the web interface**
 ✅ Automatic time synchronization via NTP  
 ✅ Comprehensive logging for debugging and monitoring  
 ✅ **Docker support for easy deployment**
