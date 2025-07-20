@@ -165,9 +165,10 @@ class ChromecastManager:
                 return False
                     
         except Exception as e:
-            logging.debug(f"CastBrowser hybrid discovery failed: {e}")
-            self.chromecasts.clear()
+            logging.debug(f"Device availability check failed for {cast_info['name']}: {e}")
             return False
+        finally:
+            sock.close()
 
     def _poll_browser_devices(self):
         """Poll browser's internal device storage (fallback when callbacks don't work)."""
