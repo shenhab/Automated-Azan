@@ -1,0 +1,47 @@
+# Automated Azan Configuration File
+# 
+# This file configures your automated prayer time announcements.
+# Edit the values below according to your setup.
+
+[Settings]
+# ===== SPEAKER CONFIGURATION =====
+# Set the name of your Chromecast speaker group
+# 
+# HOW TO SET UP:
+# 1. Open Google Home app on your phone
+# 2. Create a speaker group with your desired speakers
+# 3. Name it something like "Prayer Speakers" or "Adhan"
+# 4. Enter that exact name below
+#
+# Examples:
+#   speakers-group-name = Adahn
+#   speakers-group-name = Prayer Speakers
+#   speakers-group-name = Living Room Speaker
+#
+speakers-group-name = Adahn
+
+# ===== LOCATION FOR PRAYER TIMES =====
+# Choose your location for prayer time calculation
+# 
+# Available options:
+#   naas - Dublin/Naas, Ireland prayer times
+#   icci - ICCI (Islamic Cultural Centre of Ireland) prayer times
+#
+# Uncomment ONE location and comment the other:
+location = naas
+# location = icci
+
+# ===== ADVANCED SETTINGS (Optional) =====
+# These settings have sensible defaults but can be customized
+
+# Web interface port (default: 5000)
+# web_port = 5000
+
+# Prayer time checking interval in seconds (default: 60)
+# check_interval = 60
+
+# Volume level for announcements (0-100, default: 80)
+# volume = 80
+
+# Enable Fajr-specific Adhan (default: true)
+# use_fajr_adhan = true

@@ -1,238 +1,234 @@
-# **Automated Azan ⏰🕌**  
-*A Python-based tool to automate Azan (Islamic call to prayer) notifications using Google Home devices.*
 
-## **📌 Features**
-✅ Plays Azan automatically based on your configured location and prayer times  
-✅ Supports Google Home speakers and speaker groups via `pychromecast`  
-✅ Multiple prayer time sources (ICCI and Naas mosque timetables)  
-✅ Special handling for Fajr prayer with optional pre-Fajr Quran radio  
-- **adding web interface**
-- **using CastBrowser**
-- **adding portainer compatability**
-- **correcting the web interface**
-✅ Automatic time synchronization via NTP  
-✅ Comprehensive logging for debugging and monitoring  
-✅ **Docker support for easy deployment**
+# **Automated Azan ⏰🕌**
+*Automated Islamic prayer announcements on Chromecast/Google Home speakers with professional web management interface*
 
-## **🧩 Components**
-The application consists of several components working together:
+## **🌟 Features**
+✅ **Automated Prayer Scheduling** - Plays Azan automatically based on location and prayer times  
+✅ **Chromecast Integration** - Works with Google Home speakers and speaker groups  
+✅ **Professional Web Interface** - Complete management dashboard with real-time updates  
+✅ **Device Testing** - Test Adhan playbook on any discovered speaker  
+✅ **Multiple Prayer Sources** - ICCI and Naas mosque timetables  
+✅ **Special Fajr Handling** - Different Adhan for Fajr with optional pre-prayer Quran  
+✅ **Production Ready** - Docker deployment with health checks and monitoring  
+✅ **Real-time Updates** - Socket.io integration for live status updates  
 
-1. **`main.py`**: Main application entry point with the AthanScheduler class
-2. **`prayer_times_fetcher.py`**: Fetches prayer times from different sources
-3. **`chromecast_manager.py`**: Manages Google Home integration and audio playback
-4. **`adahn.config`**: Configuration file for specifying location and device settings
-5. **`azan.service`**: SystemD service file for running as a background service
-6. **`.env`**: Optional environment file for Twilio API credentials
-7. **`Dockerfile`** & **`docker-compose.yml`**: Docker deployment configuration
+## **🚀 Quick Start**
 
-## **🚀 Installation & Setup**
+### **🐳 Production Deployment (Docker)**
+*Recommended for production use - single container with everything included*
 
-### **� Prerequisites**
-- **Python 3.9+** (recommended: Python 3.11)
-- **pipenv** for dependency management
-- **Chromecast/Google Home device** on the same network
-- **Docker** (for containerized deployment)
-
-### **🐍 Option A: Python Development Setup (pipenv)**
-
-For development or local testing:
 
 ```bash
-# Clone the repository
+# Clone and configure
 git clone https://github.com/shenhab/Automated-Azan.git
 cd Automated-Azan
-
-# Install pipenv if not already installed
-pip install pipenv
-
-# Install dependencies
-pipenv install
-
-# Configure your settings
 cp adahn.config.example adahn.config
-nano adahn.config
+nano adahn.config  # Configure your location and speaker name
 
-# Run the application
-pipenv run python main.py
-
-# Or activate the virtual environment
-pipenv shell
-python main.py
+# Deploy with Docker
+make deploy
 ```
 
-#### **Quick Setup Script**
+**That's it!** Your Automated Azan system is now running:
+- 🕌 **Prayer announcements**: Automatically scheduled based on your location
+- 🌐 **Web interface**: http://localhost:5000
+- 🔍 **Device management**: http://localhost:5000/chromecasts
+- 🧪 **Audio testing**: http://localhost:5000/test
+
+### **🐍 Development Setup (pipenv)**
+*For developers and local testing*
+
 ```bash
-# Run the automated setup script
-./setup-dev.sh
-```
-
-
-Docker provides an isolated environment with all dependencies pre-configured.
-
-#### **Prerequisites**
-- **Docker** and **Docker Compose** installed ([Installation Guide](https://docs.docker.com/get-docker/))
-- **Google Home/Chromecast device** on the same network
-
-#### **Quick Start**
-```bash
-# Clone the repository
+# Setup development environment  
 git clone https://github.com/shenhab/Automated-Azan.git
 cd Automated-Azan
-
-# Configure your location and speaker in adahn.config
-nano adahn.config
-
-# Build and run with Docker Compose
-docker-compose up -d
+make setup     # Installs pipenv and dependencies
+make run       # Run prayer scheduler
+# OR
+make web       # Run web interface only
 ```
 
-#### **Docker Configuration**
-The Docker setup includes:
-- All system dependencies (Chrome, network tools)
-- Proper network configuration for Chromecast discovery
-- Persistent volumes for logs and data
-- Environment variable support
+## **⚙️ Configuration**
 
-**Important Docker Notes:**
-- The container runs with `network_mode: host` to enable Chromecast discovery
-- Logs are mounted to `./logs/` directory on your host
-- Prayer timetable data is stored in `./data/` directory
-
-#### **Docker Commands**
-```bash
-# View logs
-docker-compose logs -f
-
-# Stop the service
-docker-compose down
-
-# Rebuild after changes
-docker-compose up --build -d
-
-# Check container status
-docker-compose ps
-```
-
-### **📦 Option B: Manual Installation**
-### **1️⃣ Prerequisites**
-Before you begin, ensure you have the following installed:
-
-- **Python 3.8+** ([Installation Guide](https://www.python.org/downloads/))
-- **Pipenv** for dependency management ([Installation Guide](https://pipenv.pypa.io/en/latest/))
-- **Git** for cloning the repository ([Download Git](https://git-scm.com/))
-- **Google Home/Chromecast device** on the same network
-- **Twilio account** (optional, for WhatsApp notifications)
-
-### **2️⃣ Installation Steps**
-Run the following commands in your terminal:
-
-```bash
-# Clone the repository
-git clone https://github.com/shenhab/Automated-Azan.git
-
-# Navigate to the project directory
-cd Automated-Azan
-
-# Install dependencies using Pipenv
-pipenv install
-```
-
-### **3️⃣ Configure the Application**
-
-#### Basic Configuration
-Edit the `adahn.config` file to set your speaker group name and preferred prayer time source:
+Edit `adahn.config` with your settings:
 
 ```ini
 [Settings]
-speakers-group-name = YourGoogleSpeakerName
-location = naas  # Options: naas, icci
+# Your Google Home speaker or speaker group name (case-sensitive)
+speakers-group-name = Living Room speakers
+
+# Prayer time location
+location = Leeds, UK
+
+# Prayer time source (icci or naas)
+prayer_source = icci
+
+# Enable pre-Fajr Quran (45 minutes before Fajr)
+pre_fajr_enabled = True
 ```
+## **🎛️ Web Interface**
 
-### **4️⃣ Run the Application**
-You can run the application in two ways:
+The integrated web dashboard provides:
 
-#### a) Direct Execution
-Start the application directly:
+- **📊 Dashboard**: Live status, next prayer info, and system overview
+- **� Device Management**: Discover and manage Chromecast speakers  
+- **🧪 Audio Testing**: Test Adhan playbook on any speaker
+- **📋 Live Logs**: Real-time application logs with filtering
+- **⚙️ Settings**: Configuration management via web interface
+- **📱 Responsive Design**: Mobile-friendly Bootstrap interface
 
+## **📦 Deployment Options**
+
+### **Option 1: Docker Deployment (Recommended)**
+
+**Single Command Production Deployment:**
 ```bash
-pipenv run python main.py
+make deploy
 ```
 
-#### b) As a System Service (Recommended)
-For continuous operation, install as a systemd service:
-
+**Advanced Docker Commands:**
 ```bash
-# Copy service file (may need sudo)
-sudo cp azan.service /etc/systemd/system/
-
-# Enable and start the service
-sudo systemctl enable azan.service
-sudo systemctl start azan.service
-
-# Check service status
-sudo systemctl status azan.service
+make docker-build     # Build container
+make docker-run       # Start container
+make docker-logs      # View logs
+make docker-stop      # Stop container
+make deploy-check     # Validate configuration
 ```
 
-## **🔍 Prayer Time Sources**
-The application supports multiple prayer time sources:
+**Container Features:**
+- ✅ Single unified container (Azan + Web interface)
+- ✅ Host network access for Chromecast discovery
+- ✅ Persistent volumes for configuration and logs
+- ✅ Health checks and automatic restart
+- ✅ Security hardening with non-root user
+- ✅ Timezone support (defaults to Europe/Dublin)
 
-### **ICCI (Islamic Cultural Centre of Ireland)**
-Uses the official ICCI API for Dublin prayer times.
+### **Option 2: Development with pipenv**
 
-### **Naas Masjid**
-Fetches prayer times from Naas Masjid's Mawaqit page.
+**Quick Development Setup:**
+```bash
+make setup    # Setup environment
+make install  # Install dependencies  
+make test     # Run tests
+make run      # Start main application
+make web      # Start web interface
+```
 
-## **⚙️ Advanced Configuration**
+**Development Commands:**
+```bash
+make shell           # Activate pipenv shell
+make update          # Update dependencies
+make test-chromecast # Test device discovery
+make clean           # Clean temporary files
+```
 
-### **Prayer Time Handling**
-- Fajr prayers play a special Fajr adhan sound
-- 45 minutes before Fajr, Quran radio starts playing (can be modified in code)
+## **🔍 System Requirements**
 
-### **Logs**
-Logs are stored in `/var/log/azan_service.log` and include:
-- Prayer time fetching status
-- Scheduled prayer announcements
-- Connection issues with Google Home devices
-- WhatsApp notification status
+**For Docker Deployment:**
+- Docker & Docker Compose
+- Network access to Chromecast devices
+
+**For Development:**
+- Python 3.9+ (recommended: Python 3.11)
+- pipenv
+- Network access to Chromecast devices
+
+## **📖 How It Works**
+
+1. **Prayer Time Fetching**: Automatically downloads prayer schedules from ICCI or Naas sources
+2. **Scheduling**: Creates cron-like schedule for each prayer throughout the day
+3. **Device Discovery**: Finds your Chromecast/Google Home speakers via network scan
+4. **Audio Playback**: Streams appropriate Adhan audio files to selected speakers
+5. **Web Management**: Provides real-time monitoring and manual testing capabilities
+6. **Logging**: Comprehensive logging for debugging and monitoring
+
+## **🛠️ Available Commands**
+
+### **Production Deployment**
+```bash
+make deploy           # Full Docker deployment
+make deploy-check     # Validate configuration
+make docker-logs      # View container logs
+make docker-stop      # Stop deployment
+```
+
+### **Development**
+```bash
+make setup           # Complete development setup
+make run             # Run prayer scheduler
+make web             # Run web interface
+make test            # Run all tests
+make test-chromecast # Test device discovery
+```
+
+### **Utilities**
+```bash
+make help            # Show all available commands
+make clean           # Clean temporary files
+make check           # Check system requirements
+```
 
 ## **🔧 Troubleshooting**
 
-### **Google Home Connection Issues**
-- Ensure your Google Home device is on the same network as the server
-- Verify the device name in `adahn.config` matches exactly
-- Check firewall settings to allow mDNS discovery
+### **Chromecast Discovery Issues**
+- Ensure devices are on same network
+- Verify speaker names match exactly (case-sensitive)
+- Use web interface to test device discovery: http://localhost:5000/chromecasts
 
-### **Missing Prayer Times**
-- Check internet connectivity to prayer time sources
-- Verify that the timetable JSON files exist and are valid
-- Force a refresh by setting `force_download=True` in the code
+### **Docker Deployment Issues**
+```bash
+make deploy-check    # Validate all requirements
+make docker-logs     # Check container logs
+docker-compose ps    # Check container status
+```
 
-### **NTP Synchronization Problems**
-- Ensure the system has internet access to reach NTP servers
-- Check the system's time zone configuration
-- Run `timedatectl status` to verify NTP synchronization
+### **Development Issues**
+```bash
+make test-chromecast # Test device discovery
+make test           # Run full test suite
+pipenv run python web_interface.py  # Test web interface directly
+```
 
-### **Service Not Starting**
-- Check systemd logs with `journalctl -u azan.service`
-- Verify Python and dependency installation
-- Ensure proper file permissions
+## **📁 Project Structure**
 
-## **💡 Future Improvements**
-- Web interface for easy configuration
-- Support for more prayer time sources
-- Customizable adhan sounds
-- Mobile app integration
-- Multiple language support
-- Prayer time adjustments and calibration
+```
+Automated-Azan/
+├── main.py                 # Main prayer scheduler
+├── web_interface.py        # Web dashboard
+├── chromecast_manager.py   # Device management
+├── prayer_times_fetcher.py # Prayer time sources
+├── adahn.config           # Configuration file
+├── docker-compose.yml     # Production deployment
+├── Makefile              # Build and deployment commands
+├── templates/            # Web interface templates
+├── Media/               # Adhan audio files
+└── logs/                # Application logs
+```
+
+## **🔐 Security**
+
+- Docker containers run as non-root user
+- Configuration files mounted read-only where possible
+- Persistent volumes for logs and data
+- Health checks for monitoring
+- No external network requirements (except for prayer time updates)
+
+## **🎯 Production Ready**
+
+This system is designed for reliable 24/7 operation:
+- ✅ Automatic restart on failure
+- ✅ Persistent configuration and logs
+- ✅ Health monitoring
+- ✅ Comprehensive error handling
+- ✅ Time synchronization
+- ✅ Professional web interface
 
 ## **📜 License**
-This project is licensed under the **MIT License**. Feel free to use, modify, and contribute!
+MIT License - Feel free to use and modify
 
 ## **🤝 Contributing**
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions welcome! Please submit pull requests for improvements.
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+---
+
+**🕌 May this tool help you maintain your prayers with ease and consistency.**

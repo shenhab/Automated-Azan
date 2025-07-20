@@ -1,17 +1,31 @@
+# Python cache and virtual environments
 .venv
 __pycache__
 *.pyc
-*.log
-.git
-.idea
-.env
-logs/*
-data/*
-!data/.gitkeep
-!logs/.gitkeep
 .pytest_cache
 *.egg-info
 .coverage
 htmlcov/
+
+# Development files
+.git
+.idea
+.env
 .DS_Store
+
+# Runtime data (will be mounted as volumes)
+logs/*
+!logs/.gitkeep
+data/*
+!data/.gitkeep
+
+# Don't ignore Media files - they should be included in the container
+# Media/
+
+# Don't ignore config template - it should be included as example
+# adahn.config
+
+# Documentation (keep in container for reference)
+# *.md
+
 

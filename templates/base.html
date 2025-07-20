@@ -95,6 +95,27 @@
         .islamic-icon {
             color: var(--islamic-green);
         }
+        
+        /* Test page specific styles */
+        .device-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: 1px solid #dee2e6;
+        }
+        
+        .device-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            border-color: var(--islamic-green);
+        }
+        
+        .device-status {
+            font-size: 0.75em;
+        }
+        
+        .discovery-spinner {
+            display: none;
+        }
+
     </style>
 </head>
 <body>
@@ -135,6 +156,12 @@
                             </a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'test' %}active{% endif %}" href="/test">
+                                <i class="fas fa-play-circle me-2"></i>
+                                Test Adhan
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'settings' %}active{% endif %}" href="/settings">
                                 <i class="fas fa-cog me-2"></i>
                                 Settings
@@ -163,7 +190,7 @@
                         </div>
                         <div class="mb-2">
                             <small class="text-muted">Next Prayer:</small><br>
-                            <span class="fw-bold text-warning" id="sidebar-next-prayer">Loading...</span>
+                            <span class="fw-bold text-warning" id="sidebar-next-prayer">{{ next_prayer_info.name }} at {{ next_prayer_info.time }}</span>
                         </div>
                     </div>
                 </div>
@@ -216,6 +243,50 @@
                 }
             }
         });
+        
+        // Update prayer times periodically
+        function updatePrayerTimes() {
+            fetch('/api/prayer-times')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.prayer_times) {
+                        updateNextPrayer(data.prayer_times);
+                    }
+                })
+                .catch(error => console.debug('Error fetching prayer times:', error));
+        }
+        
+        function updateNextPrayer(prayerTimes) {
+            if (!prayerTimes || Object.keys(prayerTimes).length === 0) {
+                return;
+            }
+            
+            const now = new Date();
+            const currentTime = now.toTimeString().slice(0, 5); // HH:MM format
+            
+            const prayerOrder = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
+            let nextPrayer = null;
+            
+            for (const prayer of prayerOrder) {
+                if (prayerTimes[prayer] && currentTime < prayerTimes[prayer]) {
+                    nextPrayer = { name: prayer, time: prayerTimes[prayer] };
+                    break;
+                }
+            }
+            
+            if (!nextPrayer) {
+                // Next prayer is Fajr tomorrow
+                nextPrayer = { name: 'Fajr', time: prayerTimes.Fajr + ' (Tomorrow)' };
+            }
+            
+            const sidebarNextPrayer = document.getElementById('sidebar-next-prayer');
+            if (sidebarNextPrayer) {
+                sidebarNextPrayer.textContent = `${nextPrayer.name} at ${nextPrayer.time}`;
+            }
+        }
+        
+        // Update prayer times every minute
+        setInterval(updatePrayerTimes, 60000);
         
         // Utility functions
         function showAlert(message, type = 'info') {

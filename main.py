@@ -5,10 +5,13 @@ import logging
 import pychromecast
 import configparser
 import subprocess
+import threading
 from datetime import datetime, timedelta
 from dateutil import tz
 from prayer_times_fetcher import PrayerTimesFetcher  # Import the new class
 from chromecast_manager import ChromecastManager
+from web_interface import start_web_interface
+from time_sync import update_ntp_time
 import os
 from dotenv import load_dotenv
 
@@ -160,55 +163,11 @@ class AthanScheduler:
 
     def update_ntp_time(self):
         """
-        Updates the NTP time on the host and verifies synchronization.
+
+        Check and verify time synchronization using improved method
+
         """
-        logging.info("Updating NTP time on the host...")
-
-        try:
-            # Check if running in Docker container
-            if os.path.exists('/.dockerenv'):
-                logging.info("Running in Docker container, skipping NTP service restart")
-                return
-            
-            # Restart the NTP service
-            subprocess.run(["sudo", "systemctl", "restart", "systemd-timesyncd"], check=True)
-            time.sleep(2)  # Allow time to sync
-
-            # Check NTP synchronization status
-            result = subprocess.run(["timedatectl", "status"], capture_output=True, text=True, check=True)
-            logging.info("NTP status:\n%s", result.stdout)
-
-            if "synchronized: yes" in result.stdout.lower():
-                logging.info("✅ NTP time is properly synchronized.")
-            else:
-                logging.warning("⚠️ NTP time is not properly synchronized. Please check the configuration.")
-
-        except subprocess.CalledProcessError as e:
-            logging.error("❌ Error occurred while updating NTP: %s", e)
-
-
-    def run_scheduler(self):
-        """
-        Updates the NTP time on the host and verifies synchronization.
-        """
-        logging.info("Updating NTP time on the host...")
-
-        try:
-            # Restart the NTP service
-            subprocess.run(["sudo", "systemctl", "restart", "systemd-timesyncd"], check=True)
-            time.sleep(2)  # Allow time to sync
-
-            # Check NTP synchronization status
-            result = subprocess.run(["timedatectl", "status"], capture_output=True, text=True, check=True)
-            logging.info("NTP status:\n%s", result.stdout)
-
-            if "synchronized: yes" in result.stdout.lower():
-                logging.info("✅ NTP time is properly synchronized.")
-            else:
-                logging.warning("⚠️ NTP time is not properly synchronized. Please check the configuration.")
-
-        except subprocess.CalledProcessError as e:
-            logging.error("❌ Error occurred while updating NTP: %s", e)
+        return update_ntp_time()  # Use the new implementation from time_sync.py
 
 
     def run_scheduler(self):
@@ -303,7 +262,7 @@ class AthanScheduler:
         logging.info("Refreshing prayer times for a new day.")
         self.load_prayer_times()
         self.schedule_prayers()
-    
+
 
 if __name__ == "__main__":
     logging.info("Starting Adahn configuration loading...")
@@ -322,6 +281,11 @@ if __name__ == "__main__":
     try:
         scheduler = AthanScheduler(location=location, google_device=group_name)
         logging.info("AthanScheduler initialized successfully.")
+
+        # Start web interface in background thread with shared chromecast manager
+        web_thread = threading.Thread(target=start_web_interface, args=(scheduler.chromecast_manager,), daemon=True)
+        web_thread.start()
+        logging.info("Web interface started in background thread")
         
         scheduler.run_scheduler()
         logging.info("AthanScheduler started successfully.")
