@@ -63,7 +63,6 @@ python main.py
 ./setup-dev.sh
 ```
 
-### **�🐳 Option B: Docker Installation (Recommended for Production)**
 
 Docker provides an isolated environment with all dependencies pre-configured.
 

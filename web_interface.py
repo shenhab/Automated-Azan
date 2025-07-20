@@ -28,7 +28,6 @@ prayer_times = {}
 scheduler_status = {"running": False, "next_prayer": None, "last_update": None}
 
 # Use our working ChromecastManager instead of WebChromecastManager
-web_cast_manager = ChromecastManager()
 
 def load_config():
     """Load current configuration"""
@@ -322,7 +321,6 @@ def background_discovery():
                 logging.info(f"Background discovery found {len(devices)} devices")
             else:
                 logging.warning("Background discovery found no devices")
-                
             time.sleep(30)  # Refresh every 30 seconds
         except Exception as e:
             logging.error(f"Background discovery error: {e}")
