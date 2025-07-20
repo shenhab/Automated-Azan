@@ -13,7 +13,6 @@ import configparser
 import shutil
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory
-=
 from flask_socketio import SocketIO, emit
 import pychromecast
 from prayer_times_fetcher import PrayerTimesFetcher
