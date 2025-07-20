@@ -9,9 +9,11 @@ import json
 import time
 import logging
 import configparser
+
 import shutil
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory
+=
 from flask_socketio import SocketIO, emit
 import pychromecast
 from prayer_times_fetcher import PrayerTimesFetcher
@@ -27,6 +29,7 @@ discovered_devices = []
 current_config = {}
 prayer_times = {}
 scheduler_status = {"running": False, "next_prayer": None, "last_update": None}
+
 
 # Context processor to make config and prayer times available to all templates
 @app.context_processor
@@ -215,6 +218,7 @@ def settings():
 @app.route('/logs')
 def logs():
     """Logs viewer page"""
+
     load_config()
     return render_template('logs.html', config=current_config)
 
@@ -381,6 +385,7 @@ def api_save_config():
             'error': str(e)
         }), 500
 
+
 @app.route('/api/refresh-prayer-times', methods=['POST'])
 def api_refresh_prayer_times():
     """API endpoint to refresh prayer times"""
@@ -427,6 +432,7 @@ def api_logs():
             'error': str(e)
         }), 500
 
+      
 @app.route('/api/test-adhan', methods=['POST'])
 def api_test_adhan():
     """API endpoint to test Adhan playback"""
@@ -686,6 +692,7 @@ def background_discovery():
         try:
             # Use existing discovered devices (don't force rediscovery to avoid duplication)
             if web_cast_manager and web_cast_manager.chromecasts:
+
                 # Convert ChromecastManager format to web interface format
                 devices = []
                 for uuid, cast_info in web_cast_manager.chromecasts.items():
@@ -703,14 +710,17 @@ def background_discovery():
                 socketio.emit('chromecasts_discovered', {'devices': devices})
                 logging.info(f"Background discovery found {len(devices)} devices")
             else:
+
                 # Only force discovery if we have no devices
                 if web_cast_manager:
                     web_cast_manager.discover_devices(force_rediscovery=True)
                 
             time.sleep(60)  # Refresh every 60 seconds (reduced frequency)
+
         except Exception as e:
             logging.error(f"Background discovery error: {e}")
             time.sleep(60)  # Wait longer on error
+
 
 def start_web_interface(chromecast_manager=None):
     """Function to start the web interface - can be called from main.py"""
@@ -721,6 +731,7 @@ def start_web_interface(chromecast_manager=None):
         web_cast_manager = chromecast_manager
     else:
         web_cast_manager = ChromecastManager()
+
     
     # Load initial configuration
     load_config()
@@ -738,3 +749,4 @@ def start_web_interface(chromecast_manager=None):
 
 if __name__ == '__main__':
     start_web_interface()
+

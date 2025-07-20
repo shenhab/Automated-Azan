@@ -42,6 +42,7 @@ services:
     command: python main.py
     
     # Container logging configuration
+
     logging:
       driver: "json-file"
       options:
@@ -55,3 +56,4 @@ volumes:
     driver: local
   azan_config:
     driver: local
+

@@ -31,6 +31,7 @@ logging.getLogger().addHandler(console_handler)
 logging.getLogger('pychromecast').setLevel(logging.WARNING)
 logging.getLogger('pychromecast.socket_client').setLevel(logging.ERROR)
 
+
 class AthanScheduler:
     """
     A class to fetch prayer times, schedule Athan playback, and handle execution failures gracefully.
@@ -162,7 +163,9 @@ class AthanScheduler:
 
     def update_ntp_time(self):
         """
+
         Check and verify time synchronization using improved method
+
         """
         return update_ntp_time()  # Use the new implementation from time_sync.py
 

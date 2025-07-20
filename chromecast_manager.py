@@ -194,6 +194,7 @@ class ChromecastManager:
             self.chromecasts.clear()
             return False
 
+
     def _poll_browser_devices(self):
         """Poll browser's internal device storage (fallback when callbacks don't work)."""
         # This method is no longer needed as we use the hybrid approach above
@@ -248,6 +249,7 @@ class ChromecastManager:
                         logging.debug(f"Ignoring Zeroconf cleanup error: {e}")
                     else:
                         logging.warning(f"Error during browser cleanup: {e}")
+
             
             if self.chromecasts:
                 logging.info(f"✅ Fallback method found {len(self.chromecasts)} Chromecast devices:")
@@ -515,6 +517,7 @@ class ChromecastManager:
                 elif attempt < max_retries - 1:
                     time.sleep(2)  # Wait before retry
                     # Try rediscovering the device for other types of errors
+
                     self.discover_devices(force_rediscovery=True)
                     device = self._find_casting_candidate(retry_discovery=False)
                     if not device:
@@ -525,11 +528,13 @@ class ChromecastManager:
         return False
 
     def play_url_on_cast(self, url, max_retries=2, preserve_target=False):
+
         """
         Plays an MP3 URL on the selected Chromecast device with robust error handling.
 
         :param url: The media URL to play.
         :param max_retries: Maximum number of retries for playback
+
         :param preserve_target: If True, don't clear target_device on retry (for specific device testing)
         """
         for retry in range(max_retries + 1):
@@ -584,11 +589,13 @@ class ChromecastManager:
                 else:
                     logging.warning(f"Media failed to load on attempt {retry + 1}")
                     if retry < max_retries:
+
                         if preserve_target:
                             logging.info("Retrying with same target device...")
                         else:
                             logging.info("Retrying with fresh device discovery...")
                             self.target_device = None  # Clear cached device
+
                         time.sleep(2)
                         continue
                     else:
@@ -598,8 +605,10 @@ class ChromecastManager:
             except Exception as e:
                 logging.error(f"Error during playback attempt {retry + 1}: {e}")
                 if retry < max_retries:
+
                     if not preserve_target:
                         self.target_device = None  # Clear cached device on error
+
                     time.sleep(2)
                     continue
                 else:

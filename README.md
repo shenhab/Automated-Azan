@@ -1,3 +1,4 @@
+
 # **Automated Azan ⏰🕌**
 *Automated Islamic prayer announcements on Chromecast/Google Home speakers with professional web management interface*
 
@@ -15,6 +16,7 @@
 
 ### **🐳 Production Deployment (Docker)**
 *Recommended for production use - single container with everything included*
+
 
 ```bash
 # Clone and configure

@@ -34,11 +34,13 @@ echo "   nano adahn.config"
 echo ""
 
 # Check if in correct directory
+
 if [[ ! -f "Pipfile" ]]; then
     echo "❌ Pipfile not found in current directory"
     echo "Please make sure you're in the project root directory"
     exit 1
 fi
+
 
 # Install dependencies
 echo "📦 Installing dependencies..."

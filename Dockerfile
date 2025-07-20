@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     # Time synchronization
     ntpdate \
+
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -49,6 +50,7 @@ RUN touch /app/data/.gitkeep /app/logs/.gitkeep
 # Create a non-root user for security
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app && \
+
     chown -R appuser:appuser /var/log && \
     mkdir -p /app/config && \
     chown -R appuser:appuser /app/config
@@ -68,5 +70,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 ENV LOG_FILE=/var/log/azan_service.log
 ENV PYTHONUNBUFFERED=1
 ENV TZ=UTC
+
 
 CMD ["python", "main.py"]
