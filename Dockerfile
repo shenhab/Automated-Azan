@@ -39,8 +39,14 @@ COPY . .
 # Create default configuration if none exists
 RUN if [ ! -f "adahn.config" ]; then \
     echo "[Settings]" > adahn.config && \
-    echo "speakers-group-name = Adahn" >> adahn.config && \
-    echo "location = naas" >> adahn.config; \
+    echo "# Your Chromecast/Google Home speaker name (case-sensitive)" >> adahn.config && \
+    echo "speakers-group-name = athan" >> adahn.config && \
+    echo "" >> adahn.config && \
+    echo "# Prayer time location (naas, icci, or custom location)" >> adahn.config && \
+    echo "location = naas" >> adahn.config && \
+    echo "" >> adahn.config && \
+    echo "# Optional: Enable pre-Fajr Quran" >> adahn.config && \
+    echo "# pre_fajr_enabled = True" >> adahn.config; \
     fi
 
 # Create placeholder files for data directory

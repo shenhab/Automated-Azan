@@ -84,27 +84,27 @@ If you prefer to deploy containers individually:
 1. **Deploy Main Application Container**
    ```bash
    docker run -d \
-     --name automated-azan-main \
+     --name athan \
      --network host \
      --restart unless-stopped \
      -v azan_logs:/var/log \
      -v azan_config:/app/config \
      -v $(pwd)/adahn.config:/app/adahn.config:ro \
      -e TZ=Europe/Dublin \
-     automated-azan:latest
+     shenhab/athan:latest
    ```
 
 2. **Deploy Web Interface Container**
    ```bash
    docker run -d \
-     --name automated-azan-web \
+     --name athan-web \
      --restart unless-stopped \
      -p 5000:5000 \
      -v azan_logs:/var/log \
      -v azan_config:/app/config \
      -v $(pwd)/adahn.config:/app/adahn.config:ro \
      -e TZ=Europe/Dublin \
-     automated-azan-web:latest
+     shenhab/athan-web:latest
    ```
 
 ## Configuration
@@ -115,7 +115,7 @@ Before deployment, ensure your `adahn.config` file is properly configured:
 
 ```ini
 [Settings]
-speakers-group-name = Adahn
+speakers-group-name = athan
 location = icci
 ```
 

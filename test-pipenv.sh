@@ -77,7 +77,7 @@ else
     echo "Creating sample configuration for testing..."
     cat > adahn.config << EOF
 [Settings]
-speakers-group-name = Adahn
+speakers-group-name = athan
 location = icci
 EOF
     echo "✅ Sample configuration created"

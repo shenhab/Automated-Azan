@@ -132,16 +132,16 @@ make check           # Check requirements
 
 ### Option 3: Manual Docker
 ```bash
-docker build -t automated-azan .
+docker build -t shenhab/athan .
 docker run -d \
-  --name automated-azan \
+  --name athan \
   --network host \
   --restart unless-stopped \
   -v $(pwd)/adahn.config:/app/adahn.config:ro \
   -v azan_logs:/var/log \
   -v azan_data:/app/data \
   -e TZ=UTC \
-  automated-azan
+  shenhab/athan
 ```
 
 ## Features

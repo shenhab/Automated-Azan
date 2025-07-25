@@ -4,13 +4,75 @@
 docker-rebuild: docker-stop docker-build docker-run
 	@echo "🔄 Rebuilt and restarted Docker container"
 
-docker-fix-health: docker-stop docker-build docker-run
-	@echo "🏥 Fixed health check and restarted container"
-	@echo "   💡 This rebuilds the container with health check fixes"
+#============	@echo "🐳 PRODUCTION (Docker):"
+	@echo "   make deploy          Complete deployment (check + build + run)"
+	@echo "   make deploy-check    Validate deployment requirements"
+	@echo "   make docker-build    Build Docker image"
+	@echo "   make docker-run      Start container"
+	@echo "   make docker-logs     View container logs (follow mode)"
+	@echo "   make docker-stop     Stop container"
+	@echo "   make docker-restart  Restart container"
+	@echo "   make docker-rebuild  Rebuild and restart container"
+	@echo ""
+	@echo "🐋 PORTAINER CLI DEPLOYMENT:"
+	@echo "   make deploy-portainer        Deploy stack to Portainer via CLI"
+	@echo "   make deploy-portainer-update Update existing Portainer stack"
+	@echo "   make deploy-portainer-remove Remove Portainer stack"
+	@echo "   make deploy-portainer-status Check Portainer stack status"========================================================
+# PORTAINER CLI DEPLOYMENT
+#=============================================================================
 
-docker-fix-athan: docker-stop docker-build docker-run
-	@echo "🎵 Fixed Athan collision protection and restarted container"
-	@echo "   💡 Prevents Athan from interrupting itself during playback"HONY: help setup install run web test clean deploy docker-build docker-run docker-logs docker-stop
+deploy-portainer: deploy-check docker-build
+	@echo "🚀 Deploying to Portainer via CLI..."
+	@echo ""
+	@echo "📋 Checking Portainer CLI..."
+	@command -v portainer &>/dev/null || (echo "❌ Portainer CLI not found. Install from: https://github.com/portainer/portainer-cli" && exit 1)
+	@echo "✅ Portainer CLI available"
+	@echo ""
+	@echo "🔍 Validating Portainer connection..."
+	@read -p "Enter Portainer URL (e.g., http://localhost:9000): " PORTAINER_URL && \
+	read -p "Enter Portainer username: " PORTAINER_USER && \
+	read -s -p "Enter Portainer password: " PORTAINER_PASS && \
+	echo "" && \
+	echo "🔐 Authenticating with Portainer..." && \
+	portainer login --url "$$PORTAINER_URL" --username "$$PORTAINER_USER" --password "$$PORTAINER_PASS" && \
+	echo "✅ Authentication successful" && \
+	echo "" && \
+	echo "📦 Deploying stack to Portainer..." && \
+	portainer stack deploy \
+		--name automated-azan \
+		--compose-file portainer-stack.yml \
+		--env TZ=UTC \
+		--env LOG_FILE=/var/log/azan_service.log && \
+	echo "" && \
+	echo "🎉 Portainer Deployment Complete!" && \
+	echo "=====================================" && \
+	echo "🕌 Automated Azan deployed to Portainer" && \
+	echo "🌐 Access via Portainer dashboard" && \
+	echo "📋 Stack name: automated-azan" && \
+	echo ""
+
+deploy-portainer-update: docker-build
+	@echo "🔄 Updating Portainer stack..."
+	@portainer stack update \
+		--name automated-azan \
+		--compose-file portainer-stack.yml \
+		--env TZ=UTC \
+		--env LOG_FILE=/var/log/azan_service.log
+	@echo "✅ Portainer stack updated successfully"
+
+deploy-portainer-remove:
+	@echo "🗑️  Removing Portainer stack..."
+	@portainer stack remove --name automated-azan
+	@echo "✅ Portainer stack removed"
+
+deploy-portainer-status:
+	@echo "📊 Checking Portainer stack status..."
+	@portainer stack ls | grep automated-azan || echo "❌ automated-azan stack not found"
+
+#=============================================================================
+# UTILITIES
+#=============================================================================: help setup install run web test clean deploy docker-build docker-run docker-logs docker-stop
 
 # Default target
 .DEFAULT_GOAL := help
@@ -166,8 +228,9 @@ help:
 	@echo "========================================"
 	@echo ""
 	@echo "🚀 QUICK START:"
-	@echo "   make setup     Setup development environment (pipenv)"
-	@echo "   make deploy    Deploy production system (Docker)"
+	@echo "   make setup           Setup development environment (pipenv)"
+	@echo "   make deploy          Deploy production system (Docker)"
+	@echo "   make deploy-portainer Deploy to Portainer via CLI"
 	@echo ""
 	@echo "🐍 DEVELOPMENT (pipenv):"
 	@echo "   make setup           Setup pipenv environment and dependencies"
@@ -188,8 +251,6 @@ help:
 	@echo "   make docker-stop     Stop container"
 	@echo "   make docker-restart  Restart container"
 	@echo "   make docker-rebuild  Rebuild and restart container"
-	@echo "   make docker-fix-health Fix health check issues"
-	@echo "   make docker-fix-athan Fix Athan collision protection"
 	@echo ""
 	@echo "�️  UTILITIES:"
 	@echo "   make check           Check system requirements"
@@ -198,7 +259,8 @@ help:
 	@echo "   make help            Show this help message"
 	@echo ""
 	@echo "📖 USAGE EXAMPLES:"
-	@echo "   Development: make setup && make run"
-	@echo "   Production:  make deploy"
-	@echo "   Testing:     make web (then visit http://localhost:5000)"
+	@echo "   Development:     make setup && make run"
+	@echo "   Production:      make deploy"
+	@echo "   Portainer CLI:   make deploy-portainer"
+	@echo "   Testing:         make web (then visit http://localhost:5000)"
 	@echo ""

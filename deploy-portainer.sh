@@ -61,17 +61,17 @@ if [[ ! -f "adahn.config" ]]; then
     
     cat > adahn.config << EOF
 [Settings]
-speakers-group-name = Adahn
+speakers-group-name = athan
 location = icci
 EOF
     
     echo "✅ Created sample 'adahn.config' file"
     echo "Please edit it with your settings before deployment"
     
-    read -p "Enter your Chromecast device name (default: Adahn): " DEVICE_NAME
+    read -p "Enter your Chromecast device name (default: athan): " DEVICE_NAME
     read -p "Enter your location (icci or naas, default: icci): " LOCATION
     
-    DEVICE_NAME=${DEVICE_NAME:-Adahn}
+    DEVICE_NAME=${DEVICE_NAME:-athan}
     LOCATION=${LOCATION:-icci}
     
     cat > adahn.config << EOF
@@ -89,14 +89,14 @@ fi
 echo "🔨 Building Docker images..."
 echo "This may take a few minutes..."
 
-if docker build -t automated-azan:latest .; then
+if docker build -t shenhab/athan:latest .; then
     echo "✅ Main application image built successfully"
 else
     echo "❌ Failed to build main application image"
     exit 1
 fi
 
-if docker build -f Dockerfile.web -t automated-azan-web:latest .; then
+if docker build -f Dockerfile.web -t shenhab/athan-web:latest .; then
     echo "✅ Web interface image built successfully"
 else
     echo "❌ Failed to build web interface image"
@@ -116,31 +116,31 @@ if [[ $TEST_LOCAL =~ ^[Yy]$ ]]; then
     echo "🧪 Testing local deployment..."
     
     # Stop any existing containers
-    docker stop automated-azan-main automated-azan-web 2>/dev/null || true
-    docker rm automated-azan-main automated-azan-web 2>/dev/null || true
+    docker stop athan athan-web 2>/dev/null || true
+    docker rm athan athan-web 2>/dev/null || true
     
     # Start containers
     echo "Starting main application..."
     docker run -d \
-        --name automated-azan-main \
+        --name athan \
         --network host \
         --restart unless-stopped \
         -v azan_logs:/var/log \
         -v azan_config:/app/config \
         -v $(pwd)/adahn.config:/app/adahn.config:ro \
         -e TZ=Europe/Dublin \
-        automated-azan:latest
+        shenhab/athan:latest
     
     echo "Starting web interface..."
     docker run -d \
-        --name automated-azan-web \
+        --name athan-web \
         --restart unless-stopped \
         -p 5000:5000 \
         -v azan_logs:/var/log \
         -v azan_config:/app/config \
         -v $(pwd)/adahn.config:/app/adahn.config:ro \
         -e TZ=Europe/Dublin \
-        automated-azan-web:latest
+        shenhab/athan-web:latest
     
     echo "⏳ Waiting for containers to start..."
     sleep 5
@@ -207,8 +207,8 @@ echo "- .env.portainer (Environment variables template)"
 echo "- PORTAINER_DEPLOYMENT.md (Detailed deployment guide)"
 echo ""
 echo "Docker images built:"
-echo "- automated-azan:latest (Main application)"
-echo "- automated-azan-web:latest (Web interface)"
+echo "- shenhab/athan:latest (Main application)"
+echo "- shenhab/athan-web:latest (Web interface)"
 echo ""
 echo "📖 For detailed instructions, see: PORTAINER_DEPLOYMENT.md"
 echo ""

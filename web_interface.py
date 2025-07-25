@@ -27,6 +27,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", allow_unsafe_werkzeug=True)
 discovered_devices = []
 current_config = {}
 prayer_times = {}
+prayer_times_last_updated = None
 scheduler_status = {"running": False, "next_prayer": None, "last_update": None}
 
 
@@ -127,7 +128,7 @@ def load_config():
                 logging.warning(f"Could not copy config file: {e}")
         
         if not config_loaded:
-            current_config = {'speakers_group_name': 'Adahn', 'location': 'naas'}
+            current_config = {'speakers_group_name': 'athan', 'location': 'naas'}
             logging.info("Using default configuration")
     
     return current_config
@@ -168,19 +169,36 @@ def save_config(speakers_name, location):
     
     load_config()  # Reload to update global variable
 
-def load_prayer_times():
-    """Load current prayer times"""
-    global prayer_times
+def load_prayer_times(force_reload=False):
+    """Load current prayer times with caching"""
+    global prayer_times, prayer_times_last_updated
+    
+    # Check if we need to reload prayer times
+    # Only reload if forced, if we haven't loaded them yet, or if it's been more than 1 hour
+    now = datetime.now()
+    need_reload = (force_reload or 
+                   prayer_times_last_updated is None or 
+                   not prayer_times or 
+                   'error' in prayer_times or
+                   (now - prayer_times_last_updated).total_seconds() > 3600)  # 1 hour cache
+    
+    if not need_reload:
+        logging.debug("Using cached prayer times")
+        return prayer_times
     
     try:
+        logging.debug("Loading fresh prayer times from source")
         fetcher = PrayerTimesFetcher()
         location = current_config.get('location', 'naas')
         times = fetcher.fetch_prayer_times(location)
         
         if isinstance(times, dict) and 'error' not in times:
             prayer_times = times
+            prayer_times_last_updated = now
+            logging.info(f"Prayer times successfully loaded and cached for {location}")
         else:
             prayer_times = {'error': 'Failed to load prayer times'}
+            logging.warning(f"Failed to load prayer times: {times}")
             
     except Exception as e:
         logging.error(f"Error loading prayer times: {e}")
@@ -233,18 +251,18 @@ def api_prayer_times():
     try:
         # Get the current location from config
         config = load_config()
-        location = config.get('location', 'Leeds, UK')
+        location = config.get('location', 'naas')  # Use 'naas' or 'icci'
         
-        # Get prayer times
-        prayer_times = PrayerTimesFetcher.get_prayer_times(location)
+        # Get prayer times using the cached load_prayer_times function
+        times = load_prayer_times()
         
         return jsonify({
             'success': True,
-            'prayer_times': prayer_times,
+            'prayer_times': times,
             'location': location
         })
     except Exception as e:
-        print(f"Error fetching prayer times: {e}")
+        logging.error(f"Error fetching prayer times: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/media/<filename>')
@@ -389,7 +407,7 @@ def api_save_config():
 def api_refresh_prayer_times():
     """API endpoint to refresh prayer times"""
     try:
-        load_prayer_times()
+        load_prayer_times(force_reload=True)
         
         # Emit real-time update
         socketio.emit('prayer_times_updated', {'prayer_times': prayer_times})
@@ -714,11 +732,11 @@ def background_discovery():
                 if web_cast_manager:
                     web_cast_manager.discover_devices(force_rediscovery=True)
                 
-            time.sleep(60)  # Refresh every 60 seconds (reduced frequency)
+            time.sleep(600)  # Refresh every 10 minutes (reduced frequency for better performance)
 
         except Exception as e:
             logging.error(f"Background discovery error: {e}")
-            time.sleep(60)  # Wait longer on error
+            time.sleep(600)  # Wait longer on error
 
 
 def start_web_interface(chromecast_manager=None):

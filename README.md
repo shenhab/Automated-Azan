@@ -14,7 +14,39 @@
 
 ## **🚀 Quick Start**
 
-### **🐳 Production Deployment (Docker)**
+### **� Direct from Docker Hub (Easiest)**
+*Install directly from Docker Hub without cloning the repository*
+
+```bash
+# Quick install script (automatically configures everything)
+curl -sSL https://raw.githubusercontent.com/shenhab/Automated-Azan/main/docker-hub-install.sh | bash
+```
+
+**Or manual installation:**
+```bash
+# Create configuration
+mkdir -p ~/azan-config
+cat > ~/azan-config/adahn.config << EOF
+[Settings]
+speakers-group-name = athan
+location = naas
+EOF
+
+# Deploy container
+docker run -d \
+  --name athan \
+  --network host \
+  --restart unless-stopped \
+  -v ~/azan-config:/app/config \
+  -v azan_logs:/var/log \
+  -v azan_data:/app/data \
+  -e TZ=UTC \
+  shenhab/athan:latest
+```
+
+**Access:** 🌐 http://localhost:5000
+
+### **�🐳 Production Deployment (Docker)**
 *Recommended for production use - single container with everything included*
 
 
@@ -55,7 +87,7 @@ Edit `adahn.config` with your settings:
 ```ini
 [Settings]
 # Your Google Home speaker or speaker group name (case-sensitive)
-speakers-group-name = Living Room speakers
+speakers-group-name = athan
 
 # Prayer time location
 location = Leeds, UK

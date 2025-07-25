@@ -107,7 +107,7 @@ LOG_FILE=/var/log/azan_service.log
 ```ini
 [Settings]
 # Set the name of your Google Home speaker or speaker group
-speakers-group-name = Adahn
+speakers-group-name = athan
 
 # Choose your location (uncomment one):
 # location = icci  # For ICCI mosque timetable
@@ -205,14 +205,14 @@ docker build -t automated-azan .
 
 # Run container
 docker run -d \
-  --name automated-azan \
+  --name athan \
   --network host \
   --restart unless-stopped \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/logs:/var/log \
   -v $(pwd)/adahn.config:/app/adahn.config:ro \
   --env-file .env \
-  automated-azan
+  shenhab/athan
 ```
 
 ## Security Considerations

@@ -37,7 +37,7 @@ class AthanScheduler:
     A class to fetch prayer times, schedule Athan playback, and handle execution failures gracefully.
     """
     
-    def __init__(self, location="icci", google_device="Adahn"):
+    def __init__(self, location="icci", google_device="athan"):
         """
         Initializes the Athan scheduler with:
         - `location`: 'naas' or 'icci' to select prayer times source.

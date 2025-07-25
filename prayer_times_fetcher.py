@@ -78,24 +78,28 @@ class PrayerTimesFetcher:
             logging.error("❌ Error parsing Naas JSON: %s", e)
             return False
 
-    def _is_new_month(self):
+    def _is_new_month(self, location="icci"):
         """
         Determines if the timetable should be refreshed by checking if a new month has started.
-        Also, checks if timetable files exist.
+        Also, checks if timetable files exist for the specified location.
         """
-        logging.debug("Checking if a new month has started or timetable files are missing.")
-        if not os.path.exists(self.icci_timetable_file) or not os.path.exists(self.naas_prayers_timetable_file):
-            logging.info("One or both timetable files are missing. Need to download new ones.")
+        logging.debug(f"Checking if a new month has started or {location} timetable file is missing.")
+        
+        # Select the appropriate file based on location
+        timetable_file = self.icci_timetable_file if location == "icci" else self.naas_prayers_timetable_file
+        
+        if not os.path.exists(timetable_file):
+            logging.info(f"{location.upper()} timetable file is missing. Need to download new one.")
             return True  # Need to download a new timetable
 
         try:
-            file_mod_time = datetime.fromtimestamp(os.path.getmtime(self.icci_timetable_file))
+            file_mod_time = datetime.fromtimestamp(os.path.getmtime(timetable_file))
             current_month = datetime.today().month
             is_new_month = file_mod_time.month != current_month
-            logging.debug(f"Timetable last modified in month: {file_mod_time.month}, Current month: {current_month}")
+            logging.debug(f"{location.upper()} timetable last modified in month: {file_mod_time.month}, Current month: {current_month}")
             return is_new_month
         except Exception as e:
-            logging.error("Error reading timetable file modification date: %s", e)
+            logging.error(f"Error reading {location} timetable file modification date: %s", e)
             return True  # If any error occurs, assume we need to re-download
 
     def fetch_prayer_times(self, location: str = 'icci', force_download: bool = False):
@@ -107,7 +111,7 @@ class PrayerTimesFetcher:
             logging.error("Invalid location provided: %s", location)
             raise ValueError("Invalid location. Choose either 'naas' or 'icci'.")
 
-        if self._is_new_month() or force_download:
+        if self._is_new_month(location) or force_download:
             logging.info("New month detected or force download requested. Downloading updated timetables.")
             if location == "icci":
                 self._download_icci_timetable()
