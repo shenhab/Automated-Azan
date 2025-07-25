@@ -119,10 +119,10 @@ if [[ "$response" =~ ^[Yy]$ ]]; then
     echo ""
     echo "🔧 Recommended Docker Run Commands:"
     echo "For Chromecast discovery (recommended):"
-    echo "  docker run -d --name automated-azan --network host --restart unless-stopped ${FULL_IMAGE_NAME}"
+    echo "  docker run -d --name athan --network host --restart unless-stopped ${FULL_IMAGE_NAME}"
     echo ""
     echo "For testing without Chromecast:"
-    echo "  docker run -d --name automated-azan -p 5000:5000 --restart unless-stopped ${FULL_IMAGE_NAME}"
+    echo "  docker run -d --name athan -p 5000:5000 --restart unless-stopped ${FULL_IMAGE_NAME}"
     echo ""
     echo "🌐 Access web interface at: http://your-server-ip:5000"
 else

@@ -5,8 +5,8 @@ services:
     build: 
       context: .
       dockerfile: Dockerfile
-    image: automated-azan:latest
-    container_name: automated-azan
+    image: shenhab/athan:latest
+    container_name: athan
     restart: unless-stopped
     
     # REQUIRED: Use host network for Chromecast discovery
@@ -39,7 +39,7 @@ services:
     
     # Health check
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/", "||", "exit", "1"]
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
       interval: 30s
       timeout: 10s
       retries: 3

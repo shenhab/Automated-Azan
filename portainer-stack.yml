@@ -3,7 +3,7 @@ version: '3.8'
 services:
   automated-azan:
     image: shenhab/athan:latest
-    container_name: automated-azan-main
+    container_name: athan
     restart: unless-stopped
     
     # REQUIRED: Use host network for Chromecast discovery

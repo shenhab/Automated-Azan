@@ -19,19 +19,19 @@
           "name": "TZ",
           "label": "Timezone",
           "default": "Europe/Dublin",
-          "description": "Container timezone (e.g., Europe/Dublin, America/New_York)"
+          "description": "Container timezone (e.g., Europe/Dublin, America/New_York, UTC)"
         },
         {
           "name": "SPEAKERS_GROUP_NAME",
           "label": "Chromecast Device Name",
-          "default": "Adahn",
-          "description": "Name of your Chromecast device or speaker group"
+          "default": "athan",
+          "description": "Name of your Chromecast device or speaker group (case-sensitive)"
         },
         {
           "name": "LOCATION",
           "label": "Prayer Times Location",
-          "default": "icci",
-          "description": "Location for prayer times (icci or naas)"
+          "default": "naas",
+          "description": "Location for prayer times (naas for Naas/Dublin, icci for ICCI timetable)"
         }
       ],
       "volumes": [

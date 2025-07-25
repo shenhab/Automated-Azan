@@ -112,6 +112,7 @@ case "$1" in
         print_status "Cleaning up Docker resources..."
         docker-compose down -v
         docker image rm automated-azan_automated-azan 2>/dev/null || true
+        docker image rm shenhab/athan 2>/dev/null || true
         print_status "Cleanup complete!"
         ;;
     *)

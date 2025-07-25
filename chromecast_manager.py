@@ -30,6 +30,11 @@ class ChromecastManager:
         self.listener = None
         self.discovery_complete = threading.Event()
         
+        # Athan playback state management
+        self.athan_playing = False
+        self.athan_start_time = None
+        self.playback_lock = threading.Lock()
+        
         # Discover devices on initialization
         self.discover_devices()
 
@@ -661,6 +666,76 @@ class ChromecastManager:
         logging.error("Media failed to load within timeout period.")
         return False
         
+    def _is_athan_playing(self):
+        """Check if Athan is currently playing and manage playback state."""
+        with self.playback_lock:
+            if not self.athan_playing:
+                return False
+                
+            # Check if enough time has passed for Athan to finish
+            # Most Athan recordings are 3-5 minutes, so we'll use 8 minutes as a safe timeout
+            if self.athan_start_time:
+                import time
+                elapsed_time = time.time() - self.athan_start_time
+                if elapsed_time > 480:  # 8 minutes timeout
+                    logging.info("Athan playback timeout reached, clearing playback state")
+                    self.athan_playing = False
+                    self.athan_start_time = None
+                    return False
+                    
+            # Check if target device is actually playing something
+            if self.target_device:
+                try:
+                    media_controller = self.target_device.media_controller
+                    media_controller.update_status()
+                    
+                    # If device is idle or stopped, clear our playback state
+                    if media_controller.status.player_state in ["IDLE", "UNKNOWN"]:
+                        logging.info("Target device shows IDLE/UNKNOWN state, clearing Athan playback state")
+                        self.athan_playing = False
+                        self.athan_start_time = None
+                        return False
+                        
+                except Exception as e:
+                    logging.debug(f"Error checking device playback state: {e}")
+                    # If we can't check status, assume playback might still be active
+                    pass
+                    
+            return self.athan_playing
+    
+    def _start_athan_playback(self, prayer_type="regular"):
+        """Start Athan playback with collision protection."""
+        with self.playback_lock:
+            # Check if Athan is already playing
+            if self._is_athan_playing():
+                logging.warning(f"Athan is already playing, skipping {prayer_type} Athan request")
+                return True  # Return success since Athan is playing
+                
+            # Determine which Athan file to play
+            if prayer_type == "fajr":
+                adahn_url = self._get_media_url("media_adhan_al_fajr.mp3")
+                logging.info("Starting Fajr Adhan playback...")
+            else:
+                adahn_url = self._get_media_url("media_Athan.mp3")
+                logging.info("Starting regular Adhan playback...")
+                
+            # Mark Athan as starting
+            self.athan_playing = True
+            self.athan_start_time = time.time()
+            
+            # Attempt playback
+            success = self.play_url_on_cast(adahn_url)
+            
+            if not success:
+                # Reset state if playback failed
+                self.athan_playing = False
+                self.athan_start_time = None
+                logging.error(f"Failed to play {prayer_type} Adhan")
+            else:
+                logging.info(f"Successfully started {prayer_type} Adhan playback")
+                
+            return success
+
     def start_quran_radio(self):
         """Start Quran radio stream with error handling."""
         quran_radio_streaming = "https://n03.radiojar.com/8s5u5tpdtwzuv?rj-ttl=5&rj-tok=AAABlVflrAAAJLe-IOoD4VTShA"
@@ -670,22 +745,49 @@ class ChromecastManager:
         return success
         
     def start_adahn_alfajr(self):
-        """Start Fajr Adhan with error handling."""
-        # Use local media served by Flask web interface
-        adahn_url = self._get_media_url("media_adhan_al_fajr.mp3")
-        success = self.play_url_on_cast(adahn_url)
-        if not success:
-            logging.error("Failed to play Fajr Adhan")
-        return success
+        """Start Fajr Adhan with error handling and collision protection."""
+        return self._start_athan_playback("fajr")
     
     def start_adahn(self):
-        """Start regular Adhan with error handling."""
-        # Use local media served by Flask web interface
-        adahn_url = self._get_media_url("media_Athan.mp3")
-        success = self.play_url_on_cast(adahn_url)
-        if not success:
-            logging.error("Failed to play Adhan")
-        return success
+        """Start regular Adhan with error handling and collision protection."""
+        return self._start_athan_playback("regular")
+    
+    def stop_athan(self):
+        """Stop Athan playback and clear playback state."""
+        with self.playback_lock:
+            try:
+                if self.target_device and self.athan_playing:
+                    media_controller = self.target_device.media_controller
+                    media_controller.stop()
+                    logging.info("Stopped Athan playback")
+                    
+                # Clear playback state
+                self.athan_playing = False
+                self.athan_start_time = None
+                return True
+                
+            except Exception as e:
+                logging.error(f"Error stopping Athan playback: {e}")
+                # Still clear the state even if stop failed
+                self.athan_playing = False
+                self.athan_start_time = None
+                return False
+
+    def get_athan_status(self):
+        """Get current Athan playback status."""
+        with self.playback_lock:
+            if not self.athan_playing:
+                return {
+                    "playing": False,
+                    "message": "No Athan currently playing"
+                }
+                
+            elapsed_time = time.time() - self.athan_start_time if self.athan_start_time else 0
+            return {
+                "playing": True,
+                "elapsed_time": round(elapsed_time, 1),
+                "message": f"Athan playing for {round(elapsed_time, 1)} seconds"
+            }
 
     def get_device_status(self):
         """Get status information about the current target device."""
@@ -718,6 +820,11 @@ class ChromecastManager:
                 logging.warning(f"Error stopping browser: {e}")
         self.chromecasts.clear()
         self.target_device = None
+        
+        # Clear Athan playback state
+        with self.playback_lock:
+            self.athan_playing = False
+            self.athan_start_time = None
         
     def __del__(self):
         """Destructor to ensure cleanup."""

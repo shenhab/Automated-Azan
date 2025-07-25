@@ -52,4 +52,4 @@ echo "2. Add this template URL: https://raw.githubusercontent.com/shenhab/Automa
 echo "3. Or use the stack file directly with image: ${FULL_IMAGE_NAME}"
 echo ""
 echo "🔧 Manual Docker Run Command:"
-echo "docker run -d --name automated-azan --network host --restart unless-stopped ${FULL_IMAGE_NAME}"
+echo "docker run -d --name athan --network host --restart unless-stopped ${FULL_IMAGE_NAME}"
