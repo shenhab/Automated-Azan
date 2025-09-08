@@ -274,13 +274,17 @@ class AthanScheduler:
         self.load_prayer_times()
         self.schedule_prayers()
 
-def setup_tray_menu( ):
+def setup_tray_menu():
     icon_image_path = os.path.join(media_dir, 'azan.ico')
     icon_image = Image.open(icon_image_path)
     try:
+        def quit_action(icon, item):
+            icon.stop()
+            sys.exit()
+
         menu = pystray.Menu(
-            pystray.MenuItem('Open AzanUI',  webbrowser.open("http://127.0.0.1:5000/")),
-            pystray.MenuItem('Quit', sys.exit())
+            pystray.MenuItem('Open AzanUI', lambda: webbrowser.open("http://127.0.0.1:5000/")),
+            pystray.MenuItem('Quit', quit_action)
         )
         icon = pystray.Icon("AutomatedAzan", icon_image, "Automated Azan", menu)
         icon.run()
