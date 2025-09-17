@@ -1,3 +1,5 @@
+import os
+import sys
 import time
 import json
 import schedule
@@ -6,16 +8,25 @@ import pychromecast
 import configparser
 import subprocess
 import threading
+import pystray
+from PIL import Image
+import webbrowser
 from datetime import datetime, timedelta
 from dateutil import tz
 from prayer_times_fetcher import PrayerTimesFetcher  # Import the new class
 from chromecast_manager import ChromecastManager
 from web_interface import start_web_interface
 from time_sync import update_ntp_time
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
+
+if hasattr(sys, '_MEIPASS'):
+    # Running in a PyInstaller bundle
+    media_dir = os.path.join(sys._MEIPASS, 'media')
+else:
+    # Running in normal Python environment
+    media_dir = os.path.join(os.getcwd(), 'media')
 
 # Configure logging
 log_file = os.environ.get('LOG_FILE', '/var/log/azan_service.log')
@@ -263,32 +274,57 @@ class AthanScheduler:
         self.load_prayer_times()
         self.schedule_prayers()
 
+def setup_tray_menu():
+    icon_image_path = os.path.join(media_dir, 'azan.ico')
+    icon_image = Image.open(icon_image_path)
+    try:
+        def quit_action(icon, item):
+            icon.stop()
+            sys.exit()
+
+        menu = pystray.Menu(
+            pystray.MenuItem('Open AzanUI', lambda: webbrowser.open("http://127.0.0.1:5000/")),
+            pystray.MenuItem('Quit', quit_action)
+        )
+        icon = pystray.Icon("AutomatedAzan", icon_image, "Automated Azan", menu)
+        icon.run()
+    except Exception as e:
+        logging.error(f"Error starting system tray icon: {e}", exc_info=True)
+        exit(1)
 
 if __name__ == "__main__":
     logging.info("Starting Adahn configuration loading...")
 
     config = configparser.ConfigParser()
     config.read("adahn.config")
-
+    
     try:
-        group_name = config["Settings"]["speakers-group-name"]
-        location = config["Settings"]["location"]
+        if config.sections():
+            group_name = config["Settings"]["speakers-group-name"]
+            location = config["Settings"]["location"]
+        else:
+            logging.warning("No sections found in configuration file. loading default values")
+            group_name = 'athan'
+            location = 'icci'
         logging.info(f"Loaded configuration - speakers-group-name: {group_name}, location: {location}")
     except KeyError as e:
         logging.error(f"Missing required configuration key: {e}")
         exit(1)  # Stop execution if a key is missing
-
+    
     try:
+    
         scheduler = AthanScheduler(location=location, google_device=group_name)
         logging.info("AthanScheduler initialized successfully.")
-
         # Start web interface in background thread with shared chromecast manager
         web_thread = threading.Thread(target=start_web_interface, args=(scheduler.chromecast_manager,), daemon=True)
         web_thread.start()
         logging.info("Web interface started in background thread")
-        
+        tray_thread = threading.Thread(target=setup_tray_menu, daemon=True)
+        tray_thread.start()
+        logging.info("System tray menu started in background thread")
         scheduler.run_scheduler()
         logging.info("AthanScheduler started successfully.")
+        
     except Exception as e:
         logging.error(f"An error occurred while starting the scheduler: {e}", exc_info=True)
         exit(1)  # Stop execution on failure
