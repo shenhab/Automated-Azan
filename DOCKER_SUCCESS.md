@@ -15,8 +15,8 @@ Your Automated Azan app is now successfully running in Docker! 🎉
 - `docker-compose.yml` - Complete orchestration with host networking for Chromecast discovery
 - `docker-helper.sh` - Helper script for common Docker operations
 - `DOCKER_GUIDE.md` - Complete setup and usage documentation
-- Clean `requirements.txt` with only essential packages
-- Updated `Pipfile` with minimal dependencies
+- Clean `pyproject.toml` with only essential packages
+- Migrated from pipenv to uv for better performance
 
 ### ✅ Current Status
 **Container is running successfully with:**

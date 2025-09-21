@@ -67,17 +67,39 @@ make deploy
 - 🔍 **Device management**: http://localhost:5000/chromecasts
 - 🧪 **Audio testing**: http://localhost:5000/test
 
-### **🐍 Development Setup (pipenv)**
+### **🔨 Native Executable (Nuitka)**
+*High-performance single-file executable - 10x faster than Python!*
+
+```bash
+# 1. Clone and install build tools
+git clone https://github.com/shenhab/Automated-Azan.git
+cd Automated-Azan
+
+# 2. Install build tools (platform-specific)
+# Windows: Visual Studio Build Tools
+# Linux: sudo apt install build-essential
+# macOS: xcode-select --install
+
+# 3. Build executable (5-15 minutes)
+make build-nuitka
+
+# 4. Configure and run
+cp adahn.config.example adahn.config
+nano adahn.config
+./dist/AutomatedAzan  # Single 40MB executable!
+```
+
+### **🐍 Development Setup (uv)**
 *For developers and local testing*
 
 ```bash
-# Setup development environment  
+# Setup development environment
 git clone https://github.com/shenhab/Automated-Azan.git
 cd Automated-Azan
-make setup     # Installs pipenv and dependencies
+make setup     # Installs uv and dependencies
 make run       # Run prayer scheduler
 # OR
-make deploy       # Run web interface only
+make web       # Run web interface only
 ```
 
 ## **⚙️ Configuration**
@@ -135,7 +157,7 @@ make deploy-check     # Validate configuration
 - ✅ Security hardening with non-root user
 - ✅ Timezone support (defaults to Europe/Dublin)
 
-### **Option 2: Development with pipenv**
+### **Option 2: Development with uv**
 
 **Quick Development Setup:**
 ```bash
@@ -148,7 +170,7 @@ make deploy   # deploy the docker
 
 **Development Commands:**
 ```bash
-make shell           # Activate pipenv shell
+make shell           # Activate uv shell
 make update          # Update dependencies
 make test-chromecast # Test device discovery
 make clean           # Clean temporary files
@@ -162,7 +184,7 @@ make clean           # Clean temporary files
 
 **For Development:**
 - Python 3.9+ (recommended: Python 3.11)
-- pipenv
+- uv
 - Network access to Chromecast devices
 
 ## **📖 How It Works**
@@ -218,7 +240,7 @@ docker-compose ps    # Check container status
 ```bash
 make test-chromecast # Test device discovery
 make test           # Run full test suite
-pipenv run python web_interface.py  # Test web interface directly
+uv run python web_interface.py  # Test web interface directly
 ```
 
 ## **📁 Project Structure**

@@ -1,5 +1,5 @@
 # Automated Azan - Streamlined Makefile
-# Two deployment methods: pipenv (development) and Docker (production)
+# Two deployment methods: uv (development) and Docker (production)
 
 docker-rebuild: docker-stop docker-build docker-run
 	@echo "🔄 Rebuilt and restarted Docker container"
@@ -16,48 +16,64 @@ docker-fix-athan: docker-stop docker-build docker-run
 .DEFAULT_GOAL := help
 
 #=============================================================================
-# DEVELOPMENT (pipenv)
+# DEVELOPMENT (uv)
 #=============================================================================
 
 setup:
 	@echo "🚀 Setting up development environment..."
-	@echo "   📦 Installing pipenv and dependencies..."
-	@pip install --user pipenv || pip3 install --user pipenv
-	@pipenv install --dev
+	@echo "   📦 Installing uv and dependencies..."
+	@pip install --user uv || pip3 install --user uv
+	@uv pip install -e .
 	@echo "   ✅ Development environment ready!"
 	@echo "   💡 Run 'make run' to start prayer scheduler"
 	@echo "   💡 Run 'make web' to start web interface"
 
 install:
-	@echo "📦 Installing dependencies with pipenv..."
-	@pipenv install --dev
+	@echo "📦 Installing dependencies with uv..."
+	@uv pip install -e .
 
 run:
 	@echo "� Starting Automated Azan prayer scheduler..."
-	@pipenv run python main.py
+	@uv run python main.py
 
 web:
 	@echo "🌐 Starting web interface..."
 	@echo "   📱 Interface will be available at: http://localhost:5000"
-	@pipenv run python web_interface.py
+	@uv run python web_interface.py
 
 test:
 	@echo "🧪 Running test suite..."
-	@pipenv run python -m pytest -v || echo "No pytest found, running manual tests..."
+	@uv run python -m pytest -v || echo "No pytest found, running manual tests..."
 	@echo "   � Testing Chromecast discovery..."
-	@pipenv run python chromecast_comparison.py
+	@uv run python chromecast_comparison.py
 
 test-chromecast:
 	@echo "📡 Running comprehensive Chromecast discovery tests..."
-	@pipenv run python chromecast_comparison.py
+	@uv run python chromecast_comparison.py
+
+build-nuitka:
+	@echo "🔨 Building with Nuitka (high performance)..."
+	@uv pip install -e ".[build,gui]"
+	@uv run python nuitka_build.py
+
+build-exe:
+	@echo "🔨 Building standalone executable..."
+	@chmod +x build.sh
+	@./build.sh
+
+build-all:
+	@echo "🏗️  Building all formats..."
+	@echo "   📦 Building with Nuitka..."
+	@make build-nuitka
+	@echo "   🎯 All builds complete!"
 
 shell:
-	@echo "🐚 Activating pipenv shell..."
-	@pipenv shell
+	@echo "🐚 Activating uv shell..."
+	@uv shell
 
 update:
 	@echo "🔄 Updating dependencies..."
-	@pipenv update
+	@uv pip install --upgrade -e .
 
 #=============================================================================
 # PRODUCTION DEPLOYMENT (Docker)
@@ -141,7 +157,7 @@ check:
 	@python3 --version 2>/dev/null && echo "   ✅ Python 3 available" || echo "   ❌ Python 3 not found"
 	@echo ""
 	@echo "Pipenv (for development):"
-	@pipenv --version 2>/dev/null && echo "   ✅ Pipenv available" || echo "   ⚠️  Pipenv not found (install with: pip install pipenv)"
+	@uv --version 2>/dev/null && echo "   ✅ Pipenv available" || echo "   ⚠️  Pipenv not found (install with: pip install uv)"
 	@echo ""
 	@echo "Docker (for production):"
 	@docker --version 2>/dev/null && echo "   ✅ Docker available" || echo "   ⚠️  Docker not found"
@@ -166,18 +182,23 @@ help:
 	@echo "========================================"
 	@echo ""
 	@echo "🚀 QUICK START:"
-	@echo "   make setup     Setup development environment (pipenv)"
+	@echo "   make setup     Setup development environment (uv)"
 	@echo "   make deploy    Deploy production system (Docker)"
 	@echo ""
-	@echo "🐍 DEVELOPMENT (pipenv):"
-	@echo "   make setup           Setup pipenv environment and dependencies"
+	@echo "🐍 DEVELOPMENT (uv):"
+	@echo "   make setup           Setup uv environment and dependencies"
 	@echo "   make install         Install/update dependencies"
 	@echo "   make run             Run prayer scheduler"
 	@echo "   make web             Run web interface"
 	@echo "   make test            Run test suite"
 	@echo "   make test-chromecast Test device discovery"
-	@echo "   make shell           Activate pipenv shell"
+	@echo "   make shell           Activate uv shell"
 	@echo "   make update          Update dependencies"
+	@echo ""
+	@echo "🔨 BUILDING (Nuitka):"
+	@echo "   make build-nuitka    Build with Nuitka (recommended)"
+	@echo "   make build-exe       Build platform-specific executable"
+	@echo "   make build-all       Build all formats"
 	@echo ""
 	@echo "� PRODUCTION (Docker):"
 	@echo "   make deploy          Complete deployment (check + build + run)"

@@ -8,7 +8,7 @@ StartLimitBurst=5
 
 [Service]
 WorkingDirectory=/opt/Automated-Azan/
-ExecStart=pipenv run /opt/Automated-Azan/execute_azan_on_google_home_devices.py
+ExecStart=uv run /opt/Automated-Azan/execute_azan_on_google_home_devices.py
 Restart=always
 RestartSec=1s
 

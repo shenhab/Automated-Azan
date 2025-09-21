@@ -8,9 +8,9 @@ set -e
 echo "🕌 Automated Azan - Chromecast Discovery Test Suite"
 echo "=================================================="
 
-# Check if pipenv is available
-if ! command -v pipenv &> /dev/null; then
-    echo "❌ pipenv is not installed. Please run ./setup-dev.sh first"
+# Check if uv is available
+if ! command -v uv &> /dev/null; then
+    echo "❌ uv is not installed. Please run ./setup-dev.sh first"
     exit 1
 fi
 
@@ -20,7 +20,7 @@ echo ""
 # Test 1: Raw CastBrowser test with detailed logging
 echo "1️⃣  Testing CastBrowser (Modern Approach)"
 echo "========================================="
-pipenv run python -c "
+uv run python -c "
 from pychromecast.discovery import CastBrowser, SimpleCastListener
 import time
 import threading
@@ -114,7 +114,7 @@ print()
 # Test 2: Deprecated get_chromecasts test
 echo "2️⃣  Testing get_chromecasts() (Deprecated)"
 echo "========================================"
-pipenv run python -c "
+uv run python -c "
 import pychromecast
 import time
 
@@ -167,7 +167,7 @@ print()
 # Test 3: ChromecastManager comprehensive test
 echo "3️⃣  Testing ChromecastManager Integration"
 echo "======================================"
-pipenv run python -c "
+uv run python -c "
 from chromecast_manager import ChromecastManager
 import time
 import json
@@ -248,7 +248,7 @@ print()
 # Performance comparison
 echo "4️⃣  Performance & Feature Comparison"
 echo "=================================="
-pipenv run python -c "
+uv run python -c "
 print('📊 METHOD COMPARISON SUMMARY:')
 print()
 print('🏆 CastBrowser (Recommended):')

@@ -12,7 +12,7 @@ make deploy
 ```
 **Done!** Access at http://localhost:5000
 
-### Development (pipenv)
+### Development (uv)
 ```bash
 git clone https://github.com/shenhab/Automated-Azan.git
 cd Automated-Azan

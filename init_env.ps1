@@ -1,4 +1,7 @@
-pip install virtualenv
-virtualenv --distribute environment
-.\environment\Scripts\pip.exe install -r requirements.pip
+# Install uv if not present
+pip install uv
+
+# Create virtual environment and install dependencies
+uv venv environment
 .\environment\Scripts\activate.ps1
+uv pip install -e .

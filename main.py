@@ -8,9 +8,7 @@ import pychromecast
 import configparser
 import subprocess
 import threading
-import pystray
-from PIL import Image
-import webbrowser
+import argparse
 from datetime import datetime, timedelta
 from dateutil import tz
 from prayer_times_fetcher import PrayerTimesFetcher  # Import the new class
@@ -18,6 +16,18 @@ from chromecast_manager import ChromecastManager
 from web_interface import start_web_interface
 from time_sync import update_ntp_time
 from dotenv import load_dotenv
+
+# Check if GUI environment is available
+GUI_AVAILABLE = False
+try:
+    # Only import GUI libraries if we have a display
+    if os.environ.get('DISPLAY', '') != '' or os.name == 'nt':
+        import pystray
+        from PIL import Image
+        import webbrowser
+        GUI_AVAILABLE = True
+except (ImportError, Exception):
+    GUI_AVAILABLE = False
 
 load_dotenv()
 
@@ -275,9 +285,19 @@ class AthanScheduler:
         self.schedule_prayers()
 
 def setup_tray_menu():
-    icon_image_path = os.path.join(media_dir, 'azan.ico')
-    icon_image = Image.open(icon_image_path)
+    """Setup system tray menu (only if GUI is available)"""
+    if not GUI_AVAILABLE:
+        logging.info("GUI not available, skipping system tray setup")
+        return
+
     try:
+        icon_image_path = os.path.join(media_dir, 'azan.ico')
+        if not os.path.exists(icon_image_path):
+            logging.warning(f"Icon file not found: {icon_image_path}, skipping system tray")
+            return
+
+        icon_image = Image.open(icon_image_path)
+
         def quit_action(icon, item):
             icon.stop()
             sys.exit()
@@ -289,10 +309,21 @@ def setup_tray_menu():
         icon = pystray.Icon("AutomatedAzan", icon_image, "Automated Azan", menu)
         icon.run()
     except Exception as e:
-        logging.error(f"Error starting system tray icon: {e}", exc_info=True)
-        exit(1)
+        logging.warning(f"Could not start system tray icon: {e}. Continuing without tray.")
+        # Don't exit, just continue without system tray
 
 if __name__ == "__main__":
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Automated Azan Prayer Scheduler')
+    parser.add_argument('--no-tray', action='store_true', help='Disable system tray icon')
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+    args = parser.parse_args()
+
+    # Set logging level
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.debug("Debug logging enabled")
+
     logging.info("Starting Adahn configuration loading...")
 
     config = configparser.ConfigParser()
@@ -319,9 +350,15 @@ if __name__ == "__main__":
         web_thread = threading.Thread(target=start_web_interface, args=(scheduler.chromecast_manager,), daemon=True)
         web_thread.start()
         logging.info("Web interface started in background thread")
-        tray_thread = threading.Thread(target=setup_tray_menu, daemon=True)
-        tray_thread.start()
-        logging.info("System tray menu started in background thread")
+
+        # Start system tray only if not disabled and GUI is available
+        if not args.no_tray and GUI_AVAILABLE:
+            tray_thread = threading.Thread(target=setup_tray_menu, daemon=True)
+            tray_thread.start()
+            logging.info("System tray menu started in background thread")
+        else:
+            logging.info("System tray disabled or GUI not available")
+
         scheduler.run_scheduler()
         logging.info("AthanScheduler started successfully.")
         

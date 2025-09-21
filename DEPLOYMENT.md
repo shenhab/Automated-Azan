@@ -26,7 +26,7 @@ make deploy
 
 ---
 
-### 🐍 Development Setup (pipenv)
+### 🐍 Development Setup (uv)
 *For development and local testing*
 
 ```bash
@@ -92,7 +92,7 @@ make test-chromecast # Test device discovery
 
 **Development:**
 - Python 3.9+
-- pipenv
+- uv
 - Network access to Chromecast devices
 
 ## Troubleshooting

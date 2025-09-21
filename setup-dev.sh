@@ -1,25 +1,25 @@
 #!/bin/bash
 
 # Automated Azan - Development Environment Setup
-# Streamlined setup for pipenv development
+# Streamlined setup for uv development
 
 set -e
 
 echo "🕌 Automated Azan - Development Setup"
 echo "===================================="
 
-# Install pipenv if not available
-if ! command -v pipenv &> /dev/null; then
-    echo "📦 Installing pipenv..."
-    pip install --user pipenv || pip3 install --user pipenv
+# Install uv if not available
+if ! command -v uv &> /dev/null; then
+    echo "📦 Installing uv..."
+    pip install --user uv || pip3 install --user uv
     export PATH="$HOME/.local/bin:$PATH"
 fi
 
-echo "✅ pipenv available"
+echo "✅ uv available"
 
 # Install dependencies
 echo "📦 Installing dependencies..."
-pipenv install --dev
+uv pip install -e .
 
 echo "✅ Development environment ready!"
 echo ""
@@ -35,8 +35,8 @@ echo ""
 
 # Check if in correct directory
 
-if [[ ! -f "Pipfile" ]]; then
-    echo "❌ Pipfile not found in current directory"
+if [[ ! -f "pyproject.toml" ]]; then
+    echo "❌ pyproject.toml not found in current directory"
     echo "Please make sure you're in the project root directory"
     exit 1
 fi
@@ -44,12 +44,12 @@ fi
 
 # Install dependencies
 echo "📦 Installing dependencies..."
-pipenv install --dev
+uv pip install -e .
 
 # Verify installation
 echo "🔍 Verifying installation..."
-pipenv run python -c "import pychromecast" 2>/dev/null && echo "✅ pychromecast ready" || echo "⚠️  pychromecast issue"
-pipenv run python -c "import flask" 2>/dev/null && echo "✅ flask ready" || echo "⚠️  flask issue"
+uv run python -c "import pychromecast" 2>/dev/null && echo "✅ pychromecast ready" || echo "⚠️  pychromecast issue"
+uv run python -c "import flask" 2>/dev/null && echo "✅ flask ready" || echo "⚠️  flask issue"
 
 # Create config if missing
 if [[ ! -f "adahn.config" ]]; then

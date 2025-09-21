@@ -17,17 +17,17 @@ fi
 
 # Check if Docker is installed and running
 echo "� Checking dependencies..."
-if [[ -f "Pipfile" ]]; then
-    echo "✅ Found Pipfile - using pipenv for dependency management"
-    if command -v pipenv &> /dev/null; then
-        echo "✅ pipenv is installed"
+if [[ -f "pyproject.toml" ]]; then
+    echo "✅ Found pyproject.toml - using uv for dependency management"
+    if command -v uv &> /dev/null; then
+        echo "✅ uv is installed"
     else
-        echo "⚠️  pipenv not found. Installing pipenv..."
-        pip install --user pipenv
+        echo "⚠️  uv not found. Installing uv..."
+        pip install --user uv
         export PATH="$HOME/.local/bin:$PATH"
     fi
 else
-    echo "❌ Pipfile not found"
+    echo "❌ pyproject.toml not found"
     exit 1
 fi
 if ! command -v docker &> /dev/null; then

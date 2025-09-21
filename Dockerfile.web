@@ -10,14 +10,14 @@ RUN apt-get update && apt-get install -y \
     libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install pipenv
-RUN pip install --upgrade pip pipenv
+# Install uv
+RUN pip install --upgrade pip uv
 
-# Copy Pipfiles
-COPY Pipfile Pipfile.lock ./
+# Copy pyproject.toml
+COPY pyproject.toml ./
 
-# Install dependencies using pipenv
-RUN pipenv install --system --deploy
+# Install dependencies using uv
+RUN uv pip install --system -r pyproject.toml
 
 # Copy application files
 COPY . .

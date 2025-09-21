@@ -1,16 +1,16 @@
 #!/bin/bash
 
-# Automated Azan - Test Script using pipenv
-# This script tests the application functionality using pipenv
+# Automated Azan - Test Script using uv
+# This script tests the application functionality using uv
 
 set -e
 
 echo "🕌 Automated Azan - Test Suite"
 echo "=============================="
 
-# Check if pipenv is available
-if ! command -v pipenv &> /dev/null; then
-    echo "❌ pipenv is not installed. Please run ./setup-dev.sh first"
+# Check if uv is available
+if ! command -v uv &> /dev/null; then
+    echo "❌ uv is not installed. Please run ./setup-dev.sh first"
     exit 1
 fi
 
@@ -18,11 +18,11 @@ echo "🔍 Testing environment setup..."
 
 # Test Python version
 echo "📍 Python version:"
-pipenv run python --version
+uv run python --version
 
 # Test critical imports
 echo "📦 Testing critical imports..."
-pipenv run python -c "
+uv run python -c "
 import sys
 try:
     import pychromecast
@@ -85,7 +85,7 @@ fi
 
 # Test prayer times fetching
 echo "🕐 Testing prayer times fetching..."
-pipenv run python -c "
+uv run python -c "
 from prayer_times_fetcher import PrayerTimesFetcher
 import json
 
@@ -105,7 +105,7 @@ echo "📡 Testing Chromecast discovery methods..."
 
 # Test 1: CastBrowser approach (modern) - FIXED VERSION
 echo "🔍 Testing CastBrowser approach (modern) - FIXED..."
-pipenv run python -c "
+uv run python -c "
 import pychromecast
 from pychromecast.discovery import CastBrowser, SimpleCastListener
 import time
@@ -293,7 +293,7 @@ print()
 
 # Test 2: Deprecated get_chromecasts approach
 echo "🔍 Testing get_chromecasts approach (deprecated)..."
-pipenv run python -c "
+uv run python -c "
 import pychromecast
 import time
 
@@ -371,7 +371,7 @@ print()
 
 # Test 3: ChromecastManager integration test
 echo "🔍 Testing ChromecastManager integration..."
-pipenv run python -c "
+uv run python -c "
 from chromecast_manager import ChromecastManager
 import time
 
@@ -418,7 +418,7 @@ print()
 # Summary and comparison
 echo "📊 Discovery Method Comparison Summary"
 echo "====================================="
-pipenv run python -c "
+uv run python -c "
 print('CastBrowser vs get_chromecasts() comparison:')
 print()
 print('✅ CastBrowser (Modern):')
@@ -439,7 +439,7 @@ print('🎯 Recommendation: Use CastBrowser for new development')
 
 # Test web interface startup (quick test)
 echo "🌐 Testing web interface startup..."
-pipenv run python -c "
+uv run python -c "
 import sys
 import signal
 import time
@@ -470,8 +470,8 @@ echo "✅ All critical components tested successfully"
 echo ""
 echo "Next steps:"
 echo "1. Configure your Chromecast device name in adahn.config"
-echo "2. Run the main application: pipenv run python main.py"
-echo "3. Or run the web interface: pipenv run python web_interface.py"
+echo "2. Run the main application: uv run python main.py"
+echo "3. Or run the web interface: uv run python web_interface.py"
 echo "4. Access web interface at: http://localhost:5000"
 echo ""
 echo "For Docker deployment, see PORTAINER_DEPLOYMENT.md"
