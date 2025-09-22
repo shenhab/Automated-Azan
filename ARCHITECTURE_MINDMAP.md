@@ -3,7 +3,7 @@
 ## Main Application Overview
 
 ```mermaid
-%%{init: {'mindmap': {'theme': 'base', 'themeVariables': {'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#333333', 'lineColor': '#333333', 'section0': '#e6f3ff', 'section1': '#fff2e6', 'section2': '#e6ffe6', 'section3': '#ffe6f3', 'section4': '#f0f0f0'}}}}%%
+%%{init: {'mindmap': {'theme': 'base', 'themeVariables': {'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#000000', 'lineColor': '#000000', 'section0': '#f0f0f0', 'section1': '#e0e0e0', 'section2': '#d0d0d0', 'section3': '#c0c0c0', 'section4': '#b0b0b0'}}}}%%
 mindmap
   root((🕌 Automated Azan))
     🎯 Core Modules
@@ -191,11 +191,11 @@ graph TB
     TESTS -.-> SCHED
     TESTS -.-> CONFIG
 
-    %% Light/Dark mode compatible styling
-    classDef coreModule fill:#b3d9ff,stroke:#003d82,stroke-width:3px,color:#000000
-    classDef webModule fill:#d4b3ff,stroke:#4a0080,stroke-width:3px,color:#000000
-    classDef configModule fill:#b3ffb3,stroke:#004d00,stroke-width:3px,color:#000000
-    classDef devModule fill:#ffcc99,stroke:#cc3300,stroke-width:3px,color:#000000
+    %% Color blind accessible high contrast styling
+    classDef coreModule fill:#f5f5f5,stroke:#000000,stroke-width:4px,color:#000000
+    classDef webModule fill:#e8e8e8,stroke:#000000,stroke-width:4px,color:#000000
+    classDef configModule fill:#d8d8d8,stroke:#000000,stroke-width:4px,color:#000000
+    classDef devModule fill:#c8c8c8,stroke:#000000,stroke-width:4px,color:#000000
 
     class MAIN,SCHED,MANAGER,TIMESYNC,PRAYER coreModule
     class WEB,API,TEMPLATES webModule
@@ -258,12 +258,12 @@ flowchart TD
     WEB -.-> AUDIO
     LOGS -.-> CONFIG
 
-    %% Light/Dark mode compatible styling
-    classDef external fill:#ffb3b3,stroke:#990000,stroke-width:3px,color:#000000
-    classDef processing fill:#b3d9ff,stroke:#0066cc,stroke-width:3px,color:#000000
-    classDef core fill:#b3ffb3,stroke:#009900,stroke-width:3px,color:#000000
-    classDef output fill:#ffdb99,stroke:#cc6600,stroke-width:3px,color:#000000
-    classDef monitoring fill:#e6b3ff,stroke:#8000cc,stroke-width:3px,color:#000000
+    %% Color blind accessible high contrast styling
+    classDef external fill:#f0f0f0,stroke:#000000,stroke-width:4px,color:#000000
+    classDef processing fill:#e0e0e0,stroke:#000000,stroke-width:4px,color:#000000
+    classDef core fill:#d0d0d0,stroke:#000000,stroke-width:4px,color:#000000
+    classDef output fill:#c0c0c0,stroke:#000000,stroke-width:4px,color:#000000
+    classDef monitoring fill:#b0b0b0,stroke:#000000,stroke-width:4px,color:#000000
 
     class NTP,APIS,USER external
     class SYNC,FETCH,CONFIG processing
@@ -314,10 +314,10 @@ graph LR
     L5 -.->|"Added"| N5
     L6 -.->|"Enhanced to"| N6
 
-    %% Light/Dark mode compatible styling
-    classDef legacy fill:#ffcccc,stroke:#cc0000,stroke-width:3px,color:#000000
-    classDef improved fill:#ccffcc,stroke:#00aa00,stroke-width:3px,color:#000000
-    classDef modular fill:#cce6ff,stroke:#0080ff,stroke-width:3px,color:#000000
+    %% Color blind accessible high contrast styling
+    classDef legacy fill:#f0f0f0,stroke:#000000,stroke-width:4px,color:#000000,stroke-dasharray:10,5
+    classDef improved fill:#e0e0e0,stroke:#000000,stroke-width:4px,color:#000000
+    classDef modular fill:#d0d0d0,stroke:#000000,stroke-width:4px,color:#000000
 
     class L1,L2,L3,L4,L5,L6 legacy
     class N1,N2,N3,N4,N5,N6 improved
@@ -338,21 +338,23 @@ pie title 📊 Code Distribution (Lines)
     "Scheduling" : 17770
 ```
 
-## 🌅 Light Mode Visibility Features
+## ♿ Color Blind Accessible Features
 
-All diagrams have been updated with:
+All diagrams have been updated with color blind-friendly design:
 
-### **✅ High Contrast Colors**
-- **Stroke width**: Increased to 3px for better visibility
-- **Dark borders**: Strong contrast (#000000-#990000 range)
-- **Bold text**: Force black text (`color:#000000`) on all elements
+### **✅ High Contrast Grayscale**
+- **Stroke width**: Increased to 4px for maximum visibility
+- **Pure black borders**: `#000000` for strongest contrast
+- **Pure black text**: `#000000` on all elements for maximum readability
+- **Consistent spacing**: Clear visual separation between components
 
-### **🎨 Color Palette (Light/Dark Compatible)**
-- **Blue**: `#b3d9ff` (light blue with dark blue border)
-- **Purple**: `#d4b3ff` (light purple with dark purple border)
-- **Green**: `#b3ffb3` (light green with dark green border)
-- **Orange**: `#ffcc99` (light orange with dark orange border)
-- **Red**: `#ffb3b3` (light red with dark red border)
+### **🎨 Grayscale Palette (Color Blind Safe)**
+- **Light Gray**: `#f0f0f0` (highest brightness)
+- **Medium Light**: `#e0e0e0` (high brightness)
+- **Medium**: `#d0d0d0` (medium brightness)
+- **Medium Dark**: `#c0c0c0` (lower brightness)
+- **Dark Gray**: `#b0b0b0` (lowest brightness)
+- **Legacy Pattern**: Dashed borders (`stroke-dasharray:10,5`) to distinguish legacy components
 
 ### **📱 Accessibility Improvements**
 - **WCAG compliant**: All colors meet contrast ratio requirements
