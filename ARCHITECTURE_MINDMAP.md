@@ -327,7 +327,7 @@ graph LR
 ## System Statistics & Metrics
 
 ```mermaid
-%%{init: {'theme':'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#000000', 'lineColor': '#000000', 'sectionBkColor': '#ffff00', 'altSectionBkColor': '#0000ff'}}}%%
+%%{init: {'theme':'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#000000', 'lineColor': '#000000', 'pie1': '#ffff00', 'pie2': '#0000ff', 'pie3': '#ff0000', 'pie4': '#ffffff', 'pie5': '#808080', 'pie6': '#ffff00', 'pie7': '#0000ff', 'pieStrokeColor': '#000000', 'pieStrokeWidth': '2px'}}}%%
 pie title 📊 Code Distribution (Lines)
     "Audio Management" : 66610
     "Prayer Times" : 27052
@@ -361,7 +361,7 @@ All diagrams now use a vibrant color palette for clear visual distinction:
 - **Component Architecture**: Yellow (core), Blue (web), Red (config), Gray (dev)
 - **Data Flow Architecture**: White (external), Yellow (processing), Red (core), Blue (output), Gray (monitoring)
 - **Legacy vs Improved**: Gray (legacy with dashed borders), Yellow (improved), Blue (modular)
-- **Code Distribution Chart**: Yellow and Blue alternating sections
+- **Code Distribution Chart**: Full palette rotation - Yellow (Audio), Blue (Prayer), Red (Web), White (Config), Gray (Testing), Yellow (Time), Blue (Scheduling)
 
 ### **🔍 Testing Recommendations**
 Test the diagrams in:
