@@ -104,6 +104,7 @@
 <!-- Status Messages -->
 <div class="row mt-4">
     <div class="col-12">
+        <div id="alerts-container"></div>
         <div id="status-messages"></div>
     </div>
 </div>
@@ -117,7 +118,10 @@
     // Initialize page
     document.addEventListener('DOMContentLoaded', function() {
         loadMediaInfo();
-        discoverDevices();
+        // Get devices from scheduler
+        setTimeout(() => {
+            getDevices();
+        }, 500);
     });
     
     // Socket.IO event handlers for real-time updates
@@ -189,30 +193,54 @@
         mediaInfoContainer.innerHTML = html;
     }
     
-    // Discover Chromecast devices
-    function discoverDevices() {
+    // Get Chromecast devices from scheduler
+    function getDevices() {
+        console.log('Getting devices from scheduler...');
         const spinner = document.querySelector('.discovery-spinner');
-        spinner.style.display = 'inline-block';
-        
+        if (spinner) {
+            spinner.style.display = 'inline-block';
+        }
+
         fetch('/api/discover-chromecasts', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
         })
-        .then(response => response.json())
+        .then(response => {
+            console.log('Discovery response received:', response.status);
+            return response.json();
+        })
         .then(data => {
-            spinner.style.display = 'none';
+            console.log('Discovery data:', data);
+            if (spinner) {
+                spinner.style.display = 'none';
+            }
             if (data.success) {
                 devices = data.devices;
                 updateDeviceGrid(devices);
-                showAlert(`Discovered ${devices.length} Chromecast devices`, 'success');
+                console.log(`Found ${devices.length} devices`);
+                // Show status message
+                const statusDiv = document.getElementById('status-messages');
+                if (statusDiv && devices.length > 0) {
+                    statusDiv.innerHTML = `<div class="alert alert-success">Discovered ${devices.length} Chromecast devices</div>`;
+                }
             } else {
-                showAlert(`Error discovering devices: ${data.error}`, 'danger');
+                console.error(`Error discovering devices: ${data.error}`);
+                const statusDiv = document.getElementById('status-messages');
+                if (statusDiv) {
+                    statusDiv.innerHTML = `<div class="alert alert-danger">Error: ${data.error}</div>`;
+                }
             }
         })
         .catch(error => {
-            spinner.style.display = 'none';
             console.error('Error discovering devices:', error);
-            showAlert('Failed to discover devices', 'danger');
+            if (spinner) {
+                spinner.style.display = 'none';
+            }
+            const statusDiv = document.getElementById('status-messages');
+            if (statusDiv) {
+                statusDiv.innerHTML = `<div class="alert alert-danger">Failed to discover devices: ${error.message || error}</div>`;
+            }
         });
     }
     

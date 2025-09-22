@@ -24,11 +24,38 @@ app.secret_key = 'your-secret-key-change-this'  # Change this in production
 socketio = SocketIO(app, cors_allowed_origins="*", allow_unsafe_werkzeug=True)
 
 # Global variables for real-time updates
-discovered_devices = []
 current_config = {}
 prayer_times = {}
 prayer_times_last_updated = None
 scheduler_status = {"running": False, "next_prayer": None, "last_update": None}
+
+# Cache infrastructure for discovered devices
+discovered_devices_cache = {
+    'timestamp': None,
+    'ttl': 300,  # 5 minutes cache TTL
+    'is_discovering': False,
+    'stats': {'hits': 0, 'misses': 0, 'refreshes': 0}
+}
+cache_lock = threading.Lock()
+
+def get_discovered_devices():
+    """Get devices directly from ChromecastManager (single source of truth)"""
+    if not web_cast_manager or not web_cast_manager.chromecasts:
+        return []
+
+    devices = []
+    for uuid, cast_info in web_cast_manager.chromecasts.items():
+        devices.append({
+            'name': cast_info['name'],
+            'uuid': uuid,
+            'model': cast_info['model_name'],
+            'model_name': cast_info['model_name'],  # Include both for compatibility
+            'host': cast_info['host'],
+            'port': cast_info['port'],
+            'cast_type': cast_info.get('manufacturer', 'Unknown'),
+            'status': 'Available'
+        })
+    return devices
 
 
 # Context processor to make config and prayer times available to all templates
@@ -222,9 +249,9 @@ def index():
 def chromecasts():
     """Chromecast management page"""
     load_config()
-    return render_template('chromecasts.html', 
+    return render_template('chromecasts.html',
                          config=current_config,
-                         devices=discovered_devices)
+                         devices=get_discovered_devices())
 
 @app.route('/settings')
 def settings():
@@ -283,44 +310,148 @@ def serve_media(filename):
             return "File not found", 404
             
         logging.info(f"Serving media file: {filename}")
-        return send_from_directory(media_dir, filename, mimetype='audio/mpeg')
+        response = send_from_directory(media_dir, filename, mimetype='audio/mpeg')
+        # Add headers for Chromecast compatibility - match working external server
+        response.headers['Accept-Ranges'] = 'bytes'
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Range'
+        response.headers['Cache-Control'] = 'max-age=172800'
+        # Remove the problematic cache-control from Flask
+        response.headers.pop('Cache-Control', None)
+        response.headers['Cache-Control'] = 'max-age=172800'
+        return response
         
     except Exception as e:
         logging.error(f"Error serving media file {filename}: {e}")
         return "Internal server error", 500
 
+# Cache management functions
+def cache_is_valid():
+    """Check if the discovered devices cache is still valid"""
+    with cache_lock:
+        devices = get_discovered_devices()
+        if not devices or discovered_devices_cache['timestamp'] is None:
+            return False
+
+        age = time.time() - discovered_devices_cache['timestamp']
+        return age < discovered_devices_cache['ttl']
+
+def update_discovered_devices_cache():
+    """Update the cache timestamp and emit updates to clients"""
+    with cache_lock:
+        devices = get_discovered_devices()
+        discovered_devices_cache['timestamp'] = time.time()
+        discovered_devices_cache['stats']['refreshes'] += 1
+
+        # Emit update to connected clients
+        socketio.emit('chromecasts_discovered', {'devices': devices})
+        logging.info(f"Cache updated with {len(devices)} devices")
+        return len(devices) > 0
+
+def get_cache_status():
+    """Get current cache status and statistics"""
+    with cache_lock:
+        age = None
+        if discovered_devices_cache['timestamp']:
+            age = time.time() - discovered_devices_cache['timestamp']
+
+        devices = get_discovered_devices()
+        return {
+            'is_valid': cache_is_valid(),
+            'device_count': len(devices),
+            'age_seconds': age,
+            'ttl': discovered_devices_cache['ttl'],
+            'stats': discovered_devices_cache['stats'].copy(),
+            'is_discovering': discovered_devices_cache['is_discovering']
+        }
+
 # API Routes
 @app.route('/api/discover-chromecasts', methods=['POST'])
 def api_discover_chromecasts():
-    """API endpoint to discover Chromecast devices"""
+    """API endpoint to get discovered Chromecast devices (read-only - no discovery)"""
     try:
-        # Use ChromecastManager's discover_devices method
-        web_cast_manager.discover_devices(force_rediscovery=True)
-        
-        devices = []
-        if web_cast_manager.chromecasts:
-            # Convert ChromecastManager's format to web interface format
-            for uuid, cast_info in web_cast_manager.chromecasts.items():
-                devices.append({
-                    'name': cast_info['name'],
-                    'host': cast_info['host'],
-                    'port': cast_info['port'],
-                    'uuid': uuid,
-                    'model_name': cast_info['model_name'],
-                    'manufacturer': cast_info['manufacturer']
-                })
-        
-        # Emit real-time update to connected clients
-        socketio.emit('chromecasts_discovered', {'devices': devices})
-        
+        # Simply return the devices already discovered by the scheduler
+        devices = get_discovered_devices()
+
+        logging.debug(f"Returning {len(devices)} devices from ChromecastManager")
+
         return jsonify({
             'success': True,
             'devices': devices,
-            'count': len(devices)
+            'count': len(devices),
+            'from_scheduler': True,
+            'message': 'Devices discovered by scheduler' if devices else 'No devices found by scheduler yet'
         })
-        
+
     except Exception as e:
-        logging.error(f"Error in discover_chromecasts: {e}")
+        logging.error(f"Error getting devices: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/cache-status', methods=['GET'])
+def api_cache_status():
+    """API endpoint to get cache status and statistics"""
+    try:
+        status = get_cache_status()
+        return jsonify({
+            'success': True,
+            **status
+        })
+    except Exception as e:
+        logging.error(f"Error getting cache status: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/clear-cache', methods=['POST'])
+def api_clear_cache():
+    """API endpoint to clear the device cache"""
+    try:
+        with cache_lock:
+            # Clear ChromecastManager's cache as the source of truth
+            if web_cast_manager:
+                web_cast_manager.chromecasts.clear()
+            discovered_devices_cache['timestamp'] = None
+            discovered_devices_cache['stats']['refreshes'] = 0
+            logging.info("Cache cleared manually")
+
+        return jsonify({
+            'success': True,
+            'message': 'Cache cleared successfully'
+        })
+    except Exception as e:
+        logging.error(f"Error clearing cache: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/get-devices', methods=['GET'])
+def api_get_devices():
+    """API endpoint to get devices from cache (always immediate response)"""
+    try:
+        # Always return from cache for immediate response
+        with cache_lock:
+            discovered_devices_cache['stats']['hits'] += 1
+            cache_age = None
+            if discovered_devices_cache['timestamp']:
+                cache_age = time.time() - discovered_devices_cache['timestamp']
+
+        devices = get_discovered_devices()
+        return jsonify({
+            'success': True,
+            'devices': devices,
+            'count': len(devices),
+            'from_cache': True,
+            'cache_valid': cache_is_valid(),
+            'cache_age': cache_age
+        })
+    except Exception as e:
+        logging.error(f"Error getting devices: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -463,15 +594,19 @@ def api_test_adhan():
             }), 500
         
         if adhan_type == 'fajr':
-            success = web_cast_manager.start_adahn_alfajr()
+            result = web_cast_manager.start_adahn_alfajr()
             media_type = 'Fajr Adhan'
         else:
-            success = web_cast_manager.start_adahn()
+            result = web_cast_manager.start_adahn()
             media_type = 'Regular Adhan'
-        
+
+        # Extract success from the result dictionary
+        success = result.get('success', False) if isinstance(result, dict) else bool(result)
+
         return jsonify({
             'success': success,
-            'message': f'{media_type} playback {"started" if success else "failed"}'
+            'message': f'{media_type} playback {"started" if success else "failed"}',
+            'result': result  # Include full result for debugging
         })
         
     except Exception as e:
@@ -558,31 +693,30 @@ def api_test_device_adhan():
                 'error': f'Failed to connect to {device_name}'
             }), 500
         
-        # Get the appropriate media URL
-        if adhan_type == 'fajr':
-            media_url = web_cast_manager._get_media_url("media_adhan_al_fajr.mp3")
-            media_type = 'Fajr Adhan'
-        else:
-            media_url = web_cast_manager._get_media_url("media_Athan.mp3")
-            media_type = 'Regular Adhan'
-        
-        logging.info(f"Testing {media_type} on {device_name} with URL: {media_url}")
-        
         # Temporarily override the target device for this test
         original_target = getattr(web_cast_manager, 'target_device', None)
         web_cast_manager.target_device = cast_device
-        
-        logging.info(f"Testing {media_type} on specific device: {device_name}")
-        
-        try:
-            success = web_cast_manager.play_url_on_cast(media_url, preserve_target=True)
-        finally:
-            # Restore original target device
-            web_cast_manager.target_device = original_target
-        
+
+        # Use dedicated Adhan functions for better handling
+        if adhan_type == 'fajr':
+            media_type = 'Fajr Adhan'
+            logging.info(f"Testing {media_type} on specific device: {device_name}")
+            result = web_cast_manager.start_adahn_alfajr()
+        else:
+            media_type = 'Regular Adhan'
+            logging.info(f"Testing {media_type} on specific device: {device_name}")
+            result = web_cast_manager.start_adahn()
+
+        # Restore original target device
+        web_cast_manager.target_device = original_target
+
+        # Extract success from the result dictionary
+        success = result.get('success', False) if isinstance(result, dict) else bool(result)
+
         return jsonify({
             'success': success,
-            'message': f'{media_type} {"started" if success else "failed"} on {device_name}'
+            'message': f'{media_type} {"started" if success else "failed"} on {device_name}',
+            'result': result  # Include full result for debugging
         })
         
     except Exception as e:
@@ -699,44 +833,39 @@ def handle_status_request():
         'config': current_config,
         'prayer_times': prayer_times,
         'scheduler_status': scheduler_status,
-        'devices': discovered_devices
+        'devices': get_discovered_devices()
     })
 
-def background_discovery():
-    """Background task to periodically refresh device list"""
-    global discovered_devices
+def background_device_monitor():
+    """Background task to monitor devices from scheduler's ChromecastManager"""
+
+    # Initial wait for system to initialize
+    initial_wait = 2  # Wait 2 seconds for system to initialize
+    logging.info(f"Device monitor starting in {initial_wait} seconds...")
+    time.sleep(initial_wait)
+
     while True:
         try:
-            # Use existing discovered devices (don't force rediscovery to avoid duplication)
-            if web_cast_manager and web_cast_manager.chromecasts:
+            # Just monitor what devices the scheduler has discovered
+            devices = get_discovered_devices()
 
-                # Convert ChromecastManager format to web interface format
-                devices = []
-                for uuid, cast_info in web_cast_manager.chromecasts.items():
-                    devices.append({
-                        'name': cast_info['name'],
-                        'uuid': uuid,
-                        'model': cast_info['model_name'],
-                        'host': cast_info['host'],
-                        'port': cast_info['port'],
-                        'cast_type': cast_info.get('manufacturer', 'Unknown'),
-                        'status': 'Available'
-                    })
-                
-                discovered_devices = devices
+            if devices:
+                # Update cache timestamp to keep it fresh
+                with cache_lock:
+                    discovered_devices_cache['timestamp'] = time.time()
+
+                # Emit update to connected clients if device count changed
                 socketio.emit('chromecasts_discovered', {'devices': devices})
-                logging.info(f"Background discovery found {len(devices)} devices")
+                logging.debug(f"Device monitor: {len(devices)} devices available from scheduler")
             else:
+                logging.debug("Device monitor: No devices available from scheduler")
 
-                # Only force discovery if we have no devices
-                if web_cast_manager:
-                    web_cast_manager.discover_devices(force_rediscovery=True)
-                
-            time.sleep(600)  # Refresh every 10 minutes (reduced frequency for better performance)
+            # Check every 30 seconds
+            time.sleep(30)
 
         except Exception as e:
-            logging.error(f"Background discovery error: {e}")
-            time.sleep(600)  # Wait longer on error
+            logging.error(f"Device monitor error: {e}")
+            time.sleep(30)  # Wait before retry
 
 
 def start_web_interface(chromecast_manager=None):
@@ -749,13 +878,18 @@ def start_web_interface(chromecast_manager=None):
     else:
         web_cast_manager = ChromecastManager()
 
-    
+
     # Load initial configuration
     load_config()
-    
-    # Start background discovery thread
-    discovery_thread = threading.Thread(target=background_discovery, daemon=True)
-    discovery_thread.start()
+
+    # Populate cache timestamp if devices already found by ChromecastManager
+    if web_cast_manager and web_cast_manager.chromecasts:
+        logging.info(f"Populating cache with {len(web_cast_manager.chromecasts)} devices from ChromecastManager")
+        update_discovered_devices_cache()
+
+    # Start background device monitor thread (read-only monitoring)
+    monitor_thread = threading.Thread(target=background_device_monitor, daemon=True)
+    monitor_thread.start()
     
     # Run the web application
     logging.info("Starting Automated Azan Web Interface...")

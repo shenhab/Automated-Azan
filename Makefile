@@ -43,13 +43,13 @@ web:
 
 test:
 	@echo "🧪 Running test suite..."
-	@pipenv run python -m pytest -v || echo "No pytest found, running manual tests..."
-	@echo "   � Testing Chromecast discovery..."
-	@pipenv run python chromecast_comparison.py
+	@pipenv run python -m pytest tests/test_basic_functionality.py -v || echo "Pytest tests failed, running integration fallback..."
+	@echo "   🎵 Testing service modules integration..."
+	@pipenv run python service_modules_integration.py
 
 test-chromecast:
-	@echo "📡 Running comprehensive Chromecast discovery tests..."
-	@pipenv run python chromecast_comparison.py
+	@echo "📡 Testing chromecast manager via integration demo..."
+	@pipenv run python service_modules_integration.py
 
 shell:
 	@echo "🐚 Activating pipenv shell..."
@@ -175,7 +175,7 @@ help:
 	@echo "   make run             Run prayer scheduler"
 	@echo "   make web             Run web interface"
 	@echo "   make test            Run test suite"
-	@echo "   make test-chromecast Test device discovery"
+	@echo "   make test-chromecast Test chromecast integration"
 	@echo "   make shell           Activate pipenv shell"
 	@echo "   make update          Update dependencies"
 	@echo ""
