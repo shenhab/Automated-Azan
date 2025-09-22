@@ -3,7 +3,7 @@
 ## Main Application Overview
 
 ```mermaid
-%%{init: {'mindmap': {'theme': 'base', 'themeVariables': {'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#000000', 'lineColor': '#000000', 'section0': '#f0f0f0', 'section1': '#e0e0e0', 'section2': '#d0d0d0', 'section3': '#c0c0c0', 'section4': '#b0b0b0'}}}}%%
+%%{init: {'mindmap': {'theme': 'base', 'themeVariables': {'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#000000', 'lineColor': '#000000', 'section0': '#ffff00', 'section1': '#0000ff', 'section2': '#ff0000', 'section3': '#ffffff', 'section4': '#808080'}}}}%%
 mindmap
   root((🕌 Automated Azan))
     🎯 Core Modules
@@ -191,11 +191,11 @@ graph TB
     TESTS -.-> SCHED
     TESTS -.-> CONFIG
 
-    %% Color blind accessible high contrast styling
-    classDef coreModule fill:#f5f5f5,stroke:#000000,stroke-width:4px,color:#000000
-    classDef webModule fill:#e8e8e8,stroke:#000000,stroke-width:4px,color:#000000
-    classDef configModule fill:#d8d8d8,stroke:#000000,stroke-width:4px,color:#000000
-    classDef devModule fill:#c8c8c8,stroke:#000000,stroke-width:4px,color:#000000
+    %% High contrast color styling with specified palette
+    classDef coreModule fill:#ffff00,stroke:#000000,stroke-width:4px,color:#000000
+    classDef webModule fill:#0000ff,stroke:#000000,stroke-width:4px,color:#ffffff
+    classDef configModule fill:#ff0000,stroke:#000000,stroke-width:4px,color:#ffffff
+    classDef devModule fill:#808080,stroke:#000000,stroke-width:4px,color:#ffffff
 
     class MAIN,SCHED,MANAGER,TIMESYNC,PRAYER coreModule
     class WEB,API,TEMPLATES webModule
@@ -258,12 +258,12 @@ flowchart TD
     WEB -.-> AUDIO
     LOGS -.-> CONFIG
 
-    %% Color blind accessible high contrast styling
-    classDef external fill:#f0f0f0,stroke:#000000,stroke-width:4px,color:#000000
-    classDef processing fill:#e0e0e0,stroke:#000000,stroke-width:4px,color:#000000
-    classDef core fill:#d0d0d0,stroke:#000000,stroke-width:4px,color:#000000
-    classDef output fill:#c0c0c0,stroke:#000000,stroke-width:4px,color:#000000
-    classDef monitoring fill:#b0b0b0,stroke:#000000,stroke-width:4px,color:#000000
+    %% High contrast color styling with specified palette
+    classDef external fill:#ffffff,stroke:#000000,stroke-width:4px,color:#000000
+    classDef processing fill:#ffff00,stroke:#000000,stroke-width:4px,color:#000000
+    classDef core fill:#ff0000,stroke:#000000,stroke-width:4px,color:#ffffff
+    classDef output fill:#0000ff,stroke:#000000,stroke-width:4px,color:#ffffff
+    classDef monitoring fill:#808080,stroke:#000000,stroke-width:4px,color:#ffffff
 
     class NTP,APIS,USER external
     class SYNC,FETCH,CONFIG processing
@@ -314,10 +314,10 @@ graph LR
     L5 -.->|"Added"| N5
     L6 -.->|"Enhanced to"| N6
 
-    %% Color blind accessible high contrast styling
-    classDef legacy fill:#f0f0f0,stroke:#000000,stroke-width:4px,color:#000000,stroke-dasharray:10,5
-    classDef improved fill:#e0e0e0,stroke:#000000,stroke-width:4px,color:#000000
-    classDef modular fill:#d0d0d0,stroke:#000000,stroke-width:4px,color:#000000
+    %% High contrast color styling with specified palette
+    classDef legacy fill:#808080,stroke:#000000,stroke-width:4px,color:#ffffff,stroke-dasharray:10,5
+    classDef improved fill:#ffff00,stroke:#000000,stroke-width:4px,color:#000000
+    classDef modular fill:#0000ff,stroke:#000000,stroke-width:4px,color:#ffffff
 
     class L1,L2,L3,L4,L5,L6 legacy
     class N1,N2,N3,N4,N5,N6 improved
@@ -327,7 +327,7 @@ graph LR
 ## System Statistics & Metrics
 
 ```mermaid
-%%{init: {'theme':'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#333333', 'lineColor': '#333333', 'sectionBkColor': '#f0f0f0', 'altSectionBkColor': '#e0e0e0'}}}%%
+%%{init: {'theme':'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#000000', 'lineColor': '#000000', 'sectionBkColor': '#ffff00', 'altSectionBkColor': '#0000ff'}}}%%
 pie title 📊 Code Distribution (Lines)
     "Audio Management" : 66610
     "Prayer Times" : 27052
@@ -338,36 +338,37 @@ pie title 📊 Code Distribution (Lines)
     "Scheduling" : 17770
 ```
 
-## ♿ Color Blind Accessible Features
+## 🎨 Color Scheme Features
 
-All diagrams have been updated with color blind-friendly design:
+All diagrams now use a vibrant color palette for clear visual distinction:
 
-### **✅ High Contrast Grayscale**
+### **✅ High Contrast Color Design**
 - **Stroke width**: Increased to 4px for maximum visibility
 - **Pure black borders**: `#000000` for strongest contrast
 - **Pure black text**: `#000000` on all elements for maximum readability
 - **Consistent spacing**: Clear visual separation between components
 
-### **🎨 Grayscale Palette (Color Blind Safe)**
-- **Light Gray**: `#f0f0f0` (highest brightness)
-- **Medium Light**: `#e0e0e0` (high brightness)
-- **Medium**: `#d0d0d0` (medium brightness)
-- **Medium Dark**: `#c0c0c0` (lower brightness)
-- **Dark Gray**: `#b0b0b0` (lowest brightness)
-- **Legacy Pattern**: Dashed borders (`stroke-dasharray:10,5`) to distinguish legacy components
+### **🌈 Color Palette (High Visibility)**
+- **Yellow**: `#ffff00` (Core Modules - highest visibility)
+- **Blue**: `#0000ff` (Web Interface - professional blue)
+- **Red**: `#ff0000` (Configuration - attention-grabbing)
+- **White**: `#ffffff` (Development - clean background)
+- **Gray**: `#808080` (Media & Data - neutral tone)
+- **Black**: `#000000` (Text and borders - maximum contrast)
 
-### **📱 Accessibility Improvements**
-- **WCAG compliant**: All colors meet contrast ratio requirements
-- **Readable in daylight**: Light backgrounds with dark text
-- **Print friendly**: Colors work well in black & white
-- **Screen reader friendly**: Emoji and text descriptions
+### **📱 Color Usage Across Diagrams**
+- **Main Application Overview**: Full color palette with section-based colors
+- **Component Architecture**: Yellow (core), Blue (web), Red (config), Gray (dev)
+- **Data Flow Architecture**: White (external), Yellow (processing), Red (core), Blue (output), Gray (monitoring)
+- **Legacy vs Improved**: Gray (legacy with dashed borders), Yellow (improved), Blue (modular)
+- **Code Distribution Chart**: Yellow and Blue alternating sections
 
 ### **🔍 Testing Recommendations**
 Test the diagrams in:
-- ☀️ **Bright daylight** (outdoor viewing)
-- 🖥️ **High brightness monitors**
-- 📱 **Mobile devices** (various screen types)
-- 🖨️ **Printed documents** (black & white)
-- 👓 **Accessibility tools** (color blind simulation)
+- ☀️ **Bright daylight** (high contrast colors)
+- 🖥️ **High brightness monitors** (vibrant colors visible)
+- 📱 **Mobile devices** (clear color distinction)
+- 🖨️ **Printed documents** (distinct grayscale conversion)
+- 👓 **Accessibility tools** (high contrast ratios)
 
-The diagrams now provide excellent visibility in both light and dark environments while maintaining their informative structure and professional appearance! 🌅🌙
+The diagrams now use vibrant, high-contrast colors that provide excellent visibility and clear visual hierarchy while maintaining professional appearance! 🎨✨
