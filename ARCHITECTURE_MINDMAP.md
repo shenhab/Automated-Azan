@@ -3,6 +3,7 @@
 ## Main Application Overview
 
 ```mermaid
+%%{init: {'mindmap': {'theme': 'base', 'themeVariables': {'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#333333', 'lineColor': '#333333', 'section0': '#e6f3ff', 'section1': '#fff2e6', 'section2': '#e6ffe6', 'section3': '#ffe6f3', 'section4': '#f0f0f0'}}}}%%
 mindmap
   root((🕌 Automated Azan))
     🎯 Core Modules
@@ -51,16 +52,23 @@ mindmap
         chromecasts.html
         test.html
     📊 Configuration
-      📋 Config Management
+      📋 App Config
+        app_config.py
         config_manager.py
         File Configuration
         Runtime Settings
         Environment Variables
       🏭 Chromecast Config
         chromecast_config.py
+        chromecast_models.py
         Centralized Constants
         Environment Overrides
         Type Safety
+      🕐 Prayer Config
+        prayer_times_config.py
+        prayer_times_exceptions.py
+        API Configuration
+        Calculation Methods
       📝 Logging
         logging_setup.py
         Structured Logging
@@ -77,16 +85,27 @@ mindmap
         test_basic_functionality.py
         test_prayer_times_fetcher.py
         test_integration.py
+        test_cache.py
+        test_chromecast.py
         18+ Test Cases
       🐳 Deployment
         Dockerfile
         docker-compose.yml
         portainer-stack.yml
         SystemD Service
+        azan.service
       📦 Dependencies
         Pipfile
         uv.lock
         requirements.txt
+      🔧 Integration
+        service_modules_integration.py
+        example_integration.py
+      📁 Media & Data
+        Media/
+        data/
+        static/
+        logs/
 ```
 
 ## Detailed Component Architecture
