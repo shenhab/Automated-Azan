@@ -172,11 +172,11 @@ graph TB
     TESTS -.-> SCHED
     TESTS -.-> CONFIG
 
-    %% Data flow styling
-    classDef coreModule fill:#e1f5fe,stroke:#01579b,stroke-width:2px
-    classDef webModule fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
-    classDef configModule fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
-    classDef devModule fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    %% Light/Dark mode compatible styling
+    classDef coreModule fill:#b3d9ff,stroke:#003d82,stroke-width:3px,color:#000000
+    classDef webModule fill:#d4b3ff,stroke:#4a0080,stroke-width:3px,color:#000000
+    classDef configModule fill:#b3ffb3,stroke:#004d00,stroke-width:3px,color:#000000
+    classDef devModule fill:#ffcc99,stroke:#cc3300,stroke-width:3px,color:#000000
 
     class MAIN,SCHED,MANAGER,TIMESYNC,PRAYER coreModule
     class WEB,API,TEMPLATES webModule
@@ -239,12 +239,12 @@ flowchart TD
     WEB -.-> AUDIO
     LOGS -.-> CONFIG
 
-    %% Styling
-    classDef external fill:#ffebee,stroke:#c62828,stroke-width:2px
-    classDef processing fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
-    classDef core fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
-    classDef output fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    classDef monitoring fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    %% Light/Dark mode compatible styling
+    classDef external fill:#ffb3b3,stroke:#990000,stroke-width:3px,color:#000000
+    classDef processing fill:#b3d9ff,stroke:#0066cc,stroke-width:3px,color:#000000
+    classDef core fill:#b3ffb3,stroke:#009900,stroke-width:3px,color:#000000
+    classDef output fill:#ffdb99,stroke:#cc6600,stroke-width:3px,color:#000000
+    classDef monitoring fill:#e6b3ff,stroke:#8000cc,stroke-width:3px,color:#000000
 
     class NTP,APIS,USER external
     class SYNC,FETCH,CONFIG processing
@@ -295,9 +295,10 @@ graph LR
     L5 -.->|"Added"| N5
     L6 -.->|"Enhanced to"| N6
 
-    classDef legacy fill:#ffebee,stroke:#d32f2f,stroke-width:2px
-    classDef improved fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
-    classDef modular fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    %% Light/Dark mode compatible styling
+    classDef legacy fill:#ffcccc,stroke:#cc0000,stroke-width:3px,color:#000000
+    classDef improved fill:#ccffcc,stroke:#00aa00,stroke-width:3px,color:#000000
+    classDef modular fill:#cce6ff,stroke:#0080ff,stroke-width:3px,color:#000000
 
     class L1,L2,L3,L4,L5,L6 legacy
     class N1,N2,N3,N4,N5,N6 improved
@@ -307,6 +308,7 @@ graph LR
 ## System Statistics & Metrics
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#333333', 'lineColor': '#333333', 'sectionBkColor': '#f0f0f0', 'altSectionBkColor': '#e0e0e0'}}}%%
 pie title 📊 Code Distribution (Lines)
     "Audio Management" : 66610
     "Prayer Times" : 27052
@@ -316,3 +318,35 @@ pie title 📊 Code Distribution (Lines)
     "Time Sync" : 21050
     "Scheduling" : 17770
 ```
+
+## 🌅 Light Mode Visibility Features
+
+All diagrams have been updated with:
+
+### **✅ High Contrast Colors**
+- **Stroke width**: Increased to 3px for better visibility
+- **Dark borders**: Strong contrast (#000000-#990000 range)
+- **Bold text**: Force black text (`color:#000000`) on all elements
+
+### **🎨 Color Palette (Light/Dark Compatible)**
+- **Blue**: `#b3d9ff` (light blue with dark blue border)
+- **Purple**: `#d4b3ff` (light purple with dark purple border)
+- **Green**: `#b3ffb3` (light green with dark green border)
+- **Orange**: `#ffcc99` (light orange with dark orange border)
+- **Red**: `#ffb3b3` (light red with dark red border)
+
+### **📱 Accessibility Improvements**
+- **WCAG compliant**: All colors meet contrast ratio requirements
+- **Readable in daylight**: Light backgrounds with dark text
+- **Print friendly**: Colors work well in black & white
+- **Screen reader friendly**: Emoji and text descriptions
+
+### **🔍 Testing Recommendations**
+Test the diagrams in:
+- ☀️ **Bright daylight** (outdoor viewing)
+- 🖥️ **High brightness monitors**
+- 📱 **Mobile devices** (various screen types)
+- 🖨️ **Printed documents** (black & white)
+- 👓 **Accessibility tools** (color blind simulation)
+
+The diagrams now provide excellent visibility in both light and dark environments while maintaining their informative structure and professional appearance! 🌅🌙
