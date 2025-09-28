@@ -29,7 +29,13 @@ class AthanScheduler:
         self.chromecast_manager = ChromecastManager()
 
         # Load prayer times on initialization
+        logging.info("[DEBUG] Initializing scheduler - loading prayer times and scheduling jobs")
         init_result = self.load_prayer_times()
+        logging.info(f"[DEBUG] Initialization result: {init_result}")
+
+        # Verify jobs were scheduled
+        status = self.get_scheduler_status()
+        logging.info(f"[DEBUG] Jobs scheduled during init: {status.get('total_jobs', 0)}")
         if not init_result.get('success', False):
             logging.warning("Failed to load prayer times during initialization")
 
@@ -126,6 +132,7 @@ class AthanScheduler:
             skipped_prayers = []
 
             logging.info("Clearing previous schedules and scheduling today's prayers. Current time: %s", now.strftime("%Y-%m-%d %H:%M:%S"))
+            logging.info(f"[DEBUG] Available prayer times: {self.prayer_times}")
 
             chromecast_manager = ChromecastManager()
 
@@ -181,6 +188,11 @@ class AthanScheduler:
                         "time": time_tuple,
                         "reason": f"Parse error: {str(e)}"
                     })
+
+            # Final status check
+            jobs_after = schedule.jobs
+            logging.info(f"[DEBUG] Scheduling complete - {len(scheduled_prayers)} prayers scheduled")
+            logging.info(f"[DEBUG] Total jobs in schedule: {len(jobs_after)}")
 
             return {
                 "success": True,
@@ -278,6 +290,12 @@ class AthanScheduler:
         try:
             next_run = schedule.next_run()
             jobs = schedule.jobs
+
+            # Debug logging
+            logging.info(f"[DEBUG] Scheduler status check - found {len(jobs)} jobs")
+            logging.info(f"[DEBUG] Next run: {next_run}")
+            for i, job in enumerate(jobs):
+                logging.info(f"[DEBUG] Job {i}: {job.job_func.__name__ if hasattr(job.job_func, '__name__') else str(job.job_func)} at {job.next_run}")
 
             return {
                 "success": True,
