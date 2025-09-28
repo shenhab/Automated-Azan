@@ -1,5 +1,5 @@
 # Automated Azan - Streamlined Makefile
-# Two deployment methods: pipenv (development) and Docker (production)
+# Two deployment methods: uv (development) and Docker (production)
 
 # Detect Docker Compose command (docker-compose vs docker compose)
 DOCKER_COMPOSE := $(shell if command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; elif docker compose version >/dev/null 2>&1; then echo "docker compose"; else echo "docker-compose"; fi)
@@ -19,48 +19,49 @@ docker-fix-athan: docker-stop docker-build docker-run
 .DEFAULT_GOAL := help
 
 #=============================================================================
-# DEVELOPMENT (pipenv)
+# DEVELOPMENT (uv)
 #=============================================================================
 
 setup:
 	@echo "🚀 Setting up development environment..."
-	@echo "   📦 Installing pipenv and dependencies..."
-	@pip install --user pipenv || pip3 install --user pipenv
-	@pipenv install --dev
+	@echo "   📦 Installing uv and dependencies..."
+	@pip install --user uv || pip3 install --user uv
+	@uv venv
+	@uv pip sync requirements.txt
 	@echo "   ✅ Development environment ready!"
 	@echo "   💡 Run 'make run' to start prayer scheduler"
 	@echo "   💡 Run 'make web' to start web interface"
 
 install:
-	@echo "📦 Installing dependencies with pipenv..."
-	@pipenv install --dev
+	@echo "📦 Installing dependencies with uv..."
+	@uv pip sync requirements.txt
 
 run:
-	@echo "� Starting Automated Azan prayer scheduler..."
-	@pipenv run python main.py
+	@echo "🕌 Starting Automated Azan prayer scheduler..."
+	@uv run python main.py
 
 web:
 	@echo "🌐 Starting web interface..."
 	@echo "   📱 Interface will be available at: http://localhost:5000"
-	@pipenv run python web_interface.py
+	@uv run python web_interface.py
 
 test:
 	@echo "🧪 Running test suite..."
-	@pipenv run python -m pytest tests/test_basic_functionality.py -v || echo "Pytest tests failed, running integration fallback..."
+	@uv run python -m pytest tests/test_basic_functionality.py -v || echo "Pytest tests failed, running integration fallback..."
 	@echo "   🎵 Testing service modules integration..."
-	@pipenv run python service_modules_integration.py
+	@uv run python service_modules_integration.py
 
 test-chromecast:
 	@echo "📡 Testing chromecast manager via integration demo..."
-	@pipenv run python service_modules_integration.py
+	@uv run python service_modules_integration.py
 
 shell:
-	@echo "🐚 Activating pipenv shell..."
-	@pipenv shell
+	@echo "🐚 Activating uv environment..."
+	@. .venv/bin/activate && exec $$SHELL
 
 update:
 	@echo "🔄 Updating dependencies..."
-	@pipenv update
+	@uv pip sync requirements.txt
 
 #=============================================================================
 # PRODUCTION DEPLOYMENT (Docker)
@@ -143,8 +144,8 @@ check:
 	@echo "Python:"
 	@python3 --version 2>/dev/null && echo "   ✅ Python 3 available" || echo "   ❌ Python 3 not found"
 	@echo ""
-	@echo "Pipenv (for development):"
-	@pipenv --version 2>/dev/null && echo "   ✅ Pipenv available" || echo "   ⚠️  Pipenv not found (install with: pip install pipenv)"
+	@echo "UV (for development):"
+	@uv --version 2>/dev/null && echo "   ✅ UV available" || echo "   ⚠️  UV not found (install with: pip install uv)"
 	@echo ""
 	@echo "Docker (for production):"
 	@docker --version 2>/dev/null && echo "   ✅ Docker available" || echo "   ⚠️  Docker not found"
@@ -169,17 +170,17 @@ help:
 	@echo "========================================"
 	@echo ""
 	@echo "🚀 QUICK START:"
-	@echo "   make setup     Setup development environment (pipenv)"
+	@echo "   make setup     Setup development environment (uv)"
 	@echo "   make deploy    Deploy production system (Docker)"
 	@echo ""
-	@echo "🐍 DEVELOPMENT (pipenv):"
-	@echo "   make setup           Setup pipenv environment and dependencies"
+	@echo "🐍 DEVELOPMENT (uv):"
+	@echo "   make setup           Setup uv environment and dependencies"
 	@echo "   make install         Install/update dependencies"
 	@echo "   make run             Run prayer scheduler"
 	@echo "   make web             Run web interface"
 	@echo "   make test            Run test suite"
 	@echo "   make test-chromecast Test chromecast integration"
-	@echo "   make shell           Activate pipenv shell"
+	@echo "   make shell           Activate uv environment shell"
 	@echo "   make update          Update dependencies"
 	@echo ""
 	@echo "� PRODUCTION (Docker):"

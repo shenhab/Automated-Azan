@@ -9,14 +9,14 @@ RUN apt-get update && apt-get install -y \
     gcc \
     libc6-dev
 
-# Install pipenv
-RUN pip install --upgrade pip pipenv
+# Install uv for fast Python package management
+RUN pip install --upgrade pip uv
 
-# Copy Pipfiles
-COPY Pipfile Pipfile.lock ./
+# Copy requirements file
+COPY requirements.txt ./
 
-# Install dependencies using pipenv
-RUN pipenv install --system --deploy
+# Install dependencies using uv
+RUN uv pip install --system -r requirements.txt
 
 # Copy application files
 COPY . .

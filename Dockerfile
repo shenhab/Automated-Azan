@@ -23,14 +23,14 @@ WORKDIR /app
 RUN mkdir -p /var/log /app/data /app/logs /app/config && \
     chmod 755 /var/log /app/data /app/logs /app/config
 
-# Install pipenv
-RUN pip install --upgrade pip pipenv
+# Install uv for fast Python package management
+RUN pip install --upgrade pip uv
 
-# Copy Pipfiles first for better layer caching
-COPY Pipfile Pipfile.lock ./
+# Copy requirements file first for better layer caching
+COPY requirements.txt ./
 
-# Install dependencies using pipenv
-RUN pipenv install --system --deploy
+# Install dependencies using uv
+RUN uv pip install --system -r requirements.txt
 
 # Copy application files
 COPY . .
