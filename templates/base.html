@@ -17,103 +17,218 @@
             --islamic-green: #2e7d32;
             --islamic-gold: #ffd700;
             --islamic-blue: #1976d2;
+            --light-gray: #f8f9fa;
+            --border-color: #dee2e6;
         }
-        
+
+        body {
+            background-color: #fafafa;
+        }
+
+        /* Navbar Styles */
+        .navbar {
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
         .navbar-brand {
             color: var(--islamic-green) !important;
             font-weight: bold;
+            font-size: 1.3rem;
         }
-        
+
+        /* Card Styles */
         .islamic-card {
+            border: none;
             border-left: 4px solid var(--islamic-green);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border-radius: 8px;
+            overflow: hidden;
         }
-        
+
+        .islamic-card .card-header {
+            background-color: rgba(46, 125, 50, 0.05);
+            border-bottom: 1px solid rgba(46, 125, 50, 0.1);
+        }
+
         .prayer-time-card {
             background: linear-gradient(135deg, var(--islamic-green), var(--islamic-blue));
             color: white;
             border: none;
+            border-radius: 12px;
         }
-        
+
+        .prayer-time-card .card-header {
+            background-color: transparent;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+        }
+
+        /* Badge Styles */
         .status-badge {
             font-size: 0.8em;
+            padding: 0.35em 0.65em;
         }
-        
+
+        /* Chromecast Device Cards */
         .chromecast-device {
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 10px;
-            transition: all 0.3s;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            background-color: white;
+            transition: all 0.3s ease;
         }
-        
+
         .chromecast-device:hover {
             border-color: var(--islamic-green);
-            box-shadow: 0 2px 8px rgba(46, 125, 50, 0.2);
+            box-shadow: 0 4px 12px rgba(46, 125, 50, 0.15);
+            transform: translateY(-2px);
         }
-        
+
         .chromecast-device.selected {
             border-color: var(--islamic-green);
-            background-color: rgba(46, 125, 50, 0.1);
+            border-width: 2px;
+            background-color: rgba(46, 125, 50, 0.05);
         }
-        
+
+        /* Spinner Styles */
         .discovery-spinner {
             display: none;
         }
-        
+
+        /* Log Container */
         .log-container {
             background-color: #1e1e1e;
-            color: #f8f9fa;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
+            color: #d4d4d4;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
             max-height: 400px;
             overflow-y: auto;
+            border-radius: 6px;
+            padding: 15px;
         }
-        
+
+        /* Next Prayer Highlight */
         .next-prayer {
             background: linear-gradient(45deg, var(--islamic-gold), #ff9800);
             color: #333;
             font-weight: bold;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(255, 152, 0, 0.3);
         }
-        
+
+        /* Sidebar Styles */
         .sidebar {
-            background-color: #f8f9fa;
+            background-color: white;
             min-height: calc(100vh - 56px);
+            border-right: 1px solid var(--border-color);
+            padding-top: 20px;
         }
-        
-        .nav-link {
+
+        .sidebar .nav-link {
             color: #495057;
-            border-radius: 5px;
-            margin: 2px 0;
+            border-radius: 8px;
+            margin: 4px 10px;
+            padding: 10px 15px;
+            transition: all 0.2s;
         }
-        
-        .nav-link:hover, .nav-link.active {
+
+        .sidebar .nav-link:hover {
+            background-color: rgba(46, 125, 50, 0.08);
+            color: var(--islamic-green);
+        }
+
+        .sidebar .nav-link.active {
             background-color: var(--islamic-green);
             color: white !important;
         }
-        
+
+        .sidebar hr {
+            margin: 20px 10px;
+            border-color: var(--border-color);
+        }
+
+        /* Quick Status Section */
+        .sidebar .px-3 {
+            padding: 0 20px;
+        }
+
+        .sidebar .px-3 h6 {
+            color: #6c757d;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 15px;
+        }
+
+        /* Icon Styles */
         .islamic-icon {
             color: var(--islamic-green);
         }
-        
+
+        /* Main Content Area */
+        main {
+            background-color: transparent;
+            padding: 20px !important;
+        }
+
+        /* Alert Styles */
+        .alert {
+            border-radius: 8px;
+            border: none;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+
+        /* Button Styles */
+        .btn {
+            border-radius: 6px;
+            padding: 8px 16px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background-color: var(--islamic-green);
+            border-color: var(--islamic-green);
+        }
+
+        .btn-primary:hover {
+            background-color: #236b26;
+            border-color: #236b26;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(46, 125, 50, 0.3);
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .sidebar {
+                min-height: auto;
+                border-right: none;
+                border-bottom: 1px solid var(--border-color);
+                padding-bottom: 20px;
+            }
+
+            main {
+                padding: 15px !important;
+            }
+        }
+
         /* Test page specific styles */
         .device-card {
             transition: transform 0.2s, box-shadow 0.2s;
-            border: 1px solid #dee2e6;
+            border: 1px solid var(--border-color);
+            background-color: white;
+            border-radius: 8px;
         }
-        
+
         .device-card:hover {
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
             border-color: var(--islamic-green);
         }
-        
+
         .device-status {
             font-size: 0.75em;
-        }
-        
-        .discovery-spinner {
-            display: none;
         }
 
     </style>

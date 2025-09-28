@@ -239,11 +239,28 @@ def index():
     """Main dashboard"""
     load_config()
     load_prayer_times()
-    
-    return render_template('dashboard.html', 
+
+    # Debug logging for scheduler status
+    logging.info(f"[DEBUG] Dashboard loading - scheduler_status: {scheduler_status}")
+
+    # Try to get actual scheduler status from the scheduler if available
+    actual_status = {"running": False, "next_prayer": None, "last_update": None}
+    if web_scheduler:
+        try:
+            status_data = web_scheduler.get_scheduler_status()
+            actual_status["running"] = status_data.get("success", False) and status_data.get("total_jobs", 0) > 0
+            actual_status["next_prayer"] = status_data.get("next_run")
+            actual_status["last_update"] = datetime.now().isoformat()
+            logging.info(f"[DEBUG] Got scheduler status from web_scheduler: {actual_status}")
+        except Exception as e:
+            logging.error(f"[DEBUG] Error getting scheduler status: {e}")
+    else:
+        logging.warning("[DEBUG] web_scheduler is not available")
+
+    return render_template('dashboard.html',
                          config=current_config,
                          prayer_times=prayer_times,
-                         scheduler_status=scheduler_status)
+                         scheduler_status=actual_status)
 
 @app.route('/chromecasts')
 def chromecasts():
@@ -828,11 +845,23 @@ def handle_status_request():
     """Handle status request from client"""
     load_config()
     load_prayer_times()
-    
+
+    # Get actual scheduler status
+    actual_status = {"running": False, "next_prayer": None, "last_update": None}
+    if web_scheduler:
+        try:
+            status_data = web_scheduler.get_scheduler_status()
+            actual_status["running"] = status_data.get("success", False) and status_data.get("total_jobs", 0) > 0
+            actual_status["next_prayer"] = status_data.get("next_run")
+            actual_status["last_update"] = datetime.now().isoformat()
+            logging.info(f"[DEBUG] WebSocket status request - scheduler status: {actual_status}")
+        except Exception as e:
+            logging.error(f"[DEBUG] WebSocket error getting scheduler status: {e}")
+
     emit('status_update', {
         'config': current_config,
         'prayer_times': prayer_times,
-        'scheduler_status': scheduler_status,
+        'scheduler_status': actual_status,
         'devices': get_discovered_devices()
     })
 

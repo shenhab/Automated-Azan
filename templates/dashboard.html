@@ -335,30 +335,56 @@
     
     // Socket event handlers
     socket.on('prayer_times_updated', function(data) {
+        console.log('[DEBUG] Prayer times updated event:', data);
         if (data.prayer_times && !data.prayer_times.error) {
             prayerTimes = data.prayer_times;
             updateNextPrayer();
             showAlert('Prayer times updated!', 'success');
         }
     });
-    
+
     socket.on('status_update', function(data) {
+        console.log('[DEBUG] Status update received:', data);
+        console.log('[DEBUG] Scheduler status:', data.scheduler_status);
+
         if (data.prayer_times) {
             prayerTimes = data.prayer_times;
             updateNextPrayer();
+        }
+
+        // Update scheduler status badge
+        if (data.scheduler_status) {
+            const statusBadge = document.querySelector('.card-body:has(.fa-play-circle) .badge');
+            if (statusBadge) {
+                const isRunning = data.scheduler_status.running;
+                console.log('[DEBUG] Scheduler running state:', isRunning);
+                statusBadge.className = isRunning ? 'badge bg-success' : 'badge bg-secondary';
+                statusBadge.textContent = isRunning ? 'Running' : 'Stopped';
+            }
         }
     });
     
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
+        // Debug logging on page load
+        const initialSchedulerStatus = {{ scheduler_status|tojson }};
+        console.log('[DEBUG] Initial scheduler status from server:', initialSchedulerStatus);
+        console.log('[DEBUG] Initial scheduler running state:', initialSchedulerStatus.running);
+
         updateNextPrayer();
         loadRecentLogs();
-        
+
         // Update every minute
         setInterval(updateNextPrayer, 60000);
-        
+
         // Update last updated time
         document.getElementById('last-updated').textContent = new Date().toLocaleString();
+
+        // Request fresh status after page load
+        console.log('[DEBUG] Requesting fresh status from server...');
+        setTimeout(() => {
+            socket.emit('request_status');
+        }, 500);
     });
 </script>
 {% endblock %}
