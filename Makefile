@@ -92,7 +92,7 @@ deploy-check:
 	@echo ""
 	@echo "� Docker environment:"
 	@docker --version 2>/dev/null && echo "   ✅ Docker available" || (echo "   ❌ Docker not found! Please install Docker" && exit 1)
-	@(docker-compose --version 2>/dev/null || docker compose version 2>/dev/null) && echo "   ✅ Docker Compose available" || (echo "   ❌ Docker Compose not found! Please install Docker Compose" && exit 1)
+	@(command -v docker-compose >/dev/null 2>&1 || docker compose version >/dev/null 2>&1) && echo "   ✅ Docker Compose available" || (echo "   ❌ Docker Compose not found! Please install Docker Compose" && exit 1)
 	@echo ""
 	@echo "� Configuration preview:"
 	@echo "   📍 Location: $$(grep '^location' adahn.config | cut -d'=' -f2 | xargs 2>/dev/null || echo 'not configured')"
