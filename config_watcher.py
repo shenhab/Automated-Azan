@@ -210,8 +210,8 @@ class ConfigWatcher:
                 "timestamp": datetime.now().isoformat()
             }
 
-    async def handle_config_change(self):
-        """Handle config file changes asynchronously."""
+    def handle_config_change(self):
+        """Handle config file changes."""
         try:
             logger.info("Handling configuration change...")
 
@@ -237,7 +237,7 @@ class ConfigWatcher:
             for section, items in changes.items():
                 if section == 'Settings':
                     for key, (old_val, new_val) in items.items():
-                        await self._handle_setting_change(key, old_val, new_val)
+                        self._handle_setting_change(key, old_val, new_val)
 
             # Update stored config
             self.previous_config = new_config
@@ -247,7 +247,7 @@ class ConfigWatcher:
         except Exception as e:
             logger.error(f"Error handling config change: {e}", exc_info=True)
 
-    async def _handle_setting_change(self, key: str, old_val: str, new_val: str):
+    def _handle_setting_change(self, key: str, old_val: str, new_val: str):
         """
         Handle specific setting changes.
 
@@ -268,14 +268,14 @@ class ConfigWatcher:
         handler = handlers.get(key)
         if handler:
             try:
-                await handler(old_val, new_val)
+                handler(old_val, new_val)
                 logger.info(f"Successfully handled change for {key}")
             except Exception as e:
                 logger.error(f"Failed to handle change for {key}: {e}", exc_info=True)
         else:
             logger.debug(f"No handler for config key: {key}")
 
-    async def _handle_location_change(self, old_val: str, new_val: str):
+    def _handle_location_change(self, old_val: str, new_val: str):
         """Handle location changes."""
         try:
             logger.info(f"Handling location change from {old_val} to {new_val}")
@@ -308,39 +308,32 @@ class ConfigWatcher:
         except Exception as e:
             logger.error(f"Error handling location change: {e}", exc_info=True)
 
-    async def _handle_speaker_change(self, old_val: str, new_val: str):
+    def _handle_speaker_change(self, old_val: str, new_val: str):
         """Handle speaker group changes."""
         try:
             logger.info(f"Handling speaker change from {old_val} to {new_val}")
 
-            # Disconnect from current speakers
-            if hasattr(self.scheduler.chromecast_manager, 'disconnect_all'):
-                self.scheduler.chromecast_manager.disconnect_all()
-                logger.info(f"Disconnected from {old_val}")
+            # Update device name in scheduler and chromecast manager
+            if hasattr(self.scheduler, 'google_device'):
+                self.scheduler.google_device = new_val
+                logger.info(f"Updated scheduler device name to: {new_val}")
 
-            # Update device name
-            self.scheduler.google_device = new_val
-            self.scheduler.chromecast_manager.device_name = new_val
+            # Clear any cached device connections to force rediscovery
+            if hasattr(self.scheduler.chromecast_manager, 'target_device'):
+                self.scheduler.chromecast_manager.target_device = None
+                logger.info(f"Cleared target device cache")
 
-            # Clear device cache if exists
-            if hasattr(self.scheduler.chromecast_manager, 'chromecasts'):
-                self.scheduler.chromecast_manager.chromecasts = []
-            if hasattr(self.scheduler.chromecast_manager, 'selected_device'):
-                self.scheduler.chromecast_manager.selected_device = None
+            # Force device rediscovery on next use
+            if hasattr(self.scheduler.chromecast_manager, 'last_discovery_time'):
+                self.scheduler.chromecast_manager.last_discovery_time = 0
+                logger.info(f"Reset discovery time to force rediscovery")
 
-            # Attempt to connect to new speaker group
-            result = self.scheduler.chromecast_manager.connect_to_device(new_val)
-
-            if result.get('success'):
-                logger.info(f"Successfully connected to new speaker group: {new_val}")
-            else:
-                logger.warning(f"Failed to connect to new speaker group {new_val}: {result.get('error')}")
-                logger.info("Will retry connection on next prayer time")
+            logger.info(f"Speaker change handled. New device '{new_val}' will be used for next prayer announcement.")
 
         except Exception as e:
             logger.error(f"Error handling speaker change: {e}", exc_info=True)
 
-    async def _handle_pre_fajr_change(self, old_val: str, new_val: str):
+    def _handle_pre_fajr_change(self, old_val: str, new_val: str):
         """Handle pre-Fajr setting changes."""
         try:
             # Parse boolean values
@@ -368,7 +361,7 @@ class ConfigWatcher:
         except Exception as e:
             logger.error(f"Error handling pre-Fajr change: {e}", exc_info=True)
 
-    async def _handle_prayer_source_change(self, old_val: str, new_val: str):
+    def _handle_prayer_source_change(self, old_val: str, new_val: str):
         """Handle prayer source changes."""
         try:
             logger.info(f"Handling prayer source change from {old_val} to {new_val}")
