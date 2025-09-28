@@ -145,7 +145,8 @@ class AthanScheduler:
             config = ConfigManager()
             pre_fajr_enabled = config.is_pre_fajr_enabled().get('pre_fajr_enabled', True)
 
-            chromecast_manager = ChromecastManager()
+            # Use the existing chromecast_manager instance instead of creating a new one
+            chromecast_manager = self.chromecast_manager
 
             for prayer, time_tuple in self.prayer_times.items():
                 logging.debug("Processing prayer: %s, scheduled time: %s", prayer, time_tuple)

@@ -21,12 +21,18 @@ class ChromecastManager:
     Supports playing media URLs on the selected Chromecast.
     """
 
+    # Class-level cache shared across all instances
+    _shared_chromecasts = {}
+    _shared_last_discovery = 0
+    _discovery_lock = threading.Lock()
+
     def __init__(self):
         """Initialize the ChromecastManager and discover devices."""
-        self.chromecasts = {}  # Dictionary to store discovered devices
+        # Use shared cache if available
+        self.chromecasts = ChromecastManager._shared_chromecasts.copy()
         self.target_device = None  # Cache the target device
-        self.last_discovery_time = 0
-        self.discovery_cooldown = 30  # 30 seconds between rediscoveries
+        self.last_discovery_time = ChromecastManager._shared_last_discovery
+        self.discovery_cooldown = 60  # Increase to 60 seconds between rediscoveries
         self.browser = None
         self.listener = None
         self.discovery_complete = threading.Event()
@@ -36,8 +42,11 @@ class ChromecastManager:
         self.athan_start_time = None
         self.playback_lock = threading.Lock()
 
-        # Discover devices on initialization
-        self.discover_devices()
+        # Only discover if no cached devices or cache is old
+        if not self.chromecasts or (time.time() - self.last_discovery_time) > self.discovery_cooldown:
+            self.discover_devices()
+        else:
+            logging.info(f"Using cached devices: {len(self.chromecasts)} devices available")
 
     def _get_media_url(self, filename):
         """
@@ -84,6 +93,7 @@ class ChromecastManager:
     def discover_devices(self, force_rediscovery=False):
         """
         Discovers all available Chromecast devices using CastBrowser with fallback.
+        Uses shared cache to avoid redundant discoveries across instances.
 
         Args:
             force_rediscovery (bool): Force rediscovery even within cooldown
@@ -91,25 +101,38 @@ class ChromecastManager:
         Returns:
             dict: JSON response with discovery results
         """
-        current_time = time.time()
+        with ChromecastManager._discovery_lock:
+            current_time = time.time()
 
-        # Skip discovery if within cooldown period (unless forced)
-        if not force_rediscovery and (current_time - self.last_discovery_time) < self.discovery_cooldown:
-            return {
-                "success": True,
-                "skipped": True,
-                "reason": f"Cooldown period ({self.discovery_cooldown}s)",
-                "devices_cached": len(self.chromecasts),
-                "devices": {uuid: info for uuid, info in self.chromecasts.items()},
-                "timestamp": datetime.now().isoformat()
-            }
+            # Check shared cache first
+            time_since_last = current_time - ChromecastManager._shared_last_discovery
+
+            # Skip discovery if within cooldown period (unless forced)
+            if not force_rediscovery and time_since_last < self.discovery_cooldown:
+                # Use cached devices
+                self.chromecasts = ChromecastManager._shared_chromecasts.copy()
+                self.last_discovery_time = ChromecastManager._shared_last_discovery
+
+                logging.debug(f"Using cached devices (last discovery {time_since_last:.1f}s ago)")
+                return {
+                    "success": True,
+                    "skipped": True,
+                    "reason": f"Using cache (age: {time_since_last:.1f}s, cooldown: {self.discovery_cooldown}s)",
+                    "devices_cached": len(self.chromecasts),
+                    "devices": {uuid: info for uuid, info in self.chromecasts.items()},
+                    "timestamp": datetime.now().isoformat()
+                }
 
         logging.info("Discovering Chromecast devices...")
         self.last_discovery_time = current_time
+        ChromecastManager._shared_last_discovery = current_time
 
         # Try CastBrowser first (modern approach)
         castbrowser_result = self._discover_with_castbrowser()
         if castbrowser_result.get('success', False):
+            # Update shared cache
+            ChromecastManager._shared_chromecasts = self.chromecasts.copy()
+
             return {
                 "success": True,
                 "method": "castbrowser",
@@ -123,6 +146,9 @@ class ChromecastManager:
         # Fallback to get_chromecasts() if CastBrowser fails
         logging.info("CastBrowser failed, falling back to get_chromecasts()...")
         fallback_result = self._discover_with_get_chromecasts()
+
+        # Update shared cache
+        ChromecastManager._shared_chromecasts = self.chromecasts.copy()
 
         return {
             "success": len(self.chromecasts) > 0,
