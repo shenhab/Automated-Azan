@@ -1259,11 +1259,11 @@ class ChromecastManager:
             }
 
         # Check if enough time has passed for Athan to finish
-        # Most Athan recordings are 3-5 minutes, so we'll use 8 minutes as a safe timeout
+        # Most Athan recordings are 3-5 minutes, so we'll use a more aggressive 6 minute timeout
         if self.athan_start_time:
             elapsed_time = time.time() - self.athan_start_time
-            if elapsed_time > 480:  # 8 minutes timeout
-                logging.info("Athan playback timeout reached, clearing playback state")
+            if elapsed_time > 360:  # 6 minutes timeout (reduced from 8 minutes)
+                logging.info(f"Athan playback timeout reached after {elapsed_time:.1f}s, clearing playback state")
                 self.athan_playing = False
                 self.athan_start_time = None
                 return {
@@ -1271,9 +1271,13 @@ class ChromecastManager:
                     "is_playing": False,
                     "reason": "timeout_reached",
                     "elapsed_time": round(elapsed_time, 1),
-                    "timeout_threshold": 480,
+                    "timeout_threshold": 360,
                     "timestamp": datetime.now().isoformat()
                 }
+
+            # Also add a warning for long-running playback
+            elif elapsed_time > 240:  # 4 minutes warning
+                logging.warning(f"Athan has been playing for {elapsed_time:.1f}s - this seems unusually long")
 
         # Check if target device is actually playing something
         logging.info(f"[DEBUG] About to check target device status...")
@@ -1285,30 +1289,70 @@ class ChromecastManager:
                 # Add timeout wrapper around the hanging update_status call
                 import threading
                 exception_container = [None]
+                status_received = [False]
 
                 def update_status_target():
                     try:
                         media_controller.update_status()
+                        status_received[0] = True
                     except Exception as e:
                         exception_container[0] = e
 
                 thread = threading.Thread(target=update_status_target)
                 thread.daemon = True
                 thread.start()
-                thread.join(timeout=5)  # 5 second timeout
+                thread.join(timeout=10)  # Increased to 10 second timeout
 
                 if thread.is_alive():
-                    logging.error("media_controller.update_status() timed out after 5 seconds - this is the source of the hang!")
+                    logging.warning("media_controller.update_status() timed out after 10 seconds")
+                    # If we can't get device status and we've been "playing" for more than 5 minutes, assume it's finished
+                    elapsed_time = time.time() - self.athan_start_time if self.athan_start_time else 0
+                    if elapsed_time > 300:  # 5 minutes
+                        logging.info(f"Assuming playback finished due to long elapsed time: {elapsed_time:.1f}s")
+                        self.athan_playing = False
+                        self.athan_start_time = None
+                        return {
+                            "success": True,
+                            "is_playing": False,
+                            "reason": "timeout_assumed_finished",
+                            "elapsed_time": round(elapsed_time, 1),
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    else:
+                        # Can't determine status, assume still playing for now
+                        return {
+                            "success": True,
+                            "is_playing": True,
+                            "reason": "status_check_timeout_assume_playing",
+                            "elapsed_time": round(elapsed_time, 1),
+                            "timestamp": datetime.now().isoformat()
+                        }
+
+                if exception_container[0]:
+                    logging.warning(f"Error in update_status: {exception_container[0]}")
+                    # If there's an error, assume playback might have finished
+                    elapsed_time = time.time() - self.athan_start_time if self.athan_start_time else 0
+                    if elapsed_time > 300:  # 5 minutes - assume finished
+                        self.athan_playing = False
+                        self.athan_start_time = None
+                        return {
+                            "success": True,
+                            "is_playing": False,
+                            "reason": "status_error_assumed_finished",
+                            "elapsed_time": round(elapsed_time, 1),
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    # Otherwise assume still playing
                     return {
                         "success": True,
-                        "is_playing": False,
-                        "reason": "status_check_timeout",
-                        "message": "Unable to check device status due to timeout",
+                        "is_playing": True,
+                        "reason": "status_error_assume_playing",
+                        "elapsed_time": round(elapsed_time, 1),
                         "timestamp": datetime.now().isoformat()
                     }
 
-                if exception_container[0]:
-                    raise exception_container[0]
+                if not status_received[0]:
+                    logging.warning("update_status completed but no status received")
 
                 logging.info(f"[DEBUG] media_controller.update_status() completed successfully")
 
