@@ -396,11 +396,11 @@
         // Update last updated time
         document.getElementById('last-updated').textContent = new Date().toLocaleString();
 
-        // Request fresh status after page load
+        // Request fresh status after page load with longer delay to allow scheduler to initialize
         console.log('[DEBUG] Requesting fresh status from server...');
         setTimeout(() => {
             socket.emit('request_status');
-        }, 500);
+        }, 2000);  // Increased delay to allow scheduler to complete initialization
     });
 </script>
 {% endblock %}
