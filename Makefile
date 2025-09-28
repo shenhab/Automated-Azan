@@ -2,7 +2,7 @@
 # Two deployment methods: pipenv (development) and Docker (production)
 
 # Detect Docker Compose command (docker-compose vs docker compose)
-DOCKER_COMPOSE := $(shell docker-compose --version 2>/dev/null && echo docker-compose || (docker compose version 2>/dev/null && echo "docker compose"))
+DOCKER_COMPOSE := $(shell if command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; elif docker compose version >/dev/null 2>&1; then echo "docker compose"; else echo "docker-compose"; fi)
 
 docker-rebuild: docker-stop docker-build docker-run
 	@echo "🔄 Rebuilt and restarted Docker container"

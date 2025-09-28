@@ -1221,6 +1221,7 @@ class ChromecastManager:
             else:
                 url_result = self._get_media_url("media_Athan.mp3")
                 logging.info("Starting regular Adhan playback...")
+            
 
             if not url_result.get('success', False):
                 return {
@@ -1232,6 +1233,7 @@ class ChromecastManager:
                 }
 
             adahn_url = url_result['media_url']
+            logging.debug(f"got the prayer file link:{adahn_url}")
 
             # Mark Athan as starting
             self.athan_playing = True
