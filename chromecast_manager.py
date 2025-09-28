@@ -971,9 +971,45 @@ class ChromecastManager:
 
                 logging.info(f"About to call play_media with URL: {url}, content_type: {content_type}")
 
-                try:
+                # Add timeout wrapper around the potentially hanging play_media call
+                def play_media_with_timeout():
                     media_controller.play_media(url, content_type)
+
+                try:
+                    import signal
+                    import threading
+
+                    # Use threading with timeout as signal doesn't work reliably in Docker
+                    result_container = [None]
+                    exception_container = [None]
+
+                    def target():
+                        try:
+                            media_controller.play_media(url, content_type)
+                            result_container[0] = "success"
+                        except Exception as e:
+                            exception_container[0] = e
+
+                    thread = threading.Thread(target=target)
+                    thread.daemon = True
+                    thread.start()
+                    thread.join(timeout=10)  # 10 second timeout
+
+                    if thread.is_alive():
+                        logging.error("play_media call timed out after 10 seconds - this is the source of the hang!")
+                        return {
+                            "success": False,
+                            "error": "play_media call timed out after 10 seconds",
+                            "url": url,
+                            "device": target_device.name,
+                            "timestamp": datetime.now().isoformat()
+                        }
+
+                    if exception_container[0]:
+                        raise exception_container[0]
+
                     logging.info("play_media call completed, now waiting for media to load...")
+
                 except Exception as e:
                     logging.error(f"play_media call failed with error: {e}")
                     return {
