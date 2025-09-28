@@ -31,11 +31,13 @@ COPY uv.lock* ./
 # Copy requirements.txt as fallback for compatibility
 COPY requirements.txt* ./
 
-# Install dependencies using uv (preferred) or pip (fallback)
-RUN if [ -f "uv.lock" ]; then \
-        uv sync --no-dev --frozen; \
-    elif [ -f "requirements.txt" ]; then \
+# Install dependencies using uv (system-wide for Docker)
+RUN if [ -f "requirements.txt" ]; then \
+        # Use requirements.txt for system-wide installation in Docker
         uv pip install --system -r requirements.txt; \
+    elif [ -f "uv.lock" ]; then \
+        # Fallback to uv sync if no requirements.txt
+        uv sync --no-dev --frozen; \
     else \
         echo "ERROR: No dependency files found"; exit 1; \
     fi \
@@ -87,5 +89,5 @@ ENV PYTHONUNBUFFERED=1
 ENV TZ=UTC
 
 
-# Use uv run to execute with correct environment
-CMD ["uv", "run", "python", "main.py"]
+# Run with Python directly (packages installed system-wide in Docker)
+CMD ["python", "main.py"]
