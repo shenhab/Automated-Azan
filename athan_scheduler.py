@@ -92,12 +92,18 @@ class AthanScheduler:
 
             if fetch_result.get('success', False):
                 self.prayer_times = fetch_result.get('prayer_times', {})
+
+                # Schedule prayers after loading prayer times
+                logging.info("[DEBUG] Prayer times loaded, now scheduling prayers")
+                schedule_result = self.schedule_prayers()
+
                 return {
                     "success": True,
                     "location": self.location,
                     "prayer_times": self.prayer_times,
                     "fetch_result": fetch_result,
-                    "message": "Prayer times successfully fetched",
+                    "schedule_result": schedule_result,
+                    "message": "Prayer times successfully fetched and scheduled",
                     "timestamp": datetime.now(self.tz).isoformat()
                 }
             else:
