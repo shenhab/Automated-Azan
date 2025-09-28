@@ -29,6 +29,9 @@ prayer_times = {}
 prayer_times_last_updated = None
 scheduler_status = {"running": False, "next_prayer": None, "last_update": None}
 
+# Global references to shared instances
+web_scheduler = None
+
 # Cache infrastructure for discovered devices
 discovered_devices_cache = {
     'timestamp': None,
@@ -897,15 +900,19 @@ def background_device_monitor():
             time.sleep(30)  # Wait before retry
 
 
-def start_web_interface(chromecast_manager=None):
+def start_web_interface(chromecast_manager=None, scheduler=None):
     """Function to start the web interface - can be called from main.py"""
-    global web_cast_manager
-    
+    global web_cast_manager, web_scheduler
+
     # Use provided chromecast manager or create new one
     if chromecast_manager:
         web_cast_manager = chromecast_manager
     else:
         web_cast_manager = ChromecastManager()
+
+    # Store reference to scheduler for status monitoring
+    if scheduler:
+        web_scheduler = scheduler
 
 
     # Load initial configuration

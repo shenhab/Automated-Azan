@@ -100,11 +100,11 @@ def main():
         logging.info("AthanScheduler initialized successfully.")
         print("✓ AthanScheduler initialized successfully")
 
-        # Start web interface in background thread with shared chromecast manager
+        # Start web interface in background thread with shared chromecast manager and scheduler
         print("🌐 Starting web interface...")
         web_thread = threading.Thread(
             target=start_web_interface,
-            args=(scheduler.chromecast_manager,),
+            args=(scheduler.chromecast_manager, scheduler),
             daemon=True
         )
         web_thread.start()
