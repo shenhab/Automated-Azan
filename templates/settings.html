@@ -53,6 +53,23 @@
                             Choose the mosque whose prayer timetable you want to follow.
                         </div>
                     </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">
+                            <i class="fas fa-moon me-2"></i>
+                            Pre-Fajr Quran Recitation
+                        </label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="pre-fajr-enabled"
+                                   {{ 'checked' if config.pre_fajr_enabled else '' }}>
+                            <label class="form-check-label" for="pre-fajr-enabled">
+                                Enable Pre-Fajr Quran (30 minutes before Fajr)
+                            </label>
+                        </div>
+                        <div class="form-text">
+                            When enabled, Quran recitation will play 30 minutes before the Fajr prayer time.
+                        </div>
+                    </div>
                     
                     <div class="d-grid gap-2 d-md-flex justify-content-md-end">
                         <button type="button" class="btn btn-outline-secondary me-md-2" onclick="resetForm()">
@@ -161,6 +178,17 @@
                         {{ config.location|title }} Mosque
                     </span>
                 </div>
+
+                <div class="mb-2">
+                    <strong>Pre-Fajr Quran:</strong><br>
+                    <span class="text-muted">
+                        {% if config.pre_fajr_enabled %}
+                            <span class="badge bg-success">Enabled</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Disabled</span>
+                        {% endif %}
+                    </span>
+                </div>
                 
                 <div class="mb-2">
                     <strong>Last Updated:</strong><br>
@@ -235,6 +263,7 @@
     function resetForm() {
         document.getElementById('speakers-name').value = '{{ config.speakers_group_name }}';
         document.getElementById('location').value = '{{ config.location }}';
+        document.getElementById('pre-fajr-enabled').checked = {{ 'true' if config.pre_fajr_enabled else 'false' }};
         showAlert('Form reset to current values', 'info');
     }
     
@@ -340,21 +369,42 @@
     // Form submission handler
     document.getElementById('settings-form').addEventListener('submit', function(e) {
         e.preventDefault();
-        
+
         const speakersName = document.getElementById('speakers-name').value.trim();
         const location = document.getElementById('location').value;
-        
+        const preFajrEnabled = document.getElementById('pre-fajr-enabled').checked;
+
+        // Client-side validation
         if (!speakersName) {
             showAlert('Please enter a speaker name', 'warning');
+            document.getElementById('speakers-name').focus();
             return;
         }
-        
+
+        if (speakersName.length < 2) {
+            showAlert('Speaker name must be at least 2 characters long', 'warning');
+            document.getElementById('speakers-name').focus();
+            return;
+        }
+
+        if (speakersName.length > 100) {
+            showAlert('Speaker name cannot exceed 100 characters', 'warning');
+            document.getElementById('speakers-name').focus();
+            return;
+        }
+
+        if (!location) {
+            showAlert('Please select a prayer location', 'warning');
+            document.getElementById('location').focus();
+            return;
+        }
+
         const submitBtn = this.querySelector('button[type="submit"]');
         const originalText = submitBtn.innerHTML;
-        
+
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
-        
+
         fetch('/api/save-config', {
             method: 'POST',
             headers: {
@@ -362,7 +412,8 @@
             },
             body: JSON.stringify({
                 speakers_name: speakersName,
-                location: location
+                location: location,
+                pre_fajr_enabled: preFajrEnabled
             })
         })
         .then(response => response.json())
@@ -392,7 +443,7 @@
     // Socket event handlers
     socket.on('config_updated', function(data) {
         showAlert('Configuration updated!', 'info');
-        
+
         // Update form with new values
         if (data.config.speakers_group_name) {
             document.getElementById('speakers-name').value = data.config.speakers_group_name;
@@ -400,11 +451,123 @@
         if (data.config.location) {
             document.getElementById('location').value = data.config.location;
         }
+        if (data.config.pre_fajr_enabled !== undefined) {
+            document.getElementById('pre-fajr-enabled').checked = data.config.pre_fajr_enabled;
+        }
+
+        // Update status display
+        updateStatusDisplay(data.config);
     });
+
+    function updateStatusDisplay(config) {
+        // Update status panel with new configuration values
+        const speakerStatus = document.querySelector('[data-config="speakers"]');
+        if (speakerStatus && config.speakers_group_name) {
+            speakerStatus.textContent = config.speakers_group_name;
+        }
+
+        const locationStatus = document.querySelector('[data-config="location"]');
+        if (locationStatus && config.location) {
+            locationStatus.textContent = config.location.charAt(0).toUpperCase() + config.location.slice(1) + ' Mosque';
+        }
+
+        // Update sidebar speaker name if element exists
+        const sidebarSpeaker = document.getElementById('sidebar-speaker');
+        if (sidebarSpeaker && config.speakers_group_name) {
+            sidebarSpeaker.textContent = config.speakers_group_name;
+        }
+    }
     
+    // Real-time validation
+    function setupValidation() {
+        const speakersInput = document.getElementById('speakers-name');
+        const locationSelect = document.getElementById('location');
+
+        // Speaker name validation
+        speakersInput.addEventListener('input', function() {
+            const value = this.value.trim();
+            const feedback = this.nextElementSibling.nextElementSibling || createFeedbackElement(this);
+
+            if (value.length === 0) {
+                setValidationState(this, 'neutral', '');
+            } else if (value.length < 2) {
+                setValidationState(this, 'invalid', 'Must be at least 2 characters long');
+            } else if (value.length > 100) {
+                setValidationState(this, 'invalid', 'Cannot exceed 100 characters');
+            } else {
+                setValidationState(this, 'valid', 'Valid speaker name');
+            }
+        });
+
+        // Location validation
+        locationSelect.addEventListener('change', function() {
+            if (this.value) {
+                setValidationState(this, 'valid', '');
+            }
+        });
+    }
+
+    function createFeedbackElement(input) {
+        const feedback = document.createElement('div');
+        feedback.className = 'invalid-feedback';
+        input.parentNode.appendChild(feedback);
+        return feedback;
+    }
+
+    function setValidationState(element, state, message) {
+        const feedback = element.nextElementSibling.nextElementSibling;
+
+        // Remove previous states
+        element.classList.remove('is-valid', 'is-invalid');
+
+        if (state === 'valid') {
+            element.classList.add('is-valid');
+            if (feedback) feedback.style.display = 'none';
+        } else if (state === 'invalid') {
+            element.classList.add('is-invalid');
+            if (feedback) {
+                feedback.textContent = message;
+                feedback.style.display = 'block';
+                feedback.className = 'invalid-feedback d-block';
+            }
+        }
+    }
+
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('last-update-time').textContent = new Date().toLocaleString();
+
+        // Load current configuration
+        loadCurrentConfig();
+
+        // Setup real-time validation
+        setupValidation();
     });
+
+    function loadCurrentConfig() {
+        fetch('/api/get-config')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.config) {
+                    const config = data.config;
+
+                    // Update form fields
+                    if (config.speakers_group_name) {
+                        document.getElementById('speakers-name').value = config.speakers_group_name;
+                    }
+                    if (config.location) {
+                        document.getElementById('location').value = config.location;
+                    }
+                    if (config.pre_fajr_enabled !== undefined) {
+                        document.getElementById('pre-fajr-enabled').checked = config.pre_fajr_enabled;
+                    }
+
+                    updateStatusDisplay(config);
+                }
+            })
+            .catch(error => {
+                console.error('Error loading configuration:', error);
+            });
+    }
 </script>
 {% endblock %}

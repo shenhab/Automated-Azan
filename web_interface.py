@@ -17,6 +17,7 @@ from flask_socketio import SocketIO, emit
 import pychromecast
 from prayer_times_fetcher import PrayerTimesFetcher
 from chromecast_manager import ChromecastManager
+from config_manager import ConfigManager
 import threading
 
 app = Flask(__name__)
@@ -141,55 +142,34 @@ def get_next_prayer_info():
 web_cast_manager = None
 
 def load_config():
-    """Load current configuration from multiple possible locations"""
+    """Load current configuration using ConfigManager"""
     global current_config
-    
-    # Try to load from different possible locations
-    config_paths = [
-        '/app/config/adahn.config',  # Docker volume location (writable)
-        'config/adahn.config',       # Local config directory
-        'adahn.config'               # Default location (may be read-only in Docker)
-    ]
-    
-    config = configparser.ConfigParser()
-    config_loaded = False
-    
-    for config_path in config_paths:
-        if os.path.exists(config_path):
-            try:
-                config.read(config_path)
-                current_config = {
-                    'speakers_group_name': config.get('Settings', 'speakers-group-name', fallback=''),
-                    'location': config.get('Settings', 'location', fallback='naas')
-                }
-                config_loaded = True
-                logging.debug(f"Configuration loaded from {config_path}")
-                break
-            except Exception as e:
-                logging.debug(f"Error reading config from {config_path}: {e}")
-                continue
-    
-    if not config_loaded:
-        # If no config file exists, copy from default location to writable location
-        if os.path.exists('adahn.config'):
-            try:
-                import shutil
-                os.makedirs('/app/config', exist_ok=True)
-                shutil.copy2('adahn.config', '/app/config/adahn.config')
-                logging.info("Copied default configuration to writable location")
-                # Try to load again
-                config.read('/app/config/adahn.config')
-                current_config = {
-                    'speakers_group_name': config.get('Settings', 'speakers-group-name', fallback=''),
-                    'location': config.get('Settings', 'location', fallback='naas')
-                }
-                config_loaded = True
-            except Exception as e:
-                logging.warning(f"Could not copy config file: {e}")
-        
-        if not config_loaded:
-            current_config = {'speakers_group_name': 'athan', 'location': 'naas'}
-            logging.info("Using default configuration")
+
+    try:
+        config_manager = ConfigManager()
+
+        # Get all settings using ConfigManager
+        speakers_result = config_manager.get_speakers_group_name()
+        location_result = config_manager.get_location()
+        pre_fajr_result = config_manager.is_pre_fajr_enabled()
+
+        current_config = {
+            'speakers_group_name': speakers_result.get('speakers_group_name', 'athan'),
+            'location': location_result.get('location', 'naas'),
+            'pre_fajr_enabled': pre_fajr_result.get('pre_fajr_enabled', True)
+        }
+
+        logging.debug("Configuration loaded successfully via ConfigManager")
+
+    except Exception as e:
+        logging.error(f"Error loading config via ConfigManager: {e}")
+        # Fallback to default configuration
+        current_config = {
+            'speakers_group_name': 'athan',
+            'location': 'naas',
+            'pre_fajr_enabled': True
+        }
+        logging.info("Using default configuration")
     
     return current_config
 
@@ -690,28 +670,109 @@ def toggle_pre_fajr():
 
 @app.route('/api/save-config', methods=['POST'])
 def api_save_config():
-    """API endpoint to save configuration"""
+    """API endpoint to save configuration - supports all config options"""
     try:
         data = request.json
-        speakers_name = data.get('speakers_name', '').strip()
-        location = data.get('location', 'naas').strip()
 
+        # Initialize config manager
+        config_manager = ConfigManager()
+
+        # Validate required fields
+        speakers_name = data.get('speakers_name', '').strip()
         if not speakers_name:
             return jsonify({'success': False, 'error': 'Speaker name is required'}), 400
 
-        save_config(speakers_name, location)
+        # Validate speakers name format
+        if len(speakers_name) < 2:
+            return jsonify({'success': False, 'error': 'Speaker name must be at least 2 characters long'}), 400
+
+        if len(speakers_name) > 100:
+            return jsonify({'success': False, 'error': 'Speaker name cannot exceed 100 characters'}), 400
+
+        # Update all provided settings
+        settings_updated = []
+
+        # Update speakers group name
+        result = config_manager.update_setting('Settings', 'speakers-group-name', speakers_name)
+        if not result['success']:
+            return jsonify({'success': False, 'error': f"Failed to update speakers name: {result.get('error')}"}), 500
+        settings_updated.append('speakers-group-name')
+
+        # Update location if provided
+        location = data.get('location', '').strip()
+        if location:
+            # Validate location value
+            valid_locations = ['naas', 'icci']
+            if location not in valid_locations:
+                return jsonify({'success': False, 'error': f'Invalid location. Must be one of: {", ".join(valid_locations)}'}), 400
+
+            result = config_manager.update_setting('Settings', 'location', location)
+            if not result['success']:
+                return jsonify({'success': False, 'error': f"Failed to update location: {result.get('error')}"}), 500
+            settings_updated.append('location')
+
+        # Update pre-Fajr setting if provided
+        if 'pre_fajr_enabled' in data:
+            pre_fajr = data['pre_fajr_enabled']
+            # Convert boolean to string for config file
+            pre_fajr_value = 'True' if pre_fajr else 'False'
+            result = config_manager.update_setting('Settings', 'pre_fajr_enabled', pre_fajr_value)
+            if not result['success']:
+                return jsonify({'success': False, 'error': f"Failed to update pre-Fajr setting: {result.get('error')}"}), 500
+            settings_updated.append('pre_fajr_enabled')
+
+        # Save configuration to file
+        save_result = config_manager.save_config()
+        if not save_result['success']:
+            return jsonify({'success': False, 'error': f"Failed to save configuration: {save_result.get('error')}"}), 500
+
+        # Update global current_config for backward compatibility
+        global current_config
+        current_config = load_config()
 
         # Emit real-time update
         socketio.emit('config_updated', {'config': current_config})
 
         return jsonify({
             'success': True,
-            'message': 'Configuration saved successfully',
+            'message': f'Configuration saved successfully ({len(settings_updated)} settings updated)',
+            'settings_updated': settings_updated,
             'config': current_config
         })
-        
+
     except Exception as e:
         logging.error(f"Error saving config: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/get-config', methods=['GET'])
+def api_get_config():
+    """API endpoint to get all configuration settings"""
+    try:
+        config_manager = ConfigManager()
+
+        # Get all current settings
+        speakers_result = config_manager.get_speakers_group_name()
+        location_result = config_manager.get_location()
+        pre_fajr_result = config_manager.is_pre_fajr_enabled()
+
+        config_data = {
+            'speakers_group_name': speakers_result.get('speakers_group_name', ''),
+            'location': location_result.get('location', 'naas'),
+            'pre_fajr_enabled': pre_fajr_result.get('pre_fajr_enabled', True)
+        }
+
+        return jsonify({
+            'success': True,
+            'config': config_data,
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        logging.error(f"Error getting config: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
