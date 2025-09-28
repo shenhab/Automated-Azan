@@ -1062,6 +1062,43 @@ def api_stop_device_playback():
             'error': str(e)
         }), 500
 
+@app.route('/api/reset-playback-state', methods=['POST'])
+def api_reset_playback_state():
+    """Manually reset the internal playback state tracking"""
+    try:
+        logging.info("Manual playback state reset requested")
+
+        if not web_cast_manager:
+            return jsonify({
+                'success': False,
+                'error': 'ChromecastManager not available'
+            }), 500
+
+        # Reset playback state
+        with web_cast_manager.playback_lock:
+            was_playing = web_cast_manager.athan_playing
+            elapsed_time = time.time() - web_cast_manager.athan_start_time if web_cast_manager.athan_start_time else 0
+
+            web_cast_manager.athan_playing = False
+            web_cast_manager.athan_start_time = None
+
+            logging.info(f"Playback state reset - was_playing: {was_playing}, elapsed_time: {elapsed_time:.1f}s")
+
+            return jsonify({
+                'success': True,
+                'message': 'Playback state has been reset',
+                'was_playing': was_playing,
+                'elapsed_time': round(elapsed_time, 1),
+                'timestamp': datetime.now().isoformat()
+            })
+
+    except Exception as e:
+        logging.error(f"Error resetting playback state: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 # WebSocket events
 @socketio.on('connect')
 def handle_connect():

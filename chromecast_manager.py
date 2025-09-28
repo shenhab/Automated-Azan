@@ -1313,17 +1313,58 @@ class ChromecastManager:
                 logging.info(f"[DEBUG] media_controller.update_status() completed successfully")
 
                 player_state = media_controller.status.player_state
-                # If device is idle or stopped, clear our playback state
+                content_id = media_controller.status.content_id
+                current_time = getattr(media_controller.status, 'current_time', 'N/A')
+                duration = getattr(media_controller.status, 'duration', 'N/A')
+
+                logging.info(f"[DEBUG] Chromecast Status Details:")
+                logging.info(f"[DEBUG]   Player State: {player_state}")
+                logging.info(f"[DEBUG]   Content ID: {content_id}")
+                logging.info(f"[DEBUG]   Current Time: {current_time}")
+                logging.info(f"[DEBUG]   Duration: {duration}")
+                logging.info(f"[DEBUG]   Our tracking - elapsed_time: {time.time() - self.athan_start_time if self.athan_start_time else 0:.1f}s")
+
+                # Check various conditions for when playback should be considered finished
+                playback_finished = False
+                finish_reason = None
+
+                # Condition 1: Device is idle or stopped
                 if player_state in ["IDLE", "UNKNOWN"]:
+                    playback_finished = True
+                    finish_reason = "device_idle"
                     logging.info("Target device shows IDLE/UNKNOWN state, clearing Athan playback state")
+
+                # Condition 2: No content is loaded
+                elif not content_id:
+                    playback_finished = True
+                    finish_reason = "no_content"
+                    logging.info("No content loaded on device, clearing Athan playback state")
+
+                # Condition 3: Content finished playing (current_time >= duration)
+                elif (current_time not in ['N/A', None] and duration not in ['N/A', None] and
+                      isinstance(current_time, (int, float)) and isinstance(duration, (int, float)) and
+                      current_time >= duration - 1):  # 1 second tolerance
+                    playback_finished = True
+                    finish_reason = "content_finished"
+                    logging.info(f"Content appears to have finished playing: {current_time}s >= {duration}s")
+
+                # Condition 4: Different content is playing (not our Athan)
+                elif content_id and not any(athan_file in str(content_id) for athan_file in ['media_Athan.mp3', 'media_adhan_al_fajr.mp3']):
+                    playback_finished = True
+                    finish_reason = "different_content"
+                    logging.info(f"Different content is playing: {content_id}")
+
+                if playback_finished:
                     self.athan_playing = False
                     self.athan_start_time = None
+                    elapsed_time = time.time() - self.athan_start_time if self.athan_start_time else 0
                     return {
                         "success": True,
                         "is_playing": False,
-                        "reason": "device_idle",
+                        "reason": finish_reason,
                         "device_state": player_state,
-                        "elapsed_time": round(elapsed_time, 1) if self.athan_start_time else 0,
+                        "content_id": content_id,
+                        "elapsed_time": round(elapsed_time, 1),
                         "timestamp": datetime.now().isoformat()
                     }
 
