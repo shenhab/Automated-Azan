@@ -6,6 +6,7 @@ reload capabilities for the Automated Azan application.
 """
 
 import asyncio
+import os
 import time
 import logging
 import hashlib
@@ -126,24 +127,47 @@ class ConfigWatcher:
             # Get initial config snapshot
             self.previous_config = self.config_manager.get_config_snapshot()
 
+            # Determine which config file to watch (prioritize writable locations)
+            config_paths_to_watch = [
+                '/app/config/adahn.config',  # Docker volume location (writable)
+                'config/adahn.config',       # Local config directory
+                self.config_manager.config_file  # Original config file
+            ]
+
+            watch_file = None
+            for config_path in config_paths_to_watch:
+                if os.path.exists(config_path):
+                    watch_file = config_path
+                    logger.info(f"Found existing config file to watch: {config_path}")
+                    break
+
+            # If no config exists, watch the primary writable location where saves will happen
+            if not watch_file:
+                watch_file = '/app/config/adahn.config'
+                logger.info(f"No existing config found, will watch primary save location: {watch_file}")
+
             # Create file watcher
             self.file_watcher = ConfigFileWatcher(
-                self.config_manager.config_file,
+                watch_file,
                 self.handle_config_change,
                 debounce_seconds=2.0
             )
 
             # Setup observer
             self.observer = Observer()
-            watch_dir = str(Path(self.config_manager.config_file).parent.resolve())
+            watch_dir = str(Path(watch_file).parent.resolve())
+
+            # Ensure watch directory exists
+            os.makedirs(watch_dir, exist_ok=True)
+
             self.observer.schedule(self.file_watcher, watch_dir, recursive=False)
             self.observer.start()
 
-            logger.info(f"Started watching config: {self.config_manager.config_file}")
+            logger.info(f"Started watching config: {watch_file}")
             return {
                 "success": True,
                 "message": "Config watcher started",
-                "watching": self.config_manager.config_file,
+                "watching": watch_file,
                 "timestamp": datetime.now().isoformat()
             }
 
