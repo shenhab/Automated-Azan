@@ -4,18 +4,16 @@ LABEL maintainer="Automated Azan Project"
 LABEL description="Automated Islamic Prayer Time announcements via Chromecast with Web Interface"
 LABEL version="2.0.0"
 
-# Install system dependencies for network tools and basic utilities
-RUN apt-get update && apt-get install -y \
-    # Basic utilities
-    wget \
-    curl \
-    # Network discovery dependencies for Chromecast
+# Install minimal system dependencies (optimized for speed and size)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Chromecast discovery (required)
     avahi-daemon \
-    avahi-utils \
-    # Build tools for Python packages
-    build-essential \
-    # Time synchronization
-    ntpdate
+    # Required for avahi
+    dbus \
+    # Temporary: gcc for building Python packages (will be removed)
+    gcc \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 WORKDIR /app
 
@@ -23,8 +21,8 @@ WORKDIR /app
 RUN mkdir -p /var/log /app/data /app/logs /app/config && \
     chmod 755 /var/log /app/data /app/logs /app/config
 
-# Install uv for fast Python package management
-RUN pip install --upgrade pip uv
+# Install uv for fast Python package management (no-cache for smaller image)
+RUN pip install --no-cache-dir --upgrade pip uv
 
 # Copy package configuration files first for better layer caching
 COPY pyproject.toml ./
@@ -40,7 +38,11 @@ RUN if [ -f "uv.lock" ]; then \
         uv pip install --system -r requirements.txt; \
     else \
         echo "ERROR: No dependency files found"; exit 1; \
-    fi
+    fi \
+    # Remove build dependencies after Python packages are installed
+    && apt-get remove -y gcc \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy application files
 COPY . .
@@ -75,9 +77,9 @@ EXPOSE 5000
 # Chromecast discovery ports (informational - requires host networking)
 EXPOSE 8008 8009
 
-# Health check to verify both main app and web interface
+# Health check using socket (no need for curl/requests)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:5000', timeout=5)" || exit 1
+    CMD python -c "import socket; s=socket.socket(); s.settimeout(5); s.connect(('localhost', 5000)); s.close()" || exit 1
 
 # Default environment variables
 ENV LOG_FILE=/var/log/azan_service.log

@@ -1,17 +1,62 @@
-# Python cache and virtual environments
-.venv
+# Git
+.git
+.gitignore
+.github
+
+# Python
 __pycache__
 *.pyc
-.pytest_cache
+*.pyo
+*.pyd
+.Python
+*.egg
 *.egg-info
+dist
+build
+.pytest_cache
 .coverage
 htmlcov/
+*.cover
+coverage.xml
+
+# Virtual environments
+.venv
+venv/
+ENV/
+env/
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
 
 # Development files
-.git
-.idea
 .env
-.DS_Store
+.env.local
+*.bak
+*.tmp
+*.temp
+test-*.sh
+setup-dev.sh
+
+# UV/Pipenv
+Pipfile*
+.uv
+
+# Docker files (don't need these in context)
+Dockerfile.*
+docker-compose*.yml
+.dockerignore
+DOCKER_*.md
+
+# CI/CD
+.travis.yml
+.gitlab-ci.yml
+.github/
 
 # Runtime data (will be mounted as volumes)
 logs/*
@@ -19,13 +64,8 @@ logs/*
 data/*
 !data/.gitkeep
 
-# Don't ignore Media files - they should be included in the container
+# Keep Media and config
 # Media/
-
-# Don't ignore config template - it should be included as example
 # adahn.config
-
-# Documentation (keep in container for reference)
-# *.md
 
 

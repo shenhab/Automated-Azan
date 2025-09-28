@@ -1,0 +1,71 @@
+# Minimal Dockerfile for Automated Azan
+# Removes unnecessary packages for faster builds
+
+FROM python:3.11-slim-bullseye
+
+LABEL maintainer="Automated Azan Project"
+LABEL description="Automated Islamic Prayer Time announcements via Chromecast with Web Interface"
+LABEL version="2.0.0"
+
+# Minimize apt operations and remove unnecessary packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Only avahi for Chromecast discovery
+    avahi-daemon \
+    # Required for avahi
+    dbus \
+    # Temporary: gcc for building Python packages
+    gcc \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+WORKDIR /app
+
+# Create necessary directories
+RUN mkdir -p /var/log /app/data /app/logs /app/config && \
+    chmod 755 /var/log /app/data /app/logs /app/config
+
+# Install uv for fast Python package management
+RUN pip install --no-cache-dir --upgrade pip uv
+
+# Copy package configuration files first for better layer caching
+COPY pyproject.toml uv.lock* requirements.txt* ./
+
+# Install dependencies using uv
+RUN if [ -f "uv.lock" ]; then \
+        uv sync --no-dev --frozen; \
+    elif [ -f "requirements.txt" ]; then \
+        uv pip install --system -r requirements.txt; \
+    fi \
+    # Remove gcc after Python packages are built
+    && apt-get remove -y gcc \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy application files
+COPY . .
+
+# Create default configuration
+RUN if [ ! -f "adahn.config" ]; then \
+    echo "[Settings]" > adahn.config && \
+    echo "speakers-group-name = athan" >> adahn.config && \
+    echo "location = naas" >> adahn.config && \
+    echo "pre_fajr_enabled = True" >> adahn.config; \
+    fi
+
+# Create non-root user
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app /var/log
+
+USER appuser
+
+EXPOSE 5000
+
+# Health check using Python instead of curl
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD python -c "import socket; s=socket.socket(); s.connect(('localhost', 5000)); s.close()" || exit 1
+
+ENV LOG_FILE=/var/log/azan_service.log
+ENV PYTHONUNBUFFERED=1
+ENV TZ=UTC
+
+CMD ["uv", "run", "python", "main.py"]
