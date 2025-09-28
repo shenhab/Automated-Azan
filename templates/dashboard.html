@@ -130,13 +130,18 @@
             <div class="card-body">
                 {% if prayer_times and 'error' not in prayer_times %}
                     <div class="row" id="prayer-times-container">
-                        {% for prayer, time in prayer_times.items() %}
+                        {% set prayer_order = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'] %}
+                        {% for prayer in prayer_order %}
+                            {% if prayer in prayer_times %}
                             <div class="col-6 mb-3">
-                                <div class="text-center">
-                                    <h6 class="fw-bold">{{ prayer }}</h6>
-                                    <div class="h5">{{ time }}</div>
+                                <div class="text-center p-2">
+                                    <h6 class="fw-bold text-white-50 mb-1">{{ prayer }}</h6>
+                                    <div class="h4 text-white mb-0" data-time="{{ prayer_times[prayer] }}">
+                                        {{ prayer_times[prayer] }}
+                                    </div>
                                 </div>
                             </div>
+                            {% endif %}
                         {% endfor %}
                     </div>
                     
@@ -436,6 +441,14 @@
 
         updateNextPrayer();
         loadRecentLogs();
+
+        // Format prayer times to 12-hour format
+        document.querySelectorAll('[data-time]').forEach(element => {
+            const time24 = element.getAttribute('data-time');
+            if (time24) {
+                element.textContent = formatTime(time24);
+            }
+        });
 
         // Update every minute
         setInterval(updateNextPrayer, 60000);

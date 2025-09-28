@@ -252,7 +252,11 @@ def load_prayer_times(force_reload=False):
         times = fetcher.fetch_prayer_times(location)
         
         if isinstance(times, dict) and 'error' not in times:
-            prayer_times = times
+            # Extract just the prayer times from the response
+            if 'prayer_times' in times:
+                prayer_times = times['prayer_times']
+            else:
+                prayer_times = times
             prayer_times_last_updated = now
             logging.info(f"Prayer times successfully loaded and cached for {location}")
         else:
