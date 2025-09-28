@@ -957,9 +957,10 @@ class ChromecastManager:
 
                 # Send the media play request
                 logging.info(f"Streaming {url} on {target_device.name}...")
-                logging.debug(f"Device details - Host: {getattr(target_device, 'host', 'unknown')}, "
+                logging.info(f"Device details - Host: {getattr(target_device, 'host', 'unknown')}, "
                             f"Port: {getattr(target_device, 'port', 'unknown')}, "
                             f"Model: {getattr(target_device, 'model_name', 'unknown')}")
+                logging.info(f"Media URL: {url}")
 
                 # Use more robust media type detection
                 content_type = "audio/mpeg"
@@ -968,10 +969,25 @@ class ChromecastManager:
                 elif url.endswith('.m4a'):
                     content_type = "audio/mp4"
 
-                media_controller.play_media(url, content_type)
+                logging.info(f"About to call play_media with URL: {url}, content_type: {content_type}")
+
+                try:
+                    media_controller.play_media(url, content_type)
+                    logging.info("play_media call completed, now waiting for media to load...")
+                except Exception as e:
+                    logging.error(f"play_media call failed with error: {e}")
+                    return {
+                        "success": False,
+                        "error": f"Failed to call play_media: {str(e)}",
+                        "url": url,
+                        "device": target_device.name,
+                        "timestamp": datetime.now().isoformat()
+                    }
 
                 # Wait for Chromecast to fully load the media with better error handling
+                logging.info("Starting _wait_for_media_load...")
                 load_result = self._wait_for_media_load(media_controller, url)
+                logging.info(f"_wait_for_media_load completed with result: {load_result.get('success')}")
 
                 attempt_time = time.time() - attempt_start
                 if load_result.get('success', False):
@@ -1070,14 +1086,26 @@ class ChromecastManager:
         start_time = time.time()
         max_wait_time = 20  # Maximum 20 seconds total wait time
 
+        logging.info(f"Starting _wait_for_media_load: max_attempts={max_attempts}, max_wait_time={max_wait_time}s")
+
         while attempts < max_attempts and (time.time() - start_time) < max_wait_time:
             attempt_start = time.time()
-            try:
-                media_controller.update_status()
-                time.sleep(0.5)  # Shorter initial wait
+            elapsed_total = time.time() - start_time
+            logging.info(f"_wait_for_media_load: Starting attempt {attempts+1}/{max_attempts} (elapsed: {elapsed_total:.1f}s)")
 
+            try:
+                logging.debug("About to call media_controller.update_status()...")
+                media_controller.update_status()
+                logging.debug("media_controller.update_status() completed successfully")
+
+                logging.debug("Sleeping 0.5 seconds after update_status...")
+                time.sleep(0.5)  # Shorter initial wait
+                logging.debug("Sleep completed")
+
+                logging.debug("Getting player_state and content_id from status...")
                 player_state = media_controller.status.player_state
                 content_id = media_controller.status.content_id
+                logging.debug(f"Retrieved status - player_state: {player_state}, content_id: {content_id}")
 
                 status_check = {
                     "attempt": attempts + 1,
@@ -1131,13 +1159,18 @@ class ChromecastManager:
 
                 # Progressive wait times: start short, get longer
                 if attempts < 3:
-                    time.sleep(1)
+                    sleep_time = 1
                 elif attempts < 6:
-                    time.sleep(2)
+                    sleep_time = 2
                 else:
-                    time.sleep(3)
+                    sleep_time = 3
+
+                logging.debug(f"Sleeping {sleep_time} seconds before next attempt...")
+                time.sleep(sleep_time)
+                logging.debug(f"Sleep of {sleep_time} seconds completed")
 
                 attempts += 1
+                logging.debug(f"Completed attempt {attempts}, continuing loop...")
 
             except Exception as e:
                 check_time = time.time() - attempt_start
@@ -1154,14 +1187,18 @@ class ChromecastManager:
 
         # Timeout reached - log details for debugging
         elapsed_time = time.time() - start_time
+        timeout_reason = "max_attempts" if attempts >= max_attempts else "max_wait_time"
         logging.error(f"Media load timeout after {elapsed_time:.1f}s and {attempts} attempts. Final state: {last_player_state}")
+        logging.error(f"Timeout reason: {timeout_reason} (attempts: {attempts}/{max_attempts}, time: {elapsed_time:.1f}/{max_wait_time}s)")
+        logging.info(f"_wait_for_media_load exiting with failure")
 
         return {
             "success": False,
-            "error": f"Media failed to load within {elapsed_time:.1f}s timeout period",
+            "error": f"Media failed to load within {elapsed_time:.1f}s timeout period ({timeout_reason})",
             "attempts": attempts,
             "final_state": last_player_state,
             "elapsed_time": round(elapsed_time, 2),
+            "timeout_reason": timeout_reason,
             "status_checks": status_checks[-3:] if len(status_checks) > 3 else status_checks,  # Include only last 3 checks
             "timestamp": datetime.now().isoformat()
         }
