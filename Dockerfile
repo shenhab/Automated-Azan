@@ -26,11 +26,21 @@ RUN mkdir -p /var/log /app/data /app/logs /app/config && \
 # Install uv for fast Python package management
 RUN pip install --upgrade pip uv
 
-# Copy requirements file first for better layer caching
-COPY requirements.txt ./
+# Copy package configuration files first for better layer caching
+COPY pyproject.toml ./
+# Copy uv.lock if exists for reproducible builds
+COPY uv.lock* ./
+# Copy requirements.txt as fallback for compatibility
+COPY requirements.txt* ./
 
-# Install dependencies using uv
-RUN uv pip install --system -r requirements.txt
+# Install dependencies using uv (preferred) or pip (fallback)
+RUN if [ -f "uv.lock" ]; then \
+        uv sync --no-dev --frozen; \
+    elif [ -f "requirements.txt" ]; then \
+        uv pip install --system -r requirements.txt; \
+    else \
+        echo "ERROR: No dependency files found"; exit 1; \
+    fi
 
 # Copy application files
 COPY . .
@@ -75,4 +85,5 @@ ENV PYTHONUNBUFFERED=1
 ENV TZ=UTC
 
 
-CMD ["python", "main.py"]
+# Use uv run to execute with correct environment
+CMD ["uv", "run", "python", "main.py"]

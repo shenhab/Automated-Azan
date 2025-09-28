@@ -426,3 +426,78 @@ class ConfigManager:
                 "error": str(e),
                 "timestamp": datetime.now().isoformat()
             }
+
+    def get_config_hash(self):
+        """
+        Get hash of current config for change detection.
+
+        Returns:
+            str: MD5 hash of the current configuration
+        """
+        import hashlib
+        try:
+            config_str = str({s: dict(self.config[s]) for s in self.config.sections()})
+            return hashlib.md5(config_str.encode()).hexdigest()
+        except Exception as e:
+            logging.error(f"Error hashing config: {e}")
+            return ""
+
+    def get_config_snapshot(self):
+        """
+        Get current config as dictionary.
+
+        Returns:
+            dict: Dictionary representation of current configuration
+        """
+        try:
+            return {section: dict(self.config[section])
+                    for section in self.config.sections()}
+        except Exception as e:
+            logging.error(f"Error getting config snapshot: {e}")
+            return {}
+
+    def detect_changes(self, old_config, new_config):
+        """
+        Detect what changed between configurations.
+
+        Args:
+            old_config (dict): Previous configuration snapshot
+            new_config (dict): New configuration snapshot
+
+        Returns:
+            dict: Dictionary of changes with format {section: {key: (old_val, new_val)}}
+        """
+        changes = {}
+        try:
+            # Check for new or changed values
+            for section in new_config:
+                if section not in old_config:
+                    # New section
+                    changes[section] = {k: (None, v) for k, v in new_config[section].items()}
+                else:
+                    # Check for changed values in existing section
+                    for key, new_val in new_config[section].items():
+                        old_val = old_config[section].get(key)
+                        if old_val != new_val:
+                            if section not in changes:
+                                changes[section] = {}
+                            changes[section][key] = (old_val, new_val)
+
+            # Check for removed sections/keys
+            for section in old_config:
+                if section not in new_config:
+                    if section not in changes:
+                        changes[section] = {}
+                    for key, val in old_config[section].items():
+                        changes[section][key] = (val, None)
+                else:
+                    for key, val in old_config[section].items():
+                        if key not in new_config[section]:
+                            if section not in changes:
+                                changes[section] = {}
+                            changes[section][key] = (val, None)
+
+            return changes
+        except Exception as e:
+            logging.error(f"Error detecting config changes: {e}")
+            return {}

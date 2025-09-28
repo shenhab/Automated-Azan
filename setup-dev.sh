@@ -1,77 +1,65 @@
 #!/bin/bash
 
-# Automated Azan - Development Environment Setup
-# Streamlined setup for pipenv development
+# Streamlined setup for uv development
+echo "🚀 Setting up Automated Azan development environment with uv..."
 
-set -e
+# Check if uv is available
+if ! command -v uv &> /dev/null; then
+    echo "📦 Installing uv package manager..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
 
-echo "🕌 Automated Azan - Development Setup"
-echo "===================================="
-
-# Install pipenv if not available
-if ! command -v pipenv &> /dev/null; then
-    echo "📦 Installing pipenv..."
-    pip install --user pipenv || pip3 install --user pipenv
+    # Add uv to PATH for current session
     export PATH="$HOME/.local/bin:$PATH"
+
+    # Verify installation
+    if ! command -v uv &> /dev/null; then
+        echo "❌ Failed to install uv. Please install manually from https://github.com/astral-sh/uv"
+        exit 1
+    fi
 fi
 
-echo "✅ pipenv available"
+echo "✅ uv available ($(uv --version))"
 
-# Install dependencies
-echo "📦 Installing dependencies..."
-pipenv install --dev
-
-echo "✅ Development environment ready!"
-echo ""
-echo "🚀 Quick Start:"
-echo "   make run    # Run prayer scheduler"
-echo "   make web    # Run web interface" 
-echo "   make test   # Test the system"
-echo ""
-echo "🔧 Configuration:"
-echo "   cp adahn.config.example adahn.config"
-echo "   nano adahn.config"
-echo ""
-
-# Check if in correct directory
-
-if [[ ! -f "Pipfile" ]]; then
-    echo "❌ Pipfile not found in current directory"
-    echo "Please make sure you're in the project root directory"
+# Check if pyproject.toml exists
+if [[ ! -f "pyproject.toml" ]]; then
+    echo "❌ pyproject.toml not found in current directory"
+    echo "   Please run this script from the Automated-Azan directory"
     exit 1
 fi
 
-
 # Install dependencies
 echo "📦 Installing dependencies..."
-pipenv install --dev
+uv sync --dev
 
-# Verify installation
+# Verify critical packages
+echo ""
 echo "🔍 Verifying installation..."
-pipenv run python -c "import pychromecast" 2>/dev/null && echo "✅ pychromecast ready" || echo "⚠️  pychromecast issue"
-pipenv run python -c "import flask" 2>/dev/null && echo "✅ flask ready" || echo "⚠️  flask issue"
+uv run python -c "import pychromecast" 2>/dev/null && echo "✅ pychromecast ready" || echo "⚠️  pychromecast issue"
+uv run python -c "import flask" 2>/dev/null && echo "✅ flask ready" || echo "⚠️  flask issue"
+uv run python -c "import schedule" 2>/dev/null && echo "✅ schedule ready" || echo "⚠️  schedule issue"
+uv run python -c "import watchdog" 2>/dev/null && echo "✅ watchdog ready" || echo "⚠️  watchdog issue"
 
-# Create config if missing
+# Configure config file if not exists
 if [[ ! -f "adahn.config" ]]; then
-    echo ""
-    echo "📋 Configuration:"
     if [[ -f "adahn.config.example" ]]; then
+        echo "📝 Creating adahn.config from example..."
         cp adahn.config.example adahn.config
-        echo "✅ Created adahn.config from example"
-        echo "⚠️  Please edit adahn.config with your settings"
     else
-        echo "⚠️  No example configuration found"
+        echo "⚠️  No adahn.config found. Creating default..."
+        cat > adahn.config << EOF
+[Settings]
+speakers-group-name = athan
+location = naas
+pre_fajr_enabled = True
+EOF
     fi
 fi
 
 echo ""
-echo "🎉 Development environment ready!"
+echo "✅ Development environment ready!"
 echo ""
-echo "🚀 Next steps:"
-echo "   1. Edit adahn.config with your speaker name and location"  
-echo "   2. Run: make run (prayer scheduler) or make web (web interface)"
-echo ""
-echo "📱 Web interface will be at: http://localhost:5000"
-
-echo ""
-echo "🚀 Ready to develop! Your Automated Azan environment is set up."
+echo "Next steps:"
+echo "1. Edit adahn.config to set your location and speaker group"
+echo "2. Run the application: uv run python main.py"
+echo "3. Or run the web interface: uv run python web_interface.py"
+echo "4. Access web interface at: http://localhost:5000"

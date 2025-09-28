@@ -1,0 +1,140 @@
+# UV is the primary package manager for this project
+# requirements.txt files are auto-generated for compatibility only
+# To regenerate: uv pip compile pyproject.toml -o requirements.txt
+
+[project]
+name = "automated-azan"
+version = "1.0.0"
+description = "Automated Azan (Islamic call to prayer) system with Chromecast support"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Automated Azan Contributors"}
+]
+keywords = ["azan", "prayer", "islamic", "chromecast", "automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Religion",
+    "Topic :: Home Automation",
+]
+
+dependencies = [
+    "pychromecast==14.0.5",
+    "schedule>=1.1.0",
+    "python-dateutil>=2.8.2",
+    "requests>=2.27.1",
+    "beautifulsoup4>=4.12.0",
+    "python-dotenv>=0.19.0",
+    "flask",
+    "flask-socketio",
+    "watchdog",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "pytest-mock",
+    "responses",
+]
+
+[project.scripts]
+automated-azan = "main:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/automated-azan"
+Repository = "https://github.com/yourusername/automated-azan.git"
+Issues = "https://github.com/yourusername/automated-azan/issues"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["*.py"]
+exclude = ["tests*"]
+
+[tool.setuptools]
+py-modules = [
+    "main",
+    "config_manager",
+    "athan_scheduler",
+    "prayer_times_fetcher",
+    "chromecast_manager",
+    "web_interface",
+    "logging_setup",
+    "time_sync",
+    "config_watcher",
+    "prayer_times_config",
+    "prayer_times_exceptions",
+    "chromecast_config",
+    "chromecast_exceptions",
+    "chromecast_models",
+    "app_config",
+    "web_interface_api",
+    "service_modules_integration",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.0.0",
+    "responses>=0.20.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["."]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/venv/*",
+    "*/.venv/*",
+    "*/test_*.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "def __str__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.ruff.per-file-ignores]
+"tests/*" = ["S101"]  # Allow assert in tests

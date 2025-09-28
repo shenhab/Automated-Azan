@@ -17,6 +17,7 @@ from config_manager import ConfigManager
 from logging_setup import setup_logging
 from athan_scheduler import AthanScheduler
 from web_interface import start_web_interface
+from config_watcher import ConfigWatcher
 
 
 def print_json_status(result, operation_name):
@@ -100,11 +101,23 @@ def main():
         logging.info("AthanScheduler initialized successfully.")
         print("✓ AthanScheduler initialized successfully")
 
+        # Setup config watching for hot reload
+        print("🔄 Setting up configuration hot-reload...")
+        config_watcher = ConfigWatcher(config_manager, scheduler)
+        watcher_result = config_watcher.start()
+
+        if watcher_result.get('success'):
+            logging.info("Config hot-reload enabled")
+            print("✓ Config hot-reload enabled - changes will apply automatically")
+        else:
+            logging.warning(f"Config hot-reload not available: {watcher_result.get('error')}")
+            print("⚠ Config hot-reload not available - restart required for config changes")
+
         # Start web interface in background thread with shared chromecast manager and scheduler
         print("🌐 Starting web interface...")
         web_thread = threading.Thread(
             target=start_web_interface,
-            args=(scheduler.chromecast_manager, scheduler),
+            args=(scheduler.chromecast_manager, scheduler, config_watcher),
             daemon=True
         )
         web_thread.start()

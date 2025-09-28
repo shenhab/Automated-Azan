@@ -140,6 +140,11 @@ class AthanScheduler:
             logging.info("Clearing previous schedules and scheduling today's prayers. Current time: %s", now.strftime("%Y-%m-%d %H:%M:%S"))
             logging.info(f"[DEBUG] Available prayer times: {self.prayer_times}")
 
+            # Check if pre-Fajr Quran is enabled
+            from config_manager import ConfigManager
+            config = ConfigManager()
+            pre_fajr_enabled = config.is_pre_fajr_enabled().get('pre_fajr_enabled', True)
+
             chromecast_manager = ChromecastManager()
 
             for prayer, time_tuple in self.prayer_times.items():
@@ -168,15 +173,17 @@ class AthanScheduler:
                                 "type": "fajr_athan"
                             })
 
-                            # Schedule pre-Fajr Quran
-                            wake_up_time = prayer_time - timedelta(minutes=45)
-                            wake_up_str = wake_up_time.strftime("%H:%M")
-                            schedule.every().day.at(wake_up_str).do(chromecast_manager.start_quran_radio)
-                            scheduled_prayers.append({
-                                "prayer": "Pre-Fajr Quran",
-                                "time": wake_up_str,
-                                "type": "quran_radio"
-                            })
+                            # Schedule pre-Fajr Quran if enabled
+                            if pre_fajr_enabled:
+                                pre_fajr_result = self.schedule_pre_fajr_quran_for_time(prayer_time)
+                                if pre_fajr_result.get('success'):
+                                    scheduled_prayers.append({
+                                        "prayer": "Pre-Fajr Quran",
+                                        "time": pre_fajr_result.get('scheduled_time'),
+                                        "type": "quran_recitation"
+                                    })
+                                else:
+                                    logging.warning(f"Failed to schedule pre-Fajr Quran: {pre_fajr_result.get('error')}")
 
                         logging.debug("%s scheduled successfully at %s", prayer, formatted_time)
                     else:
@@ -368,6 +375,155 @@ class AthanScheduler:
                 "error": str(e),
                 "timestamp": datetime.now(self.tz).isoformat()
             }
+
+    def schedule_pre_fajr_quran(self):
+        """
+        Schedule Quran recitation 30 minutes before Fajr.
+
+        Returns:
+            dict: JSON response with scheduling result
+        """
+        if 'Fajr' not in self.prayer_times:
+            logging.warning("Cannot schedule pre-Fajr: Fajr time not found")
+            return {"success": False, "error": "Fajr time not found"}
+
+        try:
+            fajr_time_str = self.prayer_times['Fajr']
+            hour, minute = map(int, fajr_time_str.split(':'))
+            now = datetime.now(self.tz)
+            fajr_dt = datetime(now.year, now.month, now.day, hour, minute, tzinfo=self.tz)
+
+            return self.schedule_pre_fajr_quran_for_time(fajr_dt)
+        except Exception as e:
+            logging.error(f"Failed to schedule pre-Fajr Quran: {e}")
+            return {"success": False, "error": str(e)}
+
+    def schedule_pre_fajr_quran_for_time(self, fajr_time):
+        """
+        Schedule Quran recitation 30 minutes before given Fajr time.
+
+        Args:
+            fajr_time (datetime): The Fajr prayer time
+
+        Returns:
+            dict: JSON response with scheduling result
+        """
+        try:
+            # Calculate 30 minutes before Fajr
+            pre_fajr_dt = fajr_time - timedelta(minutes=30)
+            pre_fajr_time = pre_fajr_dt.strftime("%H:%M")
+
+            # Schedule the pre-Fajr Quran
+            schedule.every().day.at(pre_fajr_time).do(
+                self.play_pre_fajr_quran
+            ).tag('pre_fajr')
+
+            logging.info(f"Scheduled pre-Fajr Quran at {pre_fajr_time} (30 min before Fajr at {fajr_time.strftime('%H:%M')}")
+            return {
+                "success": True,
+                "scheduled_time": pre_fajr_time,
+                "fajr_time": fajr_time.strftime('%H:%M')
+            }
+        except Exception as e:
+            logging.error(f"Failed to schedule pre-Fajr Quran: {e}")
+            return {"success": False, "error": str(e)}
+
+    def play_pre_fajr_quran(self):
+        """
+        Play Quran recitation before Fajr.
+
+        Returns:
+            dict: JSON response with playback result
+        """
+        logging.info("Playing pre-Fajr Quran recitation")
+
+        # List of Quran recitation URLs (you can expand this)
+        quran_urls = [
+            "https://server6.mp3quran.net/qtm/001.mp3",  # Al-Fatiha
+            "https://server6.mp3quran.net/qtm/112.mp3",  # Al-Ikhlas
+            "https://server6.mp3quran.net/qtm/113.mp3",  # Al-Falaq
+            "https://server6.mp3quran.net/qtm/114.mp3",  # An-Nas
+        ]
+
+        # Rotate through different surahs (you could make this configurable)
+        import random
+        quran_url = random.choice(quran_urls)
+
+        result = self.chromecast_manager.play_media(
+            quran_url,
+            content_type="audio/mpeg",
+            title="Pre-Fajr Quran Recitation"
+        )
+
+        if result.get('success'):
+            logging.info("Pre-Fajr Quran started successfully")
+        else:
+            logging.error(f"Failed to play pre-Fajr Quran: {result.get('error')}")
+
+        return result
+
+    def cancel_pre_fajr_quran(self):
+        """
+        Cancel scheduled pre-Fajr Quran.
+
+        Returns:
+            dict: JSON response with cancellation result
+        """
+        try:
+            # Get all jobs with 'pre_fajr' tag
+            pre_fajr_jobs = [job for job in schedule.jobs if 'pre_fajr' in getattr(job, 'tags', set())]
+
+            # Clear jobs tagged with 'pre_fajr'
+            schedule.clear('pre_fajr')
+
+            logging.info(f"Cancelled {len(pre_fajr_jobs)} pre-Fajr Quran schedule(s)")
+            return {
+                "success": True,
+                "message": f"Pre-Fajr Quran cancelled ({len(pre_fajr_jobs)} job(s) removed)",
+                "jobs_removed": len(pre_fajr_jobs)
+            }
+        except Exception as e:
+            logging.error(f"Error cancelling pre-Fajr Quran: {e}")
+            return {"success": False, "error": str(e)}
+
+    def toggle_pre_fajr_quran(self, enable):
+        """
+        Enable or disable pre-Fajr Quran.
+
+        Args:
+            enable (bool): True to enable, False to disable
+
+        Returns:
+            dict: JSON response with toggle result
+        """
+        try:
+            if enable:
+                # Cancel any existing pre-Fajr jobs first
+                self.cancel_pre_fajr_quran()
+                # Schedule new pre-Fajr
+                result = self.schedule_pre_fajr_quran()
+                if result.get('success'):
+                    return {
+                        "success": True,
+                        "enabled": True,
+                        "message": f"Pre-Fajr Quran enabled at {result.get('scheduled_time')}"
+                    }
+                else:
+                    return result
+            else:
+                # Disable pre-Fajr
+                result = self.cancel_pre_fajr_quran()
+                if result.get('success'):
+                    return {
+                        "success": True,
+                        "enabled": False,
+                        "message": "Pre-Fajr Quran disabled"
+                    }
+                else:
+                    return result
+        except Exception as e:
+            logging.error(f"Error toggling pre-Fajr Quran: {e}")
+            return {"success": False, "error": str(e)}
 
     def run_scheduler(self):
         """

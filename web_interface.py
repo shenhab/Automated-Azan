@@ -31,6 +31,7 @@ scheduler_status = {"running": False, "next_prayer": None, "last_update": None}
 
 # Global references to shared instances
 web_scheduler = None
+web_config_watcher = None
 
 # Cache infrastructure for discovered devices
 discovered_devices_cache = {
@@ -568,6 +569,125 @@ def api_test_chromecast():
         logging.error(f"Error testing connection to {device_name}: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/api/config/reload', methods=['POST'])
+def reload_config():
+    """Manual config reload endpoint"""
+    try:
+        from config_manager import ConfigManager
+        config_manager = ConfigManager()
+        result = config_manager.reload_config()
+
+        if result.get('success'):
+            # Notify via WebSocket
+            socketio.emit('config_reloaded', {
+                'message': 'Configuration reloaded successfully',
+                'timestamp': datetime.now().isoformat()
+            }, broadcast=True)
+
+            return jsonify({
+                "success": True,
+                "message": "Configuration reloaded successfully",
+                "timestamp": datetime.now().isoformat()
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": result.get('error', 'Failed to reload configuration'),
+                "timestamp": datetime.now().isoformat()
+            }), 500
+    except Exception as e:
+        logging.error(f"Error reloading config: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+@app.route('/api/config/watcher/status')
+def watcher_status():
+    """Get config watcher status"""
+    try:
+        if web_config_watcher:
+            status = web_config_watcher.get_status()
+            return jsonify(status)
+        else:
+            return jsonify({
+                "success": True,
+                "running": False,
+                "message": "Config watcher not initialized",
+                "timestamp": datetime.now().isoformat()
+            })
+    except Exception as e:
+        logging.error(f"Error getting watcher status: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+@app.route('/api/config/watcher/restart', methods=['POST'])
+def restart_watcher():
+    """Restart the config watcher"""
+    try:
+        if web_config_watcher:
+            # Stop if running
+            web_config_watcher.stop()
+
+            # Start again
+            result = web_config_watcher.start()
+
+            return jsonify(result)
+        else:
+            return jsonify({
+                "success": False,
+                "error": "Config watcher not initialized",
+                "timestamp": datetime.now().isoformat()
+            }), 400
+    except Exception as e:
+        logging.error(f"Error restarting watcher: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+@app.route('/api/config/pre-fajr', methods=['POST'])
+def toggle_pre_fajr():
+    """Toggle pre-Fajr Quran feature"""
+    try:
+        data = request.json
+        enable = data.get('enable', False)
+
+        if web_scheduler and hasattr(web_scheduler, 'toggle_pre_fajr_quran'):
+            result = web_scheduler.toggle_pre_fajr_quran(enable)
+
+            # Update config file
+            from config_manager import ConfigManager
+            config_manager = ConfigManager()
+            config_manager.update_setting('Settings', 'pre_fajr_enabled', str(enable))
+            config_manager.save_config()
+
+            # Notify via WebSocket
+            socketio.emit('pre_fajr_toggled', {
+                'enabled': enable,
+                'timestamp': datetime.now().isoformat()
+            }, broadcast=True)
+
+            return jsonify(result)
+        else:
+            return jsonify({
+                "success": False,
+                "error": "Scheduler not available or feature not supported",
+                "timestamp": datetime.now().isoformat()
+            }), 400
+    except Exception as e:
+        logging.error(f"Error toggling pre-Fajr: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
 @app.route('/api/save-config', methods=['POST'])
 def api_save_config():
     """API endpoint to save configuration"""
@@ -575,15 +695,15 @@ def api_save_config():
         data = request.json
         speakers_name = data.get('speakers_name', '').strip()
         location = data.get('location', 'naas').strip()
-        
+
         if not speakers_name:
             return jsonify({'success': False, 'error': 'Speaker name is required'}), 400
-        
+
         save_config(speakers_name, location)
-        
+
         # Emit real-time update
         socketio.emit('config_updated', {'config': current_config})
-        
+
         return jsonify({
             'success': True,
             'message': 'Configuration saved successfully',
@@ -955,9 +1075,9 @@ def background_device_monitor():
             time.sleep(30)  # Wait before retry
 
 
-def start_web_interface(chromecast_manager=None, scheduler=None):
+def start_web_interface(chromecast_manager=None, scheduler=None, config_watcher=None):
     """Function to start the web interface - can be called from main.py"""
-    global web_cast_manager, web_scheduler
+    global web_cast_manager, web_scheduler, web_config_watcher
 
     # Use provided chromecast manager or create new one
     if chromecast_manager:
@@ -968,6 +1088,10 @@ def start_web_interface(chromecast_manager=None, scheduler=None):
     # Store reference to scheduler for status monitoring
     if scheduler:
         web_scheduler = scheduler
+
+    # Store reference to config watcher for hot reload monitoring
+    if config_watcher:
+        web_config_watcher = config_watcher
 
 
     # Load initial configuration

@@ -12,11 +12,12 @@ RUN apt-get update && apt-get install -y \
 # Install uv for fast Python package management
 RUN pip install --upgrade pip uv
 
-# Copy requirements file
-COPY requirements.txt ./
+# Copy package configuration files
+COPY pyproject.toml ./
+COPY uv.lock ./
 
 # Install dependencies using uv
-RUN uv pip install --system -r requirements.txt
+RUN uv sync --no-dev --frozen
 
 # Copy application files
 COPY . .
@@ -31,5 +32,5 @@ EXPOSE 5000
 ENV PYTHONUNBUFFERED=1
 ENV FLASK_ENV=production
 
-# Start the web interface
-CMD ["python", "web_interface.py"]
+# Start the web interface using uv
+CMD ["uv", "run", "python", "web_interface.py"]

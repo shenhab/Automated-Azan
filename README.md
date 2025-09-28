@@ -67,17 +67,22 @@ make deploy
 - 🔍 **Device management**: http://localhost:5000/chromecasts
 - 🧪 **Audio testing**: http://localhost:5000/test
 
-### **🐍 Development Setup (pipenv)**
+### **🐍 Development Setup (uv)**
 *For developers and local testing*
 
 ```bash
-# Setup development environment  
+# Setup development environment
 git clone https://github.com/shenhab/Automated-Azan.git
 cd Automated-Azan
-make setup     # Installs pipenv and dependencies
-make run       # Run prayer scheduler
-# OR
-make deploy       # Run web interface only
+
+# Install uv package manager
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install dependencies
+uv sync --dev
+
+# Run the application
+uv run python main.py
 ```
 
 ## **⚙️ Configuration**
@@ -95,7 +100,7 @@ location = Leeds, UK
 # Prayer time source (icci or naas)
 prayer_source = icci
 
-# Enable pre-Fajr Quran (45 minutes before Fajr)
+# Enable pre-Fajr Quran (30 minutes before Fajr)
 pre_fajr_enabled = True
 ```
 ## **🎛️ Web Interface**

@@ -24,17 +24,17 @@ docker-fix-athan: docker-stop docker-build docker-run
 
 setup:
 	@echo "🚀 Setting up development environment..."
-	@echo "   📦 Installing uv and dependencies..."
-	@pip install --user uv || pip3 install --user uv
-	@uv venv
-	@uv pip sync requirements-dev.txt
+	@echo "   📦 Installing uv if not present..."
+	@command -v uv >/dev/null 2>&1 || (echo "Installing uv..." && curl -LsSf https://astral.sh/uv/install.sh | sh)
+	@echo "   📦 Installing dependencies..."
+	@uv sync --dev
 	@echo "   ✅ Development environment ready!"
 	@echo "   💡 Run 'make run' to start prayer scheduler"
 	@echo "   💡 Run 'make web' to start web interface"
 
 install:
 	@echo "📦 Installing dependencies with uv..."
-	@uv pip sync requirements-dev.txt
+	@uv sync --dev
 
 run:
 	@echo "🕌 Starting Automated Azan prayer scheduler..."
@@ -61,7 +61,7 @@ shell:
 
 update:
 	@echo "🔄 Updating dependencies..."
-	@uv pip sync requirements.txt
+	@uv sync --upgrade
 
 #=============================================================================
 # PRODUCTION DEPLOYMENT (Docker)
@@ -145,7 +145,7 @@ check:
 	@python3 --version 2>/dev/null && echo "   ✅ Python 3 available" || echo "   ❌ Python 3 not found"
 	@echo ""
 	@echo "UV (for development):"
-	@uv --version 2>/dev/null && echo "   ✅ UV available" || echo "   ⚠️  UV not found (install with: pip install uv)"
+	@uv --version 2>/dev/null && echo "   ✅ UV available" || echo "   ⚠️  UV not found (install with: curl -LsSf https://astral.sh/uv/install.sh | sh)"
 	@echo ""
 	@echo "Docker (for production):"
 	@docker --version 2>/dev/null && echo "   ✅ Docker available" || echo "   ⚠️  Docker not found"
