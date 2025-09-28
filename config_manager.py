@@ -49,27 +49,68 @@ class ConfigManager:
 
     def load_config(self):
         """
-        Load configuration from the config file.
+        Load configuration from the config file with Docker volume support.
 
         Returns:
             dict: JSON response with configuration loading status
         """
-        try:
-            self.config.read(self.config_file)
-            logging.info(f"Configuration loaded from {self.config_file}")
+        # Try to load from different possible locations
+        config_paths = [
+            '/app/config/adahn.config',  # Docker volume location (writable)
+            'config/adahn.config',       # Local config directory
+            self.config_file             # Original config file
+        ]
+
+        loaded = False
+        loaded_path = None
+        last_error = None
+
+        for config_path in config_paths:
+            if os.path.exists(config_path):
+                try:
+                    self.config.read(config_path)
+                    loaded = True
+                    loaded_path = config_path
+                    logging.info(f"Configuration loaded from {config_path}")
+                    break
+                except Exception as e:
+                    last_error = e
+                    logging.debug(f"Could not load from {config_path}: {e}")
+                    continue
+
+        if loaded:
             return {
                 "success": True,
-                "config_file": self.config_file,
+                "config_file": loaded_path,
                 "sections": list(self.config.sections()),
-                "message": f"Configuration loaded from {self.config_file}",
+                "message": f"Configuration loaded from {loaded_path}",
                 "timestamp": datetime.now().isoformat()
             }
-        except Exception as e:
-            logging.error(f"Failed to load configuration from {self.config_file}: {e}")
+        else:
+            # If no config exists anywhere, copy default to writable location
+            if os.path.exists(self.config_file):
+                try:
+                    import shutil
+                    os.makedirs('/app/config', exist_ok=True)
+                    shutil.copy2(self.config_file, '/app/config/adahn.config')
+                    self.config.read('/app/config/adahn.config')
+                    logging.info("Copied default configuration to writable location")
+                    return {
+                        "success": True,
+                        "config_file": '/app/config/adahn.config',
+                        "sections": list(self.config.sections()),
+                        "message": "Default configuration copied to writable location",
+                        "timestamp": datetime.now().isoformat()
+                    }
+                except Exception as e:
+                    logging.warning(f"Could not copy config file: {e}")
+
+            error_msg = f"No configuration file found. Last error: {str(last_error)}" if last_error else "No configuration file found"
+            logging.error(error_msg)
             return {
                 "success": False,
                 "config_file": self.config_file,
-                "error": str(e),
+                "error": error_msg,
                 "timestamp": datetime.now().isoformat()
             }
 
@@ -337,28 +378,55 @@ class ConfigManager:
 
     def save_config(self):
         """
-        Save the current configuration to file.
+        Save the current configuration to file with Docker volume support.
 
         Returns:
             dict: JSON response with save result
         """
-        try:
-            with open(self.config_file, 'w') as configfile:
-                self.config.write(configfile)
+        # Try to save to different possible locations (writable locations first)
+        config_paths = [
+            '/app/config/adahn.config',  # Docker volume location (writable)
+            'config/adahn.config',       # Local config directory
+            self.config_file             # Original config file (may be read-only in Docker)
+        ]
 
-            logging.info(f"Configuration saved to {self.config_file}")
+        saved = False
+        last_error = None
+        saved_path = None
+
+        for config_path in config_paths:
+            try:
+                # Create directory if it doesn't exist
+                config_dir = os.path.dirname(config_path)
+                if config_dir and not os.path.exists(config_dir):
+                    os.makedirs(config_dir, exist_ok=True)
+
+                with open(config_path, 'w') as configfile:
+                    self.config.write(configfile)
+
+                saved = True
+                saved_path = config_path
+                logging.info(f"Configuration saved to {config_path}")
+                break
+
+            except Exception as e:
+                last_error = e
+                logging.debug(f"Could not save to {config_path}: {e}")
+                continue
+
+        if saved:
             return {
                 "success": True,
-                "config_file": self.config_file,
-                "message": f"Configuration saved to {self.config_file}",
+                "config_file": saved_path,
+                "message": f"Configuration saved to {saved_path}",
                 "timestamp": datetime.now().isoformat()
             }
-        except Exception as e:
-            logging.error(f"Error saving configuration to {self.config_file}: {e}")
+        else:
+            logging.error(f"Failed to save configuration to any location. Last error: {last_error}")
             return {
                 "success": False,
                 "config_file": self.config_file,
-                "error": str(e),
+                "error": f"Could not save to any writable location. Last error: {str(last_error)}",
                 "timestamp": datetime.now().isoformat()
             }
 
