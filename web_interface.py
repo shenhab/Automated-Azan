@@ -251,10 +251,16 @@ def index():
     if web_scheduler:
         try:
             status_data = web_scheduler.get_scheduler_status()
-            actual_status["running"] = status_data.get("success", False) and status_data.get("total_jobs", 0) > 0
+            logging.info(f"[DEBUG] Raw scheduler status data: {status_data}")
+
+            # Check if scheduler has jobs and is successful
+            has_jobs = status_data.get("total_jobs", 0) > 0
+            is_successful = status_data.get("success", False)
+            actual_status["running"] = is_successful and has_jobs
             actual_status["next_prayer"] = status_data.get("next_run")
             actual_status["last_update"] = datetime.now().isoformat()
-            logging.info(f"[DEBUG] Got scheduler status from web_scheduler: {actual_status}")
+
+            logging.info(f"[DEBUG] Processed scheduler status - running: {actual_status['running']}, jobs: {status_data.get('total_jobs', 0)}, success: {is_successful}")
         except Exception as e:
             logging.error(f"[DEBUG] Error getting scheduler status: {e}")
     else:
@@ -854,10 +860,16 @@ def handle_status_request():
     if web_scheduler:
         try:
             status_data = web_scheduler.get_scheduler_status()
-            actual_status["running"] = status_data.get("success", False) and status_data.get("total_jobs", 0) > 0
+            logging.info(f"[DEBUG] WebSocket raw scheduler status data: {status_data}")
+
+            # Check if scheduler has jobs and is successful
+            has_jobs = status_data.get("total_jobs", 0) > 0
+            is_successful = status_data.get("success", False)
+            actual_status["running"] = is_successful and has_jobs
             actual_status["next_prayer"] = status_data.get("next_run")
             actual_status["last_update"] = datetime.now().isoformat()
-            logging.info(f"[DEBUG] WebSocket status request - scheduler status: {actual_status}")
+
+            logging.info(f"[DEBUG] WebSocket processed scheduler status - running: {actual_status['running']}, jobs: {status_data.get('total_jobs', 0)}")
         except Exception as e:
             logging.error(f"[DEBUG] WebSocket error getting scheduler status: {e}")
 

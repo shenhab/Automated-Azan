@@ -75,9 +75,9 @@
                         <h6 class="card-title mb-1">Scheduler</h6>
                         <p class="card-text mb-0">
                             {% if scheduler_status.running %}
-                                <span class="badge bg-success">Running</span>
+                                <span id="scheduler-status-badge" class="badge bg-success">Running</span>
                             {% else %}
-                                <span class="badge bg-secondary">Stopped</span>
+                                <span id="scheduler-status-badge" class="badge bg-secondary">Stopped</span>
                             {% endif %}
                         </p>
                     </div>
@@ -354,12 +354,28 @@
 
         // Update scheduler status badge
         if (data.scheduler_status) {
-            const statusBadge = document.querySelector('.card-body:has(.fa-play-circle) .badge');
+            // Try multiple selectors to find the scheduler status badge
+            let statusBadge = document.querySelector('#scheduler-status-badge');
+            if (!statusBadge) {
+                // Fallback: find badge in scheduler card
+                const schedulerCards = document.querySelectorAll('.card-body');
+                for (const card of schedulerCards) {
+                    const title = card.querySelector('h6');
+                    if (title && title.textContent.includes('Scheduler')) {
+                        statusBadge = card.querySelector('.badge');
+                        break;
+                    }
+                }
+            }
+
             if (statusBadge) {
                 const isRunning = data.scheduler_status.running;
                 console.log('[DEBUG] Scheduler running state:', isRunning);
+                console.log('[DEBUG] Found status badge:', statusBadge);
                 statusBadge.className = isRunning ? 'badge bg-success' : 'badge bg-secondary';
                 statusBadge.textContent = isRunning ? 'Running' : 'Stopped';
+            } else {
+                console.log('[DEBUG] Could not find scheduler status badge');
             }
         }
     });
