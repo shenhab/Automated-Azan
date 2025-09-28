@@ -1327,9 +1327,9 @@ class ChromecastManager:
                         "timestamp": datetime.now().isoformat()
                     }
 
-                except Exception as e:
-                    logging.debug(f"Error checking device playback state: {e}")
-                    # If we can't check status, assume playback might still be active
+            except Exception as e:
+                logging.debug(f"Error checking device playback state: {e}")
+                # If we can't check status, assume playback might still be active
 
             elapsed_time = time.time() - self.athan_start_time if self.athan_start_time else 0
             return {
