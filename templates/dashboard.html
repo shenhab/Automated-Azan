@@ -97,7 +97,17 @@
                     <div class="ms-3">
                         <h6 class="card-title mb-1">Speaker</h6>
                         <p class="card-text mb-0">
-                            <span class="badge bg-secondary" id="speaker-status">Unknown</span>
+                            {% if speaker_status.status == 'Available' %}
+                                <span class="badge bg-success" id="speaker-status">Available</span>
+                            {% elif speaker_status.status == 'Not Found' %}
+                                <span class="badge bg-warning" id="speaker-status">Not Found</span>
+                            {% elif speaker_status.status == 'Not Configured' %}
+                                <span class="badge bg-secondary" id="speaker-status">Not Configured</span>
+                            {% elif speaker_status.status == 'Error' %}
+                                <span class="badge bg-danger" id="speaker-status">Error</span>
+                            {% else %}
+                                <span class="badge bg-secondary" id="speaker-status">Unknown</span>
+                            {% endif %}
                         </p>
                     </div>
                 </div>
@@ -378,14 +388,51 @@
                 console.log('[DEBUG] Could not find scheduler status badge');
             }
         }
+
+        // Update speaker status badge
+        if (data.speaker_status) {
+            const speakerBadge = document.getElementById('speaker-status');
+            if (speakerBadge) {
+                const status = data.speaker_status.status;
+                console.log('[DEBUG] Speaker status:', status);
+
+                // Update badge class and text based on status
+                speakerBadge.className = 'badge';
+                switch (status) {
+                    case 'Available':
+                        speakerBadge.classList.add('bg-success');
+                        speakerBadge.textContent = 'Available';
+                        break;
+                    case 'Not Found':
+                        speakerBadge.classList.add('bg-warning');
+                        speakerBadge.textContent = 'Not Found';
+                        break;
+                    case 'Not Configured':
+                        speakerBadge.classList.add('bg-secondary');
+                        speakerBadge.textContent = 'Not Configured';
+                        break;
+                    case 'Error':
+                        speakerBadge.classList.add('bg-danger');
+                        speakerBadge.textContent = 'Error';
+                        break;
+                    default:
+                        speakerBadge.classList.add('bg-secondary');
+                        speakerBadge.textContent = 'Unknown';
+                }
+            } else {
+                console.log('[DEBUG] Could not find speaker status badge');
+            }
+        }
     });
     
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
         // Debug logging on page load
         const initialSchedulerStatus = {{ scheduler_status|tojson }};
+        const initialSpeakerStatus = {{ speaker_status|tojson }};
         console.log('[DEBUG] Initial scheduler status from server:', initialSchedulerStatus);
         console.log('[DEBUG] Initial scheduler running state:', initialSchedulerStatus.running);
+        console.log('[DEBUG] Initial speaker status from server:', initialSpeakerStatus);
 
         updateNextPrayer();
         loadRecentLogs();

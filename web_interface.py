@@ -60,6 +60,35 @@ def get_discovered_devices():
         })
     return devices
 
+def get_speaker_status():
+    """Get the status of the configured speaker"""
+    try:
+        if not current_config.get('speakers_group_name'):
+            return {"status": "Not Configured", "message": "No speaker configured"}
+
+        configured_speaker = current_config['speakers_group_name']
+        devices = get_discovered_devices()
+
+        # Check if configured speaker is found in discovered devices
+        for device in devices:
+            if device['name'] == configured_speaker:
+                return {
+                    "status": "Available",
+                    "message": f"Found: {device['name']} ({device['model']})",
+                    "device": device
+                }
+
+        # Speaker not found
+        return {
+            "status": "Not Found",
+            "message": f"'{configured_speaker}' not discovered",
+            "configured_name": configured_speaker
+        }
+
+    except Exception as e:
+        logging.error(f"Error getting speaker status: {e}")
+        return {"status": "Error", "message": f"Error checking speaker: {str(e)}"}
+
 
 # Context processor to make config and prayer times available to all templates
 @app.context_processor
@@ -266,10 +295,15 @@ def index():
     else:
         logging.warning("[DEBUG] web_scheduler is not available")
 
+    # Get speaker status
+    speaker_status = get_speaker_status()
+    logging.info(f"[DEBUG] Speaker status: {speaker_status}")
+
     return render_template('dashboard.html',
                          config=current_config,
                          prayer_times=prayer_times,
-                         scheduler_status=actual_status)
+                         scheduler_status=actual_status,
+                         speaker_status=speaker_status)
 
 @app.route('/chromecasts')
 def chromecasts():
@@ -873,10 +907,15 @@ def handle_status_request():
         except Exception as e:
             logging.error(f"[DEBUG] WebSocket error getting scheduler status: {e}")
 
+    # Get speaker status
+    speaker_status = get_speaker_status()
+    logging.info(f"[DEBUG] WebSocket speaker status: {speaker_status}")
+
     emit('status_update', {
         'config': current_config,
         'prayer_times': prayer_times,
         'scheduler_status': actual_status,
+        'speaker_status': speaker_status,
         'devices': get_discovered_devices()
     })
 
