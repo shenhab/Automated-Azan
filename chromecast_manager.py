@@ -60,8 +60,7 @@ class ChromecastManager:
             dict: JSON response with media URL
         """
         try:
-            # Check if running in Docker with host network mode
-            # Use HOST_IP environment variable if set (for Docker deployments)
+            # Use HOST_IP environment variable if set (for specific Docker deployments)
             local_ip = os.environ.get('HOST_IP', None)
 
             if not local_ip:
@@ -70,6 +69,7 @@ class ChromecastManager:
                 s.settimeout(0)
                 try:
                     # Connect to Google DNS to get the real outbound IP
+                    # This should work correctly in Docker with host network mode
                     s.connect(('8.8.8.8', 80))
                     local_ip = s.getsockname()[0]
                 except Exception:
@@ -78,31 +78,8 @@ class ChromecastManager:
                 finally:
                     s.close()
 
-            # Ensure we're not using localhost for Chromecast playback
-            if local_ip == '127.0.0.1' or local_ip.startswith('172.'):
-                # Try to get the real host IP for Docker environments
-                # This assumes the container can reach the host network
-                logging.warning(f"Detected internal IP {local_ip}, attempting to find external IP")
-
-                # Try to detect the actual host IP from Chromecast devices
-                if hasattr(self, 'chromecasts') and self.chromecasts:
-                    # Get IP from any discovered Chromecast (they're on the same network)
-                    for device_info in self.chromecasts.values():
-                        device_ip = device_info.get('host', '')
-                        if device_ip and not device_ip.startswith('127.'):
-                            # Use the same network range as the Chromecast
-                            # Extract the first 3 octets and try common host IPs
-                            octets = device_ip.split('.')[:3]
-                            # The host is likely at .1, .100, or .161 based on your setup
-                            possible_ips = [
-                                '.'.join(octets + ['161']),  # Your known IP
-                                '.'.join(octets + ['1']),    # Common router IP
-                                '.'.join(octets + ['100']),  # Another common host IP
-                            ]
-                            # Use the first one that seems reasonable
-                            local_ip = possible_ips[0]
-                            logging.info(f"Using detected network IP: {local_ip}")
-                            break
+            # Log the detected IP for debugging
+            logging.debug(f"Detected IP for media URL: {local_ip}")
 
             media_url = f"http://{local_ip}:5000/media/{filename}"
 
@@ -1074,14 +1051,14 @@ class ChromecastManager:
             "timestamp": datetime.now().isoformat()
         }
 
-    def _wait_for_media_load(self, media_controller, url, max_attempts=15):
+    def _wait_for_media_load(self, media_controller, url, max_attempts=10):
         """
-        Wait for media to load with improved logic.
+        Wait for media to load with improved logic and timeout.
 
         Args:
             media_controller: The media controller instance
             url (str): Expected content URL
-            max_attempts (int): Maximum attempts to wait
+            max_attempts (int): Maximum attempts to wait (reduced from 15)
 
         Returns:
             dict: JSON response with load status
@@ -1090,8 +1067,10 @@ class ChromecastManager:
         status_checks = []
         last_player_state = None
         consecutive_playing_states = 0
+        start_time = time.time()
+        max_wait_time = 20  # Maximum 20 seconds total wait time
 
-        while attempts < max_attempts:
+        while attempts < max_attempts and (time.time() - start_time) < max_wait_time:
             attempt_start = time.time()
             try:
                 media_controller.update_status()
@@ -1173,12 +1152,17 @@ class ChromecastManager:
                 attempts += 1
                 time.sleep(1)
 
+        # Timeout reached - log details for debugging
+        elapsed_time = time.time() - start_time
+        logging.error(f"Media load timeout after {elapsed_time:.1f}s and {attempts} attempts. Final state: {last_player_state}")
+
         return {
             "success": False,
-            "error": "Media failed to load within timeout period",
+            "error": f"Media failed to load within {elapsed_time:.1f}s timeout period",
             "attempts": attempts,
             "final_state": last_player_state,
-            "status_checks": status_checks,
+            "elapsed_time": round(elapsed_time, 2),
+            "status_checks": status_checks[-3:] if len(status_checks) > 3 else status_checks,  # Include only last 3 checks
             "timestamp": datetime.now().isoformat()
         }
 
