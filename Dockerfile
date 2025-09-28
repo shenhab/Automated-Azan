@@ -15,8 +15,7 @@ RUN apt-get update && apt-get install -y \
     # Build tools for Python packages
     build-essential \
     # Time synchronization
-    ntpdate \
-    && rm -rf /var/lib/apt/lists/*
+    ntpdate
 
 WORKDIR /app
 
