@@ -27,14 +27,14 @@ setup:
 	@echo "   📦 Installing uv and dependencies..."
 	@pip install --user uv || pip3 install --user uv
 	@uv venv
-	@uv pip sync requirements.txt
+	@uv pip sync requirements-dev.txt
 	@echo "   ✅ Development environment ready!"
 	@echo "   💡 Run 'make run' to start prayer scheduler"
 	@echo "   💡 Run 'make web' to start web interface"
 
 install:
 	@echo "📦 Installing dependencies with uv..."
-	@uv pip sync requirements.txt
+	@uv pip sync requirements-dev.txt
 
 run:
 	@echo "🕌 Starting Automated Azan prayer scheduler..."
