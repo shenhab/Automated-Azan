@@ -255,7 +255,27 @@ def load_prayer_times(force_reload=False):
 def index():
     """Main dashboard"""
     load_config()
-    load_prayer_times()
+
+    # Get prayer times from scheduler if available, otherwise fallback
+    dashboard_prayer_times = {}
+    if web_scheduler:
+        try:
+            scheduler_result = web_scheduler.get_prayer_times()
+            if scheduler_result.get('success'):
+                dashboard_prayer_times = scheduler_result['prayer_times']
+                logging.info(f"[DEBUG] Dashboard using scheduler prayer times: {dashboard_prayer_times}")
+            else:
+                logging.warning(f"Scheduler prayer times failed, using fallback: {scheduler_result.get('error')}")
+                load_prayer_times()
+                dashboard_prayer_times = prayer_times
+        except Exception as e:
+            logging.error(f"Error getting scheduler prayer times: {e}")
+            load_prayer_times()
+            dashboard_prayer_times = prayer_times
+    else:
+        logging.warning("[DEBUG] web_scheduler not available, using fallback")
+        load_prayer_times()
+        dashboard_prayer_times = prayer_times
 
     # Debug logging for scheduler status
     logging.info(f"[DEBUG] Dashboard loading - scheduler_status: {scheduler_status}")
@@ -286,7 +306,7 @@ def index():
 
     return render_template('dashboard.html',
                          config=current_config,
-                         prayer_times=prayer_times,
+                         prayer_times=dashboard_prayer_times,
                          scheduler_status=actual_status,
                          speaker_status=speaker_status)
 
@@ -319,19 +339,33 @@ def test():
 
 @app.route('/api/prayer-times')
 def api_prayer_times():
-    """API endpoint to get prayer times"""
+    """API endpoint to get prayer times from scheduler"""
     try:
-        # Get the current location from config
+        # Get prayer times from the scheduler if available
+        if web_scheduler:
+            # Use scheduler's prayer times (the authoritative source)
+            scheduler_result = web_scheduler.get_prayer_times()
+            if scheduler_result.get('success'):
+                return jsonify({
+                    'success': True,
+                    'prayer_times': scheduler_result['prayer_times'],
+                    'location': scheduler_result['location'],
+                    'source': 'scheduler',
+                    'timestamp': scheduler_result.get('timestamp')
+                })
+            else:
+                logging.warning(f"Scheduler prayer times failed: {scheduler_result.get('error')}")
+
+        # Fallback to independent calculation if scheduler is unavailable
         config = load_config()
-        location = config.get('location', 'naas')  # Use 'naas' or 'icci'
-        
-        # Get prayer times using the cached load_prayer_times function
+        location = config.get('location', 'naas')
         times = load_prayer_times()
-        
+
         return jsonify({
             'success': True,
             'prayer_times': times,
-            'location': location
+            'location': location,
+            'source': 'fallback'
         })
     except Exception as e:
         logging.error(f"Error fetching prayer times: {e}")
@@ -781,18 +815,35 @@ def api_get_config():
 
 @app.route('/api/refresh-prayer-times', methods=['POST'])
 def api_refresh_prayer_times():
-    """API endpoint to refresh prayer times"""
+    """API endpoint to refresh prayer times using scheduler"""
     try:
+        # Use scheduler's refresh if available
+        if web_scheduler:
+            refresh_result = web_scheduler.refresh_schedule()
+            if refresh_result.get('success'):
+                prayer_times_data = refresh_result.get('prayer_times', {})
+
+                # Emit real-time update using scheduler's data
+                socketio.emit('prayer_times_updated', {'prayer_times': prayer_times_data})
+
+                return jsonify({
+                    'success': True,
+                    'prayer_times': prayer_times_data,
+                    'source': 'scheduler'
+                })
+            else:
+                logging.warning(f"Scheduler refresh failed: {refresh_result.get('error')}")
+
+        # Fallback to independent refresh
         load_prayer_times(force_reload=True)
-        
-        # Emit real-time update
         socketio.emit('prayer_times_updated', {'prayer_times': prayer_times})
-        
+
         return jsonify({
             'success': True,
-            'prayer_times': prayer_times
+            'prayer_times': prayer_times,
+            'source': 'fallback'
         })
-        
+
     except Exception as e:
         logging.error(f"Error refreshing prayer times: {e}")
         return jsonify({
@@ -1109,7 +1160,27 @@ def handle_connect():
 def handle_status_request():
     """Handle status request from client"""
     load_config()
-    load_prayer_times()
+
+    # Get prayer times from scheduler if available, otherwise fallback
+    websocket_prayer_times = {}
+    if web_scheduler:
+        try:
+            scheduler_result = web_scheduler.get_prayer_times()
+            if scheduler_result.get('success'):
+                websocket_prayer_times = scheduler_result['prayer_times']
+                logging.info(f"[DEBUG] WebSocket using scheduler prayer times: {websocket_prayer_times}")
+            else:
+                logging.warning(f"WebSocket: Scheduler prayer times failed, using fallback: {scheduler_result.get('error')}")
+                load_prayer_times()
+                websocket_prayer_times = prayer_times
+        except Exception as e:
+            logging.error(f"WebSocket: Error getting scheduler prayer times: {e}")
+            load_prayer_times()
+            websocket_prayer_times = prayer_times
+    else:
+        logging.warning("[DEBUG] WebSocket: web_scheduler not available, using fallback")
+        load_prayer_times()
+        websocket_prayer_times = prayer_times
 
     # Get actual scheduler status
     actual_status = {"running": False, "next_prayer": None, "last_update": None}
@@ -1135,7 +1206,7 @@ def handle_status_request():
 
     emit('status_update', {
         'config': current_config,
-        'prayer_times': prayer_times,
+        'prayer_times': websocket_prayer_times,
         'scheduler_status': actual_status,
         'speaker_status': speaker_status,
         'devices': get_discovered_devices()
