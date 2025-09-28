@@ -31,13 +31,19 @@ class AthanScheduler:
         # Load prayer times on initialization
         logging.info("[DEBUG] Initializing scheduler - loading prayer times and scheduling jobs")
         init_result = self.load_prayer_times()
-        logging.info(f"[DEBUG] Initialization result: {init_result}")
+        logging.info(f"[DEBUG] Prayer times load result: {init_result}")
+
+        # Schedule prayers if prayer times were loaded successfully
+        if init_result.get('success', False):
+            logging.info("[DEBUG] Prayer times loaded successfully, now scheduling prayers")
+            schedule_result = self.schedule_prayers()
+            logging.info(f"[DEBUG] Prayer scheduling result: {schedule_result}")
+        else:
+            logging.warning("Failed to load prayer times during initialization")
 
         # Verify jobs were scheduled
         status = self.get_scheduler_status()
         logging.info(f"[DEBUG] Jobs scheduled during init: {status.get('total_jobs', 0)}")
-        if not init_result.get('success', False):
-            logging.warning("Failed to load prayer times during initialization")
 
     def get_next_prayer_time(self):
         """
@@ -92,18 +98,12 @@ class AthanScheduler:
 
             if fetch_result.get('success', False):
                 self.prayer_times = fetch_result.get('prayer_times', {})
-
-                # Schedule prayers after loading prayer times
-                logging.info("[DEBUG] Prayer times loaded, now scheduling prayers")
-                schedule_result = self.schedule_prayers()
-
                 return {
                     "success": True,
                     "location": self.location,
                     "prayer_times": self.prayer_times,
                     "fetch_result": fetch_result,
-                    "schedule_result": schedule_result,
-                    "message": "Prayer times successfully fetched and scheduled",
+                    "message": "Prayer times successfully fetched",
                     "timestamp": datetime.now(self.tz).isoformat()
                 }
             else:
@@ -385,8 +385,11 @@ class AthanScheduler:
                 if last_update_date != current_date:
                     logging.info(f"Updating prayer times for new day: {current_date}")
                     self.update_ntp_time()
-                    self.load_prayer_times()
-                    last_update_date = current_date
+                    refresh_result = self.refresh_schedule()
+                    if refresh_result.get('success', False):
+                        last_update_date = current_date
+                    else:
+                        logging.error(f"Failed to refresh schedule: {refresh_result.get('error', 'Unknown error')}")
                 else:
                     logging.debug(f"Using cached prayer times for {current_date}")
 
