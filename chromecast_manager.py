@@ -1243,55 +1243,89 @@ class ChromecastManager:
         """
         Check if Athan is currently playing and manage playback state.
 
+        NOTE: This method assumes it's called from within a playback_lock context.
+
         Returns:
             dict: JSON response with Athan playing status
         """
-        with self.playback_lock:
-            if not self.athan_playing:
+        logging.info(f"[DEBUG] _is_athan_playing() called")
+        # Note: No lock needed here as this is called from within a locked context
+        if not self.athan_playing:
+            return {
+                "success": True,
+                "is_playing": False,
+                "message": "No Athan currently playing",
+                "timestamp": datetime.now().isoformat()
+            }
+
+        # Check if enough time has passed for Athan to finish
+        # Most Athan recordings are 3-5 minutes, so we'll use 8 minutes as a safe timeout
+        if self.athan_start_time:
+            elapsed_time = time.time() - self.athan_start_time
+            if elapsed_time > 480:  # 8 minutes timeout
+                logging.info("Athan playback timeout reached, clearing playback state")
+                self.athan_playing = False
+                self.athan_start_time = None
                 return {
                     "success": True,
                     "is_playing": False,
-                    "message": "No Athan currently playing",
+                    "reason": "timeout_reached",
+                    "elapsed_time": round(elapsed_time, 1),
+                    "timeout_threshold": 480,
                     "timestamp": datetime.now().isoformat()
                 }
 
-            # Check if enough time has passed for Athan to finish
-            # Most Athan recordings are 3-5 minutes, so we'll use 8 minutes as a safe timeout
-            if self.athan_start_time:
-                elapsed_time = time.time() - self.athan_start_time
-                if elapsed_time > 480:  # 8 minutes timeout
-                    logging.info("Athan playback timeout reached, clearing playback state")
+        # Check if target device is actually playing something
+        logging.info(f"[DEBUG] About to check target device status...")
+        if self.target_device:
+            try:
+                logging.info(f"[DEBUG] About to call media_controller.update_status()...")
+                media_controller = self.target_device.media_controller
+
+                # Add timeout wrapper around the hanging update_status call
+                import threading
+                exception_container = [None]
+
+                def update_status_target():
+                    try:
+                        media_controller.update_status()
+                    except Exception as e:
+                        exception_container[0] = e
+
+                thread = threading.Thread(target=update_status_target)
+                thread.daemon = True
+                thread.start()
+                thread.join(timeout=5)  # 5 second timeout
+
+                if thread.is_alive():
+                    logging.error("media_controller.update_status() timed out after 5 seconds - this is the source of the hang!")
+                    return {
+                        "success": True,
+                        "is_playing": False,
+                        "reason": "status_check_timeout",
+                        "message": "Unable to check device status due to timeout",
+                        "timestamp": datetime.now().isoformat()
+                    }
+
+                if exception_container[0]:
+                    raise exception_container[0]
+
+                logging.info(f"[DEBUG] media_controller.update_status() completed successfully")
+
+                player_state = media_controller.status.player_state
+                # If device is idle or stopped, clear our playback state
+                if player_state in ["IDLE", "UNKNOWN"]:
+                    logging.info("Target device shows IDLE/UNKNOWN state, clearing Athan playback state")
                     self.athan_playing = False
                     self.athan_start_time = None
                     return {
                         "success": True,
                         "is_playing": False,
-                        "reason": "timeout_reached",
-                        "elapsed_time": round(elapsed_time, 1),
-                        "timeout_threshold": 480,
+                        "reason": "device_idle",
+                        "device_state": player_state,
+                        "elapsed_time": round(elapsed_time, 1) if self.athan_start_time else 0,
                         "timestamp": datetime.now().isoformat()
                     }
-
-            # Check if target device is actually playing something
-            if self.target_device:
-                try:
-                    media_controller = self.target_device.media_controller
-                    media_controller.update_status()
-
-                    player_state = media_controller.status.player_state
-                    # If device is idle or stopped, clear our playback state
-                    if player_state in ["IDLE", "UNKNOWN"]:
-                        logging.info("Target device shows IDLE/UNKNOWN state, clearing Athan playback state")
-                        self.athan_playing = False
-                        self.athan_start_time = None
-                        return {
-                            "success": True,
-                            "is_playing": False,
-                            "reason": "device_idle",
-                            "device_state": player_state,
-                            "elapsed_time": round(elapsed_time, 1) if self.athan_start_time else 0,
-                            "timestamp": datetime.now().isoformat()
-                        }
 
                 except Exception as e:
                     logging.debug(f"Error checking device playback state: {e}")
@@ -1316,9 +1350,17 @@ class ChromecastManager:
         Returns:
             dict: JSON response with playback start status
         """
+        logging.info(f"[DEBUG] _start_athan_playback called with prayer_type: {prayer_type}")
+
+        logging.info(f"[DEBUG] About to acquire playback_lock...")
         with self.playback_lock:
+            logging.info(f"[DEBUG] playback_lock acquired successfully")
+
             # Check if Athan is already playing
+            logging.info(f"[DEBUG] Checking if Athan is already playing...")
             playing_status = self._is_athan_playing()
+            logging.info(f"[DEBUG] _is_athan_playing() completed with result: {playing_status}")
+
             if playing_status.get('is_playing', False):
                 logging.warning(f"Athan is already playing, skipping {prayer_type} Athan request")
                 return {
