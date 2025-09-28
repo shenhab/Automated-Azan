@@ -1,6 +1,9 @@
 # Automated Azan - Streamlined Makefile
 # Two deployment methods: pipenv (development) and Docker (production)
 
+# Detect Docker Compose command (docker-compose vs docker compose)
+DOCKER_COMPOSE := $(shell docker-compose --version 2>/dev/null && echo docker-compose || (docker compose version 2>/dev/null && echo "docker compose"))
+
 docker-rebuild: docker-stop docker-build docker-run
 	@echo "🔄 Rebuilt and restarted Docker container"
 
@@ -89,7 +92,7 @@ deploy-check:
 	@echo ""
 	@echo "� Docker environment:"
 	@docker --version 2>/dev/null && echo "   ✅ Docker available" || (echo "   ❌ Docker not found! Please install Docker" && exit 1)
-	@docker-compose --version 2>/dev/null && echo "   ✅ Docker Compose available" || (echo "   ❌ Docker Compose not found! Please install Docker Compose" && exit 1)
+	@(docker-compose --version 2>/dev/null || docker compose version 2>/dev/null) && echo "   ✅ Docker Compose available" || (echo "   ❌ Docker Compose not found! Please install Docker Compose" && exit 1)
 	@echo ""
 	@echo "� Configuration preview:"
 	@echo "   📍 Location: $$(grep '^location' adahn.config | cut -d'=' -f2 | xargs 2>/dev/null || echo 'not configured')"
@@ -100,24 +103,24 @@ deploy-check:
 docker-build:
 	@echo "🐳 Building Docker image..."
 	@echo "   � Building unified container (Prayer scheduler + Web interface)..."
-	@docker-compose build --no-cache
+	@$(DOCKER_COMPOSE) build --no-cache
 
 docker-run:
 	@echo "🐳 Starting Docker container..."
 	@echo "   � Launching Automated Azan service..."
-	@docker-compose up -d
+	@$(DOCKER_COMPOSE) up -d
 
 docker-logs:
 	@echo "� Showing container logs..."
-	@docker-compose logs -f
+	@$(DOCKER_COMPOSE) logs -f
 
 docker-stop:
 	@echo "🛑 Stopping Docker container..."
-	@docker-compose down
+	@$(DOCKER_COMPOSE) down
 
 docker-restart:
 	@echo "� Restarting Docker container..."
-	@docker-compose restart
+	@$(DOCKER_COMPOSE) restart
 
 docker-rebuild: docker-stop docker-build docker-run
 	@echo "� Rebuilt and restarted Docker container"
@@ -145,13 +148,13 @@ check:
 	@echo ""
 	@echo "Docker (for production):"
 	@docker --version 2>/dev/null && echo "   ✅ Docker available" || echo "   ⚠️  Docker not found"
-	@docker-compose --version 2>/dev/null && echo "   ✅ Docker Compose available" || echo "   ⚠️  Docker Compose not found"
+	@(docker-compose --version 2>/dev/null || docker compose version 2>/dev/null) && echo "   ✅ Docker Compose available" || echo "   ⚠️  Docker Compose not found"
 
 status:
 	@echo "📊 Current system status..."
 	@echo ""
 	@echo "Docker containers:"
-	@docker-compose ps 2>/dev/null || echo "   No Docker containers running"
+	@$(DOCKER_COMPOSE) ps 2>/dev/null || echo "   No Docker containers running"
 	@echo ""
 	@echo "Configuration:"
 	@test -f adahn.config && echo "   📍 Location: $$(grep '^location' adahn.config | cut -d'=' -f2 | xargs)" || echo "   ⚠️  No adahn.config found"
