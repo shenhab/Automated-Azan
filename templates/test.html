@@ -66,6 +66,9 @@
                             <button class="btn btn-danger" onclick="stopAllPlayback()">
                                 <i class="fas fa-stop me-1"></i>Stop All Playback
                             </button>
+                            <button class="btn btn-warning" onclick="resetPlaybackState()">
+                                <i class="fas fa-redo me-1"></i>Reset Playback State
+                            </button>
                             <button class="btn btn-info" onclick="refreshDevices()">
                                 <i class="fas fa-sync me-1"></i>Refresh Device List
                             </button>
@@ -287,9 +290,14 @@
                                 <button class="btn btn-warning btn-sm" onclick="testDeviceAdhan('${device.uuid}', '${device.name}', 'fajr')">
                                     <i class="fas fa-sun me-1"></i>Fajr Adhan
                                 </button>
-                                <button class="btn btn-danger btn-sm" onclick="stopDevicePlayback('${device.uuid}', '${device.name}')">
-                                    <i class="fas fa-stop me-1"></i>Stop
-                                </button>
+                                <div class="btn-group w-100" role="group">
+                                    <button class="btn btn-danger btn-sm" onclick="stopDevicePlayback('${device.uuid}', '${device.name}')">
+                                        <i class="fas fa-stop me-1"></i>Stop Device
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-sm" onclick="resetPlaybackState()" title="Reset internal playback state (use if device stop fails)">
+                                        <i class="fas fa-redo me-1"></i>Reset State
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -416,6 +424,38 @@
     function stopAllPlayback() {
         devices.forEach(device => {
             stopDevicePlayback(device.uuid, device.name);
+        });
+    }
+
+    // Reset internal playback state (use when device communication fails)
+    function resetPlaybackState() {
+        fetch('/api/reset-playback-state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                if (data.was_playing) {
+                    showAlert(`Playback state reset. Was tracking ${data.elapsed_time}s of playback.`, 'success');
+                } else {
+                    showAlert('Playback state reset. No active playback was being tracked.', 'info');
+                }
+                // Update all device status badges to ready
+                devices.forEach(device => {
+                    const statusBadge = document.getElementById(`status-${device.uuid}`);
+                    if (statusBadge) {
+                        statusBadge.textContent = 'Ready';
+                        statusBadge.className = 'badge bg-secondary';
+                    }
+                });
+            } else {
+                showAlert(`Reset failed: ${data.error}`, 'danger');
+            }
+        })
+        .catch(error => {
+            console.error('Error resetting playback state:', error);
+            showAlert('Reset request failed', 'danger');
         });
     }
     
