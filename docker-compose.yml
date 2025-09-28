@@ -16,6 +16,7 @@ services:
       - LOG_FILE=/var/log/azan_service.log
       - PYTHONUNBUFFERED=1
       - TZ=UTC  # Change to your timezone (e.g., Europe/Dublin, America/New_York)
+      # - HOST_IP=192.168.86.161  # Uncomment and set your host IP for reliable media URLs
     
     # Volume mounts
     volumes:

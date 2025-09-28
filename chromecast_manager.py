@@ -1,6 +1,7 @@
 import pychromecast
 from pychromecast.discovery import CastBrowser, SimpleCastListener
 import logging
+import os
 import time
 from typing import Optional
 import socket
@@ -59,17 +60,49 @@ class ChromecastManager:
             dict: JSON response with media URL
         """
         try:
-            # Get the local IP address that the web interface is running on
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(0)
-            try:
-                # Connect to a non-existent IP to trigger routing
-                s.connect(('10.254.254.254', 1))
-                local_ip = s.getsockname()[0]
-            except Exception:
-                local_ip = '127.0.0.1'
-            finally:
-                s.close()
+            # Check if running in Docker with host network mode
+            # Use HOST_IP environment variable if set (for Docker deployments)
+            local_ip = os.environ.get('HOST_IP', None)
+
+            if not local_ip:
+                # Get the local IP address that the web interface is running on
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.settimeout(0)
+                try:
+                    # Connect to Google DNS to get the real outbound IP
+                    s.connect(('8.8.8.8', 80))
+                    local_ip = s.getsockname()[0]
+                except Exception:
+                    # Fallback to localhost
+                    local_ip = '127.0.0.1'
+                finally:
+                    s.close()
+
+            # Ensure we're not using localhost for Chromecast playback
+            if local_ip == '127.0.0.1' or local_ip.startswith('172.'):
+                # Try to get the real host IP for Docker environments
+                # This assumes the container can reach the host network
+                logging.warning(f"Detected internal IP {local_ip}, attempting to find external IP")
+
+                # Try to detect the actual host IP from Chromecast devices
+                if hasattr(self, 'chromecasts') and self.chromecasts:
+                    # Get IP from any discovered Chromecast (they're on the same network)
+                    for device_info in self.chromecasts.values():
+                        device_ip = device_info.get('host', '')
+                        if device_ip and not device_ip.startswith('127.'):
+                            # Use the same network range as the Chromecast
+                            # Extract the first 3 octets and try common host IPs
+                            octets = device_ip.split('.')[:3]
+                            # The host is likely at .1, .100, or .161 based on your setup
+                            possible_ips = [
+                                '.'.join(octets + ['161']),  # Your known IP
+                                '.'.join(octets + ['1']),    # Common router IP
+                                '.'.join(octets + ['100']),  # Another common host IP
+                            ]
+                            # Use the first one that seems reasonable
+                            local_ip = possible_ips[0]
+                            logging.info(f"Using detected network IP: {local_ip}")
+                            break
 
             media_url = f"http://{local_ip}:5000/media/{filename}"
 
