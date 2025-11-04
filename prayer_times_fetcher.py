@@ -95,6 +95,9 @@ class PrayerTimesFetcher:
             with open(self.icci_timetable_file, "w", encoding="utf-8") as f:
                 json.dump(response.json(), f, indent=4)
 
+            # Save DST metadata after successful download
+            self._save_dst_metadata("icci")
+
             logging.info("✅ ICCI timetable downloaded and saved successfully.")
             return {
                 "success": True,
@@ -163,6 +166,9 @@ class PrayerTimesFetcher:
             with open(self.naas_prayers_timetable_file, "w", encoding="utf-8") as file:
                 json.dump(calendar_list, file, indent=2, ensure_ascii=False)
 
+            # Save DST metadata after successful download
+            self._save_dst_metadata("naas")
+
             logging.info("✅ Naas prayer timetable saved successfully.")
             return {
                 "success": True,
@@ -203,10 +209,82 @@ class PrayerTimesFetcher:
                 "timestamp": datetime.now(self.tz).isoformat()
             }
 
+    def _get_dst_offset(self, dt: Optional[datetime] = None) -> int:
+        """
+        Get the current DST offset in seconds for the configured timezone.
+
+        Args:
+            dt: DateTime to check DST for (defaults to now)
+
+        Returns:
+            int: DST offset in seconds
+        """
+        if dt is None:
+            dt = datetime.now(self.tz)
+        # Get the UTC offset which includes DST
+        utc_offset = dt.utcoffset()
+        return int(utc_offset.total_seconds()) if utc_offset else 0
+
+    def _get_dst_metadata_file(self, location: str) -> str:
+        """Get the path to the DST metadata file for a location."""
+        return os.path.join(
+            os.path.dirname(self.icci_timetable_file if location == "icci" else self.naas_prayers_timetable_file),
+            f"{location}_dst_metadata.json"
+        )
+
+    def _save_dst_metadata(self, location: str) -> None:
+        """Save current DST offset metadata for a location."""
+        try:
+            metadata = {
+                "dst_offset": self._get_dst_offset(),
+                "last_checked": datetime.now(self.tz).isoformat(),
+                "timezone": str(self.tz)
+            }
+            metadata_file = self._get_dst_metadata_file(location)
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            logging.debug(f"Saved DST metadata for {location}: {metadata}")
+        except Exception as e:
+            logging.warning(f"Failed to save DST metadata for {location}: {e}")
+
+    def _has_dst_changed(self, location: str) -> bool:
+        """
+        Check if DST has changed since the last timetable download.
+
+        Args:
+            location: Location to check
+
+        Returns:
+            bool: True if DST has changed, False otherwise
+        """
+        try:
+            metadata_file = self._get_dst_metadata_file(location)
+            if not os.path.exists(metadata_file):
+                logging.debug(f"No DST metadata found for {location}, assuming no change")
+                return False
+
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+
+            old_offset = metadata.get('dst_offset', 0)
+            current_offset = self._get_dst_offset()
+
+            if old_offset != current_offset:
+                logging.info(f"DST change detected for {location}: {old_offset}s -> {current_offset}s")
+                return True
+
+            return False
+        except Exception as e:
+            logging.warning(f"Error checking DST change for {location}: {e}")
+            return False
+
     def _is_new_month(self, location: str = "icci", target_date: Optional[datetime] = None) -> Dict[str, Any]:
         """
-        Determines if the timetable should be refreshed by checking if a new month has started.
-        Also checks if timetable files exist for the specified location.
+        Determines if the timetable should be refreshed by checking multiple conditions:
+        - File missing
+        - Weekly refresh (file older than 7 days)
+        - DST change detected
+        - New month started (legacy check)
 
         Args:
             location (str): Location to check ('icci' or 'naas')
@@ -218,10 +296,11 @@ class PrayerTimesFetcher:
         if target_date is None:
             target_date = datetime.now(self.tz)
 
-        logging.debug(f"Checking if a new month has started or {location} timetable file is missing.")
+        logging.debug(f"Checking if {location} timetable needs refresh.")
 
         timetable_file = self.icci_timetable_file if location == "icci" else self.naas_prayers_timetable_file
 
+        # Check 1: File missing
         if not os.path.exists(timetable_file):
             logging.info(f"{location.upper()} timetable file is missing. Need to download new one.")
             return {
@@ -235,19 +314,53 @@ class PrayerTimesFetcher:
             }
 
         try:
-            file_mod_time = datetime.fromtimestamp(os.path.getmtime(timetable_file))
+            file_mod_time = datetime.fromtimestamp(os.path.getmtime(timetable_file), tz=self.tz)
+            file_age_days = (target_date - file_mod_time).days
+
+            # Check 2: DST change
+            if self._has_dst_changed(location):
+                logging.info(f"{location.upper()} timetable needs refresh due to DST change.")
+                return {
+                    "success": True,
+                    "needs_refresh": True,
+                    "reason": "dst_change",
+                    "location": location,
+                    "file_path": timetable_file,
+                    "file_modified_time": file_mod_time.isoformat(),
+                    "file_age_days": file_age_days,
+                    "message": f"DST change detected, refreshing {location.upper()} timetable",
+                    "timestamp": datetime.now(self.tz).isoformat()
+                }
+
+            # Check 3: Weekly refresh (file older than 7 days)
+            if file_age_days >= 7:
+                logging.info(f"{location.upper()} timetable is {file_age_days} days old. Need weekly refresh.")
+                return {
+                    "success": True,
+                    "needs_refresh": True,
+                    "reason": "weekly_refresh",
+                    "location": location,
+                    "file_path": timetable_file,
+                    "file_modified_time": file_mod_time.isoformat(),
+                    "file_age_days": file_age_days,
+                    "message": f"{location.upper()} timetable needs weekly refresh ({file_age_days} days old)",
+                    "timestamp": datetime.now(self.tz).isoformat()
+                }
+
+            # Check 4: New month (legacy check)
             target_month = target_date.month
             is_new_month = file_mod_time.month != target_month
 
-            logging.debug(f"{location.upper()} timetable last modified in month: {file_mod_time.month}, Target month: {target_month}")
+            logging.debug(f"{location.upper()} timetable - Age: {file_age_days} days, Month check: {file_mod_time.month} vs {target_month}")
 
             return {
                 "success": True,
                 "needs_refresh": is_new_month,
-                "reason": "new_month" if is_new_month else "current_month",
+                "reason": "new_month" if is_new_month else "current",
                 "location": location,
                 "file_path": timetable_file,
                 "file_modified_time": file_mod_time.isoformat(),
+                "file_age_days": file_age_days,
                 "file_month": file_mod_time.month,
                 "target_month": target_month,
                 "message": f"File {'needs refresh (new month)' if is_new_month else 'is current'}",

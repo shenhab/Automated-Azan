@@ -1,5 +1,6 @@
 import time
 import json
+import os
 import schedule
 import logging
 from datetime import datetime, timedelta
@@ -331,6 +332,54 @@ class AthanScheduler:
                 "current_time": datetime.now(self.tz).isoformat()
             }
 
+    def check_dst_change(self):
+        """
+        Check if DST has changed since the last timetable download.
+        This is called daily at 1:00 AM to detect DST transitions.
+
+        Returns:
+            dict: JSON response with DST check result
+        """
+        try:
+            dst_changed = self.fetcher._has_dst_changed(self.location)
+            current_offset = self.fetcher._get_dst_offset()
+
+            result = {
+                "success": True,
+                "dst_changed": dst_changed,
+                "current_offset": current_offset,
+                "location": self.location,
+                "timestamp": datetime.now(self.tz).isoformat()
+            }
+
+            if dst_changed:
+                # Get the old offset from metadata if available
+                try:
+                    metadata_file = self.fetcher._get_dst_metadata_file(self.location)
+                    if os.path.exists(metadata_file):
+                        import json
+                        with open(metadata_file, 'r') as f:
+                            metadata = json.load(f)
+                            result['old_offset'] = metadata.get('dst_offset', 'unknown')
+                            result['new_offset'] = current_offset
+                            result['message'] = f"DST changed from {result['old_offset']}s to {current_offset}s"
+                except Exception as e:
+                    logging.debug(f"Could not read old DST metadata: {e}")
+                    result['message'] = "DST change detected"
+            else:
+                result['message'] = "No DST change detected"
+
+            return result
+
+        except Exception as e:
+            logging.error(f"Error checking DST change: {e}")
+            return {
+                "success": False,
+                "dst_changed": False,
+                "error": str(e),
+                "timestamp": datetime.now(self.tz).isoformat()
+            }
+
     def refresh_schedule(self):
         """
         Refresh prayer times and schedule for a new day.
@@ -541,6 +590,15 @@ class AthanScheduler:
                 # Only update prayer times once per day or on first run
                 if last_update_date != current_date:
                     logging.info(f"Updating prayer times for new day: {current_date}")
+
+                    # Check for DST changes at 1:00 AM
+                    dst_check_result = self.check_dst_change()
+                    if dst_check_result.get('dst_changed', False):
+                        logging.warning(f"⚠️  DST CHANGE DETECTED: {dst_check_result.get('message', 'DST offset changed')}")
+                        logging.warning(f"    Old offset: {dst_check_result.get('old_offset', 'unknown')}s -> New offset: {dst_check_result.get('new_offset', 'unknown')}s")
+                    else:
+                        logging.info(f"✅ DST check: No change detected (offset: {dst_check_result.get('current_offset', 'unknown')}s)")
+
                     self.update_ntp_time()
                     refresh_result = self.refresh_schedule()
                     if refresh_result.get('success', False):
