@@ -1,0 +1,173 @@
+================================================================================
+DAYLIGHT SAVING TIME ISSUE - ATHAN PRAYER TIMES APPLICATION
+================================================================================
+
+CRITICAL FINDINGS - EXECUTION SUMMARY
+================================================================================
+
+ROOT CAUSE: System Timezone Mismatch
+  
+  Dockerfile Sets:  TZ=UTC (Line 89, 69, 84 in 3 Dockerfile variants)
+  App Expects:      Europe/Dublin (hardcoded in code)
+  Result:           1-HOUR OFFSET AFTER DST TRANSITION
+
+================================================================================
+CRITICAL ISSUES (3 Dockerfiles)
+================================================================================
+
+1. /root/dev/athan/Dockerfile - Line 89
+   ENV TZ=UTC
+   
+2. /root/dev/athan/Dockerfile.minimal - Line 69  
+   ENV TZ=UTC
+   
+3. /root/dev/athan/Dockerfile.optimized - Line 84
+   ENV TZ=UTC
+
+Action: Change all to "ENV TZ=Europe/Dublin"
+
+================================================================================
+HIGH PRIORITY ISSUES
+================================================================================
+
+4. /root/dev/athan/athan_scheduler.py - Line 28
+   Code: self.tz = tz.gettz('Europe/Dublin')
+   Issue: Hardcoded timezone, not configurable
+   Fix: Use environment variable with fallback
+   
+5. /root/dev/athan/docker-compose.yml - Line 18
+   Code: - TZ=UTC
+   Issue: Default is UTC, users must manually change
+   Fix: Change default to Europe/Dublin
+
+6. /root/dev/athan/prayer_times_config.py - Line 36
+   Code: timezone_str: str = "Europe/Dublin"
+   Issue: Hardcoded, conflicts with system TZ
+   Fix: Read from environment variable
+
+================================================================================
+PRAYER TIME SCHEDULING ISSUES
+================================================================================
+
+7. /root/dev/athan/athan_scheduler.py - Lines 163, 170, 418
+   Code: schedule.every().day.at(formatted_time).do(...)
+   Issue: Uses SYSTEM timezone, not configured timezone
+   Impact: Jobs execute in wrong timezone
+
+8. /root/dev/athan/athan_scheduler.py - Lines 593-628
+   Function: sleep_until_next_1am()
+   Issue: Doesn't handle DST transitions
+   Impact: May sleep wrong duration during time changes
+   Example: Oct 27, 2024 - 1:00 AM occurs twice (ambiguous)
+
+9. /root/dev/athan/athan_scheduler.py - Lines 539-543
+   Function: run_scheduler()
+   Issue: Daily refresh at fixed wall-clock time (ambiguous during DST)
+   Impact: May refresh at wrong UTC offset
+
+================================================================================
+TIMELINE: WHY THIS BREAKS AT DST TRANSITIONS
+================================================================================
+
+Before DST (Oct 26, 2024):
+  System UTC Time:     14:00
+  Dublin Local Time:   15:00 (UTC+1)
+  App Configuration:   Europe/Dublin
+  Result:              CORRECT - Both match
+
+After DST (Oct 27, 2024 - System stays UTC):
+  System UTC Time:     14:00
+  Dublin Local Time:   14:00 (UTC+0, GMT)
+  App Configuration:   Europe/Dublin (reads UTC AS Dublin)
+  Result:              WRONG - Off by 1 hour
+  
+Prayer Example - FAJR at 06:15 Dublin:
+  Correct:  Execute at 06:15 Dublin time
+  Actual:   Execute at 06:15 UTC = 07:15 Dublin time
+  Error:    1 HOUR LATE
+
+================================================================================
+AFFECTED AREAS
+================================================================================
+
+Configuration:
+  - 3x Dockerfile (main, minimal, optimized)
+  - docker-compose.yml
+  - portainer-stack.yml
+  - athan_scheduler.py
+  - prayer_times_config.py
+
+Scheduling:
+  - athan_scheduler.py (schedule_prayers, run_scheduler)
+  - schedule.every().day.at() method calls
+  - sleep_until_next_1am() method
+
+Time Synchronization:
+  - time_sync.py (performs NTP checks)
+  - Uses UTC-based APIs by default
+
+Testing:
+  - tests/test_athan_scheduler.py (no DST transition tests)
+
+================================================================================
+QUICK FIX CHECKLIST
+================================================================================
+
+Priority 1 (CRITICAL - Do First):
+  [ ] Change /root/dev/athan/Dockerfile line 89: TZ=UTC -> TZ=Europe/Dublin
+  [ ] Change /root/dev/athan/Dockerfile.minimal line 69: TZ=UTC -> TZ=Europe/Dublin
+  [ ] Change /root/dev/athan/Dockerfile.optimized line 84: TZ=UTC -> TZ=Europe/Dublin
+  [ ] Change /root/dev/athan/docker-compose.yml line 18: TZ=UTC -> TZ=Europe/Dublin
+  [ ] Rebuild Docker image with updated Dockerfile
+  [ ] Redeploy container
+
+Priority 2 (HIGH - Do Next):
+  [ ] Update athan_scheduler.py line 28 to use environment variable
+  [ ] Update prayer_times_config.py line 36 to use environment variable
+  [ ] Add AZAN_TIMEZONE environment variable to docker-compose.yml
+  [ ] Test with new environment variable
+
+Priority 3 (MEDIUM - Do Later):
+  [ ] Improve DST handling in sleep_until_next_1am()
+  [ ] Verify schedule.every() uses correct timezone
+  [ ] Add DST transition tests to test suite
+
+Priority 4 (LOW - Do Eventually):
+  [ ] Add comprehensive timezone handling tests
+  [ ] Document timezone configuration in README
+  [ ] Test with multiple timezones (not just Dublin)
+
+================================================================================
+VERIFICATION AFTER FIXES
+================================================================================
+
+1. Rebuild: docker build -t shenhab/athan:latest .
+
+2. Check system TZ in container:
+   docker run --rm shenhab/athan:latest printenv TZ
+   Expected: Europe/Dublin
+
+3. Check system time in container:
+   docker run --rm shenhab/athan:latest date
+   Expected: Shows Dublin timezone offset
+
+4. Deploy and verify prayer times match local time
+
+5. Wait for next DST transition and verify still correct
+
+================================================================================
+FILE LOCATIONS - ABSOLUTE PATHS
+================================================================================
+
+/root/dev/athan/Dockerfile                     (Line 89)
+/root/dev/athan/Dockerfile.minimal             (Line 69)
+/root/dev/athan/Dockerfile.optimized           (Line 84)
+/root/dev/athan/docker-compose.yml             (Line 18)
+/root/dev/athan/portainer-stack.yml            (Line 14 - already correct)
+/root/dev/athan/athan_scheduler.py             (Lines 28, 163, 170, 418, 593-628)
+/root/dev/athan/prayer_times_config.py         (Line 36)
+/root/dev/athan/prayer_times_fetcher.py        (timezone handling)
+/root/dev/athan/time_sync.py                   (timezone handling)
+/root/dev/athan/tests/test_athan_scheduler.py  (missing DST tests)
+
+================================================================================

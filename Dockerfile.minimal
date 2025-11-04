@@ -66,6 +66,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 
 ENV LOG_FILE=/var/log/azan_service.log
 ENV PYTHONUNBUFFERED=1
-ENV TZ=UTC
+ENV TZ=Europe/Dublin
 
 CMD ["uv", "run", "python", "main.py"]

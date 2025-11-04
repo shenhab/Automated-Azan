@@ -86,7 +86,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 # Default environment variables
 ENV LOG_FILE=/var/log/azan_service.log
 ENV PYTHONUNBUFFERED=1
-ENV TZ=UTC
+ENV TZ=Europe/Dublin
 
 
 # Run with Python directly (packages installed system-wide in Docker)
