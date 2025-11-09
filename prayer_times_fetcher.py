@@ -130,39 +130,31 @@ class PrayerTimesFetcher:
 
     def _download_naas_timetable(self) -> Dict[str, Any]:
         """
-        Fetches prayer timetable data for Naas using web scraping.
-        Extracts 'calendar' data from the webpage and saves it to a JSON file.
+        Fetches prayer timetable data for Naas using the Mawaqit API.
+        Extracts 'calendar' data from the API response and saves it to a JSON file.
 
         Returns:
             dict: JSON response with download status
         """
-        logging.debug("Attempting to download Naas timetable from Mawaqit.")
+        logging.debug("Attempting to download Naas timetable from Mawaqit API.")
         try:
             response = requests.get(self.sources['naas'], timeout=10)
             response.raise_for_status()
-            soup = BeautifulSoup(response.text, "html.parser")
-            script_tags = soup.find_all("script")
 
-            calendar_data = None
-            for script in script_tags:
-                if "calendar" in script.text:
-                    match = re.search(r'"calendar"\s*:\s*(\[\{.*?\}\])', script.text, re.DOTALL)
-                    if match:
-                        calendar_data = match.group(1)
-                    break
+            api_data = response.json()
 
-            if not calendar_data:
-                logging.error("❌ Calendar data not found in Naas webpage!")
+            if 'calendar' not in api_data:
+                logging.error("❌ Calendar data not found in Mawaqit API response!")
                 return {
                     "success": False,
                     "source": "naas",
                     "url": self.sources['naas'],
-                    "error": "Calendar data not found in webpage",
+                    "error": "Calendar data not found in API response",
                     "error_type": "parsing_error",
                     "timestamp": datetime.now(self.tz).isoformat()
                 }
 
-            calendar_list = json.loads(calendar_data)
+            calendar_list = api_data['calendar']
             with open(self.naas_prayers_timetable_file, "w", encoding="utf-8") as file:
                 json.dump(calendar_list, file, indent=2, ensure_ascii=False)
 

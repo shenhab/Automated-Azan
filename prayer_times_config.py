@@ -16,7 +16,7 @@ class PrayerTimesConfig:
     # Prayer time sources URLs
     sources: Dict[str, str] = field(default_factory=lambda: {
         "icci": "https://islamireland.ie/api/timetable/",
-        "naas": "https://mawaqit.net/en/m/-34"
+        "naas": "https://mawaqit.net/api/2.0/mosque/e2eb5d34-b68e-432c-a895-209475713915/prayer-times"
     })
 
     # Valid locations
