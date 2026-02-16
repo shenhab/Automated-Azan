@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     avahi-daemon \
     # Required for avahi
     dbus \
+    # iputils-ping for network checks in entrypoint
+    iputils-ping \
     # Temporary: gcc for building Python packages (will be removed)
     gcc \
     && rm -rf /var/lib/apt/lists/* \
@@ -48,6 +50,9 @@ RUN if [ -f "requirements.txt" ]; then \
 
 # Copy application files
 COPY . .
+
+# Ensure entrypoint is executable
+RUN chmod +x docker-entrypoint.sh
 
 # Create default configuration if none exists
 RUN if [ ! -f "adahn.config" ]; then \
@@ -88,6 +93,8 @@ ENV LOG_FILE=/var/log/azan_service.log
 ENV PYTHONUNBUFFERED=1
 ENV TZ=Europe/Dublin
 
+# Set the entrypoint
+ENTRYPOINT ["./docker-entrypoint.sh"]
 
 # Run with Python directly (packages installed system-wide in Docker)
 CMD ["python", "main.py"]

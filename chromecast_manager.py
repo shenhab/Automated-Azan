@@ -27,25 +27,36 @@ class ChromecastManager:
     _shared_last_discovery = 0
     _discovery_lock = threading.Lock()
 
-    def __init__(self):
-        """Initialize the ChromecastManager and discover devices."""
-        # Use shared cache if available
+    def __init__(self, google_device_name: Optional[str] = None, max_retries=3, retry_delay=10):
+        """
+        Initialize the ChromecastManager and discover devices with retry logic.
+        Args:
+            google_device_name (str, optional): The name of the target Chromecast device.
+            max_retries (int): Maximum number of discovery attempts.
+            retry_delay (int): Delay in seconds between retries.
+        """
+        self.google_device_name = google_device_name
         self.chromecasts = ChromecastManager._shared_chromecasts.copy()
-        self.target_device = None  # Cache the target device
+        self.target_device = None
         self.last_discovery_time = ChromecastManager._shared_last_discovery
-        self.discovery_cooldown = 60  # Increase to 60 seconds between rediscoveries
+        self.discovery_cooldown = 60
         self.browser = None
         self.listener = None
         self.discovery_complete = threading.Event()
-
-        # Athan playback state management
         self.athan_playing = False
         self.athan_start_time = None
         self.playback_lock = threading.Lock()
 
         # Only discover if no cached devices or cache is old
         if not self.chromecasts or (time.time() - self.last_discovery_time) > self.discovery_cooldown:
-            self.discover_devices()
+            for attempt in range(max_retries):
+                logging.info(f"Attempting to discover devices (Attempt {attempt + 1}/{max_retries})")
+                self.discover_devices(force_rediscovery=True)
+                if self.chromecasts:
+                    logging.info(f"Successfully discovered {len(self.chromecasts)} devices.")
+                    break
+                logging.warning(f"No devices discovered. Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
         else:
             logging.info(f"Using cached devices: {len(self.chromecasts)} devices available")
 
@@ -521,6 +532,9 @@ class ChromecastManager:
     def _find_casting_candidate(self, retry_discovery=True):
         """
         Finds a suitable Chromecast device to cast to.
+        Priority:
+        1. Exact match for `self.google_device_name` if specified.
+        2. If not specified, fallback to 'Adahn' or any 'Google Nest/Home' device.
 
         Args:
             retry_discovery (bool): Whether to retry device discovery if no device is found
@@ -530,73 +544,88 @@ class ChromecastManager:
         """
         # Try to use cached device first if it's still available
         if self.target_device and self._is_device_available_by_cast(self.target_device).get('available', False):
-            logging.debug(f"Using cached device: {self.target_device.name}")
-            return {
-                "success": True,
-                "device": {
-                    "name": self.target_device.name,
-                    "host": getattr(self.target_device, 'host', 'unknown'),
-                    "model": getattr(self.target_device, 'model_name', 'unknown')
-                },
-                "source": "cached",
-                "cast_device": self.target_device,
-                "timestamp": datetime.now().isoformat()
-            }
-
-        candidate_list = []  # Stores Google Nest devices as a fallback
-
-        for uuid, cast_info in self.chromecasts.items():
-            try:
-                logging.debug(f"Checking device: {cast_info['name']} ({cast_info['model_name']}) at {cast_info['host']}")
-
-                # Check if the device name matches 'Adahn' (case-insensitive)
-                if cast_info['name'].lower() == 'adahn':
-                    logging.info(f"Found target Chromecast: {cast_info['name']} at {cast_info['host']}")
-
-                    # Create Chromecast instance - handle both discovery methods
-                    cast_device = self._create_cast_device(cast_info)
-                    if cast_device:
-                        self.target_device = cast_device  # Cache the device
-                        return {
-                            "success": True,
-                            "device": {
-                                "name": cast_info['name'],
-                                "host": cast_info['host'],
-                                "model": cast_info['model_name']
-                            },
-                            "source": "primary_target",
-                            "cast_device": cast_device,
-                            "timestamp": datetime.now().isoformat()
-                        }
-
-                # If it's a Google Nest device, add it to the candidate list
-                elif cast_info['model_name'].strip() in ["Google Nest Mini", "Google Nest Hub", "Google Home", "Google Home Mini"]:
-                    logging.info(f"Adding Google Nest device to candidate list: {cast_info['name']}")
-                    candidate_list.append(cast_info)
-
-            except Exception as e:
-                logging.warning(f"Error checking device {cast_info['name']}: {e}")
-                continue
-
-        # If no 'Adahn' was found but we have Google Nest devices, return the first one
-        if candidate_list:
-            cast_info = candidate_list[0]
-            logging.info(f"Using fallback Chromecast: {cast_info['name']}")
-            cast_device = self._create_cast_device(cast_info)
-            if cast_device:
-                self.target_device = cast_device  # Cache the device
+            # If a specific device is configured, ensure the cached device matches it
+            if self.google_device_name and self.target_device.name.lower() != self.google_device_name.lower():
+                logging.info(f"Cached device '{self.target_device.name}' does not match configured device '{self.google_device_name}'. Finding new device.")
+                self.target_device = None # Invalidate cache
+            else:
+                logging.debug(f"Using cached device: {self.target_device.name}")
                 return {
                     "success": True,
                     "device": {
-                        "name": cast_info['name'],
-                        "host": cast_info['host'],
-                        "model": cast_info['model_name']
+                        "name": self.target_device.name,
+                        "host": getattr(self.target_device, 'host', 'unknown'),
+                        "model": getattr(self.target_device, 'model_name', 'unknown')
                     },
-                    "source": "fallback_candidate",
-                    "cast_device": cast_device,
-                    "candidates_available": len(candidate_list),
+                    "source": "cached",
+                    "cast_device": self.target_device,
                     "timestamp": datetime.now().isoformat()
                 }
+
+        # If a specific device name is configured, we must find that exact device.
+        if self.google_device_name:
+            logging.info(f"Searching for specified device: '{self.google_device_name}'")
+            for uuid, cast_info in self.chromecasts.items():
+                if cast_info['name'].lower() == self.google_device_name.lower():
+                    logging.info(f"Found specified target Chromecast: {cast_info['name']} at {cast_info['host']}")
+                    cast_device = self._create_cast_device(cast_info)
+                    if cast_device:
+                        self.target_device = cast_device
+                        return {
+                            "success": True,
+                            "device": { "name": cast_info['name'], "host": cast_info['host'], "model": cast_info['model_name'] },
+                            "source": "specified_target",
+                            "cast_device": cast_device,
+                            "timestamp": datetime.now().isoformat()
+                        }
+            # If loop finishes and we haven't returned, the specified device was not found.
+            logging.error(f"Specified Chromecast device '{self.google_device_name}' not found.")
+            # Fall through to retry logic if enabled
+        
+        # If NO specific device is configured, use the old fallback logic.
+        else:
+            logging.info("No specific device configured, searching for 'Adahn' or Google Nest/Home devices.")
+            candidate_list = []  # Stores Google Nest devices as a fallback
+
+            for uuid, cast_info in self.chromecasts.items():
+                try:
+                    logging.debug(f"Checking device: {cast_info['name']} ({cast_info['model_name']}) at {cast_info['host']}")
+                    # Check for 'Adahn'
+                    if cast_info['name'].lower() == 'adahn':
+                        logging.info(f"Found target Chromecast: {cast_info['name']} at {cast_info['host']}")
+                        cast_device = self._create_cast_device(cast_info)
+                        if cast_device:
+                            self.target_device = cast_device
+                            return {
+                                "success": True,
+                                "device": { "name": cast_info['name'], "host": cast_info['host'], "model": cast_info['model_name'] },
+                                "source": "primary_target",
+                                "cast_device": cast_device,
+                                "timestamp": datetime.now().isoformat()
+                            }
+                    # Fallback for Google Nest/Home devices
+                    elif cast_info['model_name'].strip() in ["Google Nest Mini", "Google Nest Hub", "Google Home", "Google Home Mini"]:
+                        logging.info(f"Adding Google Nest device to candidate list: {cast_info['name']}")
+                        candidate_list.append(cast_info)
+                except Exception as e:
+                    logging.warning(f"Error checking device {cast_info['name']}: {e}")
+                    continue
+            
+            # If 'Adahn' not found, use the first Nest/Home device from the candidate list
+            if candidate_list:
+                cast_info = candidate_list[0]
+                logging.info(f"Using fallback Chromecast: {cast_info['name']}")
+                cast_device = self._create_cast_device(cast_info)
+                if cast_device:
+                    self.target_device = cast_device
+                    return {
+                        "success": True,
+                        "device": { "name": cast_info['name'], "host": cast_info['host'], "model": cast_info['model_name'] },
+                        "source": "fallback_candidate",
+                        "cast_device": cast_device,
+                        "candidates_available": len(candidate_list),
+                        "timestamp": datetime.now().isoformat()
+                    }
 
         # If no suitable devices found and retry is enabled, try rediscovering
         if retry_discovery:
@@ -606,21 +635,22 @@ class ChromecastManager:
             if discovery_result.get('success', False) and discovery_result.get('devices_found', 0) > 0:
                 return self._find_casting_candidate(retry_discovery=False)  # Avoid infinite recursion
             else:
+                error_msg = f"Specified device '{self.google_device_name}' not found after rediscovery." if self.google_device_name else "No devices found after rediscovery."
                 return {
                     "success": False,
-                    "error": "No devices found after rediscovery",
+                    "error": error_msg,
                     "discovery_result": discovery_result,
                     "timestamp": datetime.now().isoformat()
                 }
 
         # No suitable devices found
-        logging.warning("No suitable Chromecast candidate found.")
+        error_msg = f"Specified Chromecast device '{self.google_device_name}' not found." if self.google_device_name else "No suitable Chromecast candidate found."
+        logging.warning(error_msg)
         self.target_device = None
         return {
             "success": False,
-            "error": "No suitable Chromecast candidate found",
+            "error": error_msg,
             "devices_checked": len(self.chromecasts),
-            "candidates_found": len(candidate_list),
             "timestamp": datetime.now().isoformat()
         }
 

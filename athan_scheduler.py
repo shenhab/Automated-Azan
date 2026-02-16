@@ -27,7 +27,7 @@ class AthanScheduler:
         self.fetcher = PrayerTimesFetcher()
         self.prayer_times = {}
         self.tz = tz.gettz('Europe/Dublin')
-        self.chromecast_manager = ChromecastManager()
+        self.chromecast_manager = ChromecastManager(google_device_name=self.google_device)
 
         # Load prayer times on initialization
         logging.info("[DEBUG] Initializing scheduler - loading prayer times and scheduling jobs")

@@ -132,25 +132,46 @@ class PrayerTimesFetcher:
         """
         Fetches prayer timetable data for Naas using the Mawaqit API.
         Extracts 'calendar' data from the API response and saves it to a JSON file.
+        Includes a fallback to a GitHub raw URL if the primary API fails.
 
         Returns:
             dict: JSON response with download status
         """
-        logging.debug("Attempting to download Naas timetable from Mawaqit API.")
+        primary_url = self.sources['naas']
+        fallback_url = "https://raw.githubusercontent.com/shenhab/Automated-Azan/refs/heads/main/naas_prayers_timetable.json"
+        
+        logging.debug(f"Attempting to download Naas timetable from primary URL: {primary_url}")
+        
         try:
-            response = requests.get(self.sources['naas'], timeout=10)
+            response = requests.get(primary_url, timeout=10)
             response.raise_for_status()
-
             api_data = response.json()
+            logging.info("Successfully fetched data from primary URL.")
 
+        except requests.RequestException as e:
+            logging.warning(f"❌ Primary URL for Naas failed ({e}). Attempting fallback...")
+            
+            try:
+                response = requests.get(fallback_url, timeout=10)
+                response.raise_for_status()
+                # The fallback URL directly contains the calendar list, not nested in a dict
+                api_data = {"calendar": response.json()} 
+                logging.info("Successfully fetched data from fallback URL.")
+
+            except requests.RequestException as fallback_e:
+                logging.error(f"❌ Fallback URL for Naas also failed: {fallback_e}")
+                return {
+                    "success": False, "source": "naas",
+                    "error": f"Primary and fallback URLs failed. Primary: {e}, Fallback: {fallback_e}",
+                    "error_type": "network_error", "timestamp": datetime.now(self.tz).isoformat()
+                }
+
+        try:
             if 'calendar' not in api_data:
                 logging.error("❌ Calendar data not found in Mawaqit API response!")
                 return {
-                    "success": False,
-                    "source": "naas",
-                    "url": self.sources['naas'],
-                    "error": "Calendar data not found in API response",
-                    "error_type": "parsing_error",
+                    "success": False, "source": "naas", "url": primary_url,
+                    "error": "Calendar data not found in API response", "error_type": "parsing_error",
                     "timestamp": datetime.now(self.tz).isoformat()
                 }
 
@@ -158,47 +179,25 @@ class PrayerTimesFetcher:
             with open(self.naas_prayers_timetable_file, "w", encoding="utf-8") as file:
                 json.dump(calendar_list, file, indent=2, ensure_ascii=False)
 
-            # Save DST metadata after successful download
             self._save_dst_metadata("naas")
-
             logging.info("✅ Naas prayer timetable saved successfully.")
             return {
-                "success": True,
-                "source": "naas",
-                "url": self.sources['naas'],
-                "file_path": self.naas_prayers_timetable_file,
-                "calendar_entries": len(calendar_list),
-                "message": "Naas prayer timetable saved successfully",
-                "timestamp": datetime.now(self.tz).isoformat()
+                "success": True, "source": "naas", "url": primary_url,
+                "file_path": self.naas_prayers_timetable_file, "calendar_entries": len(calendar_list),
+                "message": "Naas prayer timetable saved successfully", "timestamp": datetime.now(self.tz).isoformat()
             }
-
-        except requests.RequestException as e:
-            logging.error("❌ Error fetching Naas data: %s", e)
-            return {
-                "success": False,
-                "source": "naas",
-                "url": self.sources['naas'],
-                "error": str(e),
-                "error_type": "network_error",
-                "timestamp": datetime.now(self.tz).isoformat()
-            }
+            
         except json.JSONDecodeError as e:
             logging.error("❌ Error parsing Naas JSON: %s", e)
             return {
-                "success": False,
-                "source": "naas",
-                "error": str(e),
-                "error_type": "json_error",
-                "timestamp": datetime.now(self.tz).isoformat()
+                "success": False, "source": "naas", "error": str(e),
+                "error_type": "json_error", "timestamp": datetime.now(self.tz).isoformat()
             }
         except Exception as e:
-            logging.error("❌ Unexpected error downloading Naas timetable: %s", e)
+            logging.error("❌ Unexpected error processing Naas timetable: %s", e)
             return {
-                "success": False,
-                "source": "naas",
-                "error": str(e),
-                "error_type": "file_error",
-                "timestamp": datetime.now(self.tz).isoformat()
+                "success": False, "source": "naas", "error": str(e),
+                "error_type": "file_error", "timestamp": datetime.now(self.tz).isoformat()
             }
 
     def _get_dst_offset(self, dt: Optional[datetime] = None) -> int:
