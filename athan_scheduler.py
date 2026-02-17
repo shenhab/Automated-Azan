@@ -660,7 +660,7 @@ class AthanScheduler:
             next_1am = now.replace(hour=1, minute=0, second=0, microsecond=0)
 
             if now >= next_1am:
-                next_1am += timedelta(days=1)
+            next_1am = next_1am + timedelta(days=1)
 
             sleep_duration = (next_1am - now).total_seconds()
             logging.info("Sleeping until 1:00 AM (%s). Sleep duration: %.2f seconds",
