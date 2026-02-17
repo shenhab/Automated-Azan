@@ -142,9 +142,9 @@ class AthanScheduler:
             logging.info(f"[DEBUG] Available prayer times: {self.prayer_times}")
 
             # Check if pre-Fajr Quran is enabled
-            from config_manager import ConfigManager
-            config = ConfigManager()
-            pre_fajr_enabled = config.is_pre_fajr_enabled().get('pre_fajr_enabled', True)
+            from app_config import get_app_config
+            config = get_app_config()
+            pre_fajr_enabled = config.prayer.pre_fajr_enabled
 
             # Use the existing chromecast_manager instance instead of creating a new one
             chromecast_manager = self.chromecast_manager
