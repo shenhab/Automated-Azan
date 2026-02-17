@@ -1,0 +1,352 @@
+================================================================================
+TIMEZONE CONFIGURATION CODE ANALYSIS
+================================================================================
+
+FINDING #1: CRITICAL - Dockerfile Hardcodes UTC
+================================================================================
+File: /root/dev/athan/Dockerfile
+Line: 89
+
+CURRENT CODE:
+  ENV TZ=UTC
+
+IMPACT:
+  - Docker container's system timezone is set to UTC
+  - All system time calls (date, time.time(), etc.) return UTC
+  - Python's datetime.now() without timezone returns UTC time
+  - The schedule library uses system timezone for calculations
+
+PROBLEM WITH DOCKER-COMPOSE OVERRIDE:
+  Even if docker-compose.yml sets TZ=Europe/Dublin, the Dockerfile ENV
+  is evaluated first. While docker-compose can override it, many users
+  simply use the Dockerfile directly without compose.
+
+FIX:
+  Change to: ENV TZ=Europe/Dublin
+  Or allow override: ENV TZ=${TZ:-Europe/Dublin}
+
+
+FINDING #2: Application Code Hardcodes Dublin Timezone
+================================================================================
+File: /root/dev/athan/athan_scheduler.py
+Line: 28
+
+CURRENT CODE:
+  self.tz = tz.gettz('Europe/Dublin')
+
+USED IN:
+  - Line 56: now = datetime.now(self.tz)
+  - Line 60: prayer_time = datetime(now.year, now.month, now.day, hour, minute, tzinfo=self.tz)
+  - Line 156: prayer_time = datetime(now.year, now.month, now.day, hour, minute, tzinfo=self.tz)
+
+ISSUE:
+  This assumes system timezone is Dublin, which conflicts with TZ=UTC in Dockerfile.
+  
+  When system is UTC and code expects Dublin:
+  - datetime.now(tz.gettz('Europe/Dublin')) reads system UTC time
+  - Applies Dublin timezone info to UTC timestamp
+  - Results in treating UTC time as Dublin time
+  
+  EXAMPLE:
+    System reports: 14:00 UTC
+    Code reads: 14:00 and treats as Dublin
+    Actual Dublin time: 14:00 or 15:00 depending on DST
+    Error: 0-1 hour offset
+
+
+FINDING #3: Prayer Times Config Hardcodes Dublin
+================================================================================
+File: /root/dev/athan/prayer_times_config.py
+Line: 36
+
+CURRENT CODE:
+  timezone_str: str = "Europe/Dublin"
+
+USAGE:
+  Line 52: self.timezone = tz.gettz(self.timezone_str)
+
+IMPACT:
+  - Hardcoded to Dublin, not environment-variable configurable
+  - Used in prayer time fetching (Line 105, 159, etc.)
+  - datetime.now(self.tz) returns time in this timezone
+  - If system is UTC, this creates timezone mismatch
+
+CASCADING EFFECTS:
+  - Prayer times loaded for Dublin
+  - Timestamp references use Dublin timezone
+  - But system clock is UTC
+  - Off by 1 hour during most of year
+
+
+FINDING #4: Schedule Library Uses System Timezone
+================================================================================
+File: /root/dev/athan/athan_scheduler.py
+Lines: 163, 170, 418
+
+CURRENT CODE:
+  schedule.every().day.at(formatted_time).do(chromecast_manager.start_adahn)
+  schedule.every().day.at(formatted_time).do(chromecast_manager.start_adahn_alfajr)
+  schedule.every().day.at(pre_fajr_time).do(self.play_pre_fajr_quran).tag('pre_fajr')
+
+HOW SCHEDULE LIBRARY WORKS:
+  1. The schedule library parses "HH:MM" format time string
+  2. Uses system's local timezone (from TZ environment variable)
+  3. Calculates next occurrence of that time
+  4. Stores job.next_run as datetime in system timezone
+  
+EXAMPLE - SHOWING THE PROBLEM:
+  Formatted time: "06:15" (Fajr)
+  System TZ: UTC
+  Application expects: Dublin time
+  
+  schedule.every().day.at("06:15") means:
+    "Execute at 06:15 UTC"
+  
+  But application formatted it assuming Dublin, so it expected:
+    "Execute at 06:15 Dublin time"
+  
+  Results in 1-hour offset!
+
+
+FINDING #5: Docker-Compose Has UTC Default
+================================================================================
+File: /root/dev/athan/docker-compose.yml
+Line: 18
+
+CURRENT CODE:
+  environment:
+    - TZ=UTC  # Change to your timezone (e.g., Europe/Dublin, America/New_York)
+
+ISSUE:
+  - Comment says "Change to your timezone" but default is UTC
+  - Most users won't change this
+  - Creates timezone mismatch with hardcoded Dublin in code
+
+FIX:
+  Change to: - TZ=Europe/Dublin
+
+
+FINDING #6: Daily Refresh Has DST Issues
+================================================================================
+File: /root/dev/athan/athan_scheduler.py
+Lines: 539-543, 600-610
+
+CURRENT CODE:
+  current_date = datetime.now(self.tz).date()
+  if last_update_date != current_date:
+      logging.info(f"Updating prayer times for new day: {current_date}")
+      # Refresh happens here
+
+  # And later...
+  next_1am = now.replace(hour=1, minute=0, second=0, microsecond=0)
+  if now >= next_1am:
+      next_1am += timedelta(days=1)
+
+PROBLEM DURING SPRING-FORWARD DST:
+  When clocks go forward (March 31, 2024 in Ireland):
+  - 1:00 AM doesn't exist (clocks jump to 2:00 AM)
+  - Code tries to create datetime at 1:00 AM on that day
+  - Behavior undefined - depends on library implementation
+  
+PROBLEM DURING FALL-BACK DST:
+  When clocks go back (October 27, 2024 in Ireland):
+  - 1:00 AM occurs twice
+  - Code doesn't specify which occurrence (ambiguous)
+  - May execute at wrong time
+
+EXAMPLE - October 27, 2024:
+  01:00 BST (UTC+1) --> clocks go back to 00:00 IST (UTC+0) --> 01:00 IST (UTC+0)
+  
+  Code creates: datetime.replace(hour=1, minute=0)
+  Result: Ambiguous - which 1:00 AM?
+
+
+FINDING #7: No Environment Variable Override
+================================================================================
+Current System:
+  - Timezone hardcoded in code at 3+ locations
+  - TZ environment variable in Dockerfile/docker-compose is ignored by app
+  - Application always uses 'Europe/Dublin' regardless of TZ setting
+
+Expected System:
+  Application should read from environment variable with fallback
+
+Example Better Implementation:
+  
+  import os
+  
+  # In athan_scheduler.py __init__
+  timezone_str = os.environ.get('AZAN_TIMEZONE', 'Europe/Dublin')
+  self.tz = tz.gettz(timezone_str)
+  
+  # In prayer_times_config.py
+  timezone_str: str = os.environ.get('AZAN_TIMEZONE', 'Europe/Dublin')
+
+
+FINDING #8: Time Synchronization Hardcodes Dublin
+================================================================================
+File: /root/dev/athan/time_sync.py
+Lines: 34-35
+
+CURRENT CODE:
+  self.time_apis = [
+      'http://worldtimeapi.org/api/timezone/Europe/Dublin',
+      'https://timeapi.io/api/Time/current/zone?timeZone=Europe/Dublin'
+  ]
+
+ISSUE:
+  - Hardcoded to Dublin for time API calls
+  - Not configurable
+  - If system is in different timezone, may cause issues
+
+OBSERVATION:
+  This is actually a secondary issue. The main problem is the TZ mismatch
+  in the scheduler. The APIs should also be configurable.
+
+
+================================================================================
+TIMEZONE FLOW WITH BUG
+================================================================================
+
+Current Implementation Flow:
+
+┌─ Docker Container ──────────────────────────────┐
+│ ENV TZ=UTC (in Dockerfile)                     │
+│ System timezone: UTC                            │
+│ System date command: shows UTC time             │
+└──────────────┬──────────────────────────────────┘
+               │
+               ▼
+┌─ Application Startup ───────────────────────────┐
+│ from dateutil import tz                         │
+│ self.tz = tz.gettz('Europe/Dublin')             │
+│ (hardcoded, ignores TZ environment)             │
+└──────────────┬──────────────────────────────────┘
+               │
+               ▼
+┌─ Prayer Time Loading ───────────────────────────┐
+│ now = datetime.now(self.tz)                     │
+│ Actually reads: now = 14:00 UTC (from system)   │
+│ Interprets as: 14:00 Dublin                     │
+│ Wrong by: 1 hour (when Dublin is UTC+0)         │
+└──────────────┬──────────────────────────────────┘
+               │
+               ▼
+┌─ Scheduling Prayers ────────────────────────────┐
+│ formatted_time = prayer_time.strftime("%H:%M")  │
+│ schedule.every().day.at(formatted_time)         │
+│ schedule library uses system TZ (UTC)            │
+│ Schedules for: HH:MM UTC                        │
+│ Application expects: HH:MM Dublin               │
+│ Result: Mismatch!                               │
+└────────────────────────────────────────────────┘
+
+
+Correct Implementation Should Flow:
+
+┌─ Docker Container ──────────────────────────────┐
+│ ENV TZ=Europe/Dublin                            │
+│ System timezone: Europe/Dublin                  │
+│ System date command: shows Dublin time          │
+└──────────────┬──────────────────────────────────┘
+               │
+               ▼
+┌─ Application Startup ───────────────────────────┐
+│ tz_str = os.environ.get('AZAN_TIMEZONE', ...)   │
+│ self.tz = tz.gettz(tz_str)                      │
+│ Reads system TZ environment variable            │
+└──────────────┬──────────────────────────────────┘
+               │
+               ▼
+┌─ Prayer Time Loading ───────────────────────────┐
+│ now = datetime.now(self.tz)                     │
+│ Reads: now = 14:00 Dublin (from system)         │
+│ Interprets as: 14:00 Dublin                     │
+│ Correct!                                        │
+└──────────────┬──────────────────────────────────┘
+               │
+               ▼
+┌─ Scheduling Prayers ────────────────────────────┐
+│ formatted_time = prayer_time.strftime("%H:%M")  │
+│ schedule.every().day.at(formatted_time)         │
+│ schedule library uses system TZ (Dublin)         │
+│ Schedules for: HH:MM Dublin                     │
+│ Application expects: HH:MM Dublin               │
+│ Result: Match! Correct execution time!          │
+└────────────────────────────────────────────────┘
+
+
+================================================================================
+AFFECTED CODE PATHS
+================================================================================
+
+Path 1: Prayer Time Scheduling
+  athan_scheduler.py -> schedule_prayers() 
+    -> schedule.every().day.at(formatted_time)
+    -> Uses system TZ (UTC)
+    -> Expected TZ (Dublin)
+    -> MISMATCH!
+
+Path 2: Daily Refresh
+  athan_scheduler.py -> run_scheduler()
+    -> datetime.now(self.tz).date() compares with last_update_date
+    -> If system is UTC but code is Dublin, date logic incorrect
+
+Path 3: Sleep Until 1 AM
+  athan_scheduler.py -> sleep_until_next_1am()
+    -> Uses datetime.replace(hour=1, minute=0)
+    -> During DST transitions, may reference ambiguous/non-existent time
+    -> No DST normalization after arithmetic
+
+Path 4: Next Run Calculation
+  athan_scheduler.py -> get_scheduler_status()
+    -> schedule.next_run() returns job.next_run
+    -> job.next_run is in system TZ (UTC)
+    -> API returns UTC time as Dublin time
+    -> Users see wrong next run time
+
+
+================================================================================
+CONCRETE EXAMPLE - October 27, 2024 DST Transition
+================================================================================
+
+SCENARIO:
+- Fajr prayer scheduled for 06:15 Dublin time
+- System timezone: UTC (from Dockerfile)
+- Application expects: Dublin
+
+BEFORE TRANSITION (October 26, 2024):
+  System UTC:     06:15 UTC
+  Dublin time:    07:15 BST (UTC+1)
+  App reads:      06:15 (from system UTC) and treats as Dublin
+  App expects:    06:15 Dublin = 05:15 UTC
+  Actual prayer:  Plays at 06:15 UTC = 07:15 BST
+  ERROR:          1 hour LATE
+
+AFTER TRANSITION (October 28, 2024):
+  System UTC:     06:15 UTC
+  Dublin time:    06:15 IST (UTC+0)
+  App reads:      06:15 (from system UTC) and treats as Dublin
+  App expects:    06:15 Dublin = 06:15 UTC
+  Actual prayer:  Plays at 06:15 UTC = 06:15 IST
+  ERROR:          CORRECT by accident! (but only because UTC+0)
+
+
+THE TRANSITION MOMENT (October 27, 2024, 00:00-01:00):
+  
+  Before (01:00 BST - still using old offset):
+    System UTC:     00:00 UTC
+    Dublin local:   01:00 BST (UTC+1)
+  
+  Clocks go back to:
+    System UTC:     00:00 UTC (same)
+    Dublin local:   00:00 IST (UTC+0)
+  
+  Then:
+    System UTC:     01:00 UTC
+    Dublin local:   01:00 IST (UTC+0)
+  
+  App's fixed times now off by 1 hour from this point forward!
+
+
+================================================================================

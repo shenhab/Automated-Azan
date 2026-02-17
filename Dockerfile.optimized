@@ -1,0 +1,87 @@
+# Optimized Dockerfile for Automated Azan
+# Using multi-stage build for smaller image and faster builds
+
+# Stage 1: Builder stage with compilation tools
+FROM python:3.11-slim-bullseye AS builder
+
+# Install only essential build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv and Python dependencies
+WORKDIR /app
+RUN pip install --upgrade pip uv
+
+# Copy dependency files
+COPY pyproject.toml uv.lock* requirements.txt* ./
+
+# Install Python dependencies (creates wheel cache)
+RUN if [ -f "uv.lock" ]; then \
+        uv sync --no-dev --frozen; \
+    elif [ -f "requirements.txt" ]; then \
+        pip install --user -r requirements.txt; \
+    fi
+
+# Stage 2: Final runtime image (smaller, no build tools)
+FROM python:3.11-slim-bullseye
+
+LABEL maintainer="Automated Azan Project"
+LABEL description="Automated Islamic Prayer Time announcements via Chromecast with Web Interface"
+LABEL version="2.0.0"
+
+# Install only runtime dependencies (much smaller)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # For Chromecast discovery (minimal)
+    avahi-daemon \
+    dbus \
+    # Remove curl/wget - not needed at runtime
+    # Remove build-essential - only needed during build
+    # Remove ntpdate - use Python for time sync
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+WORKDIR /app
+
+# Create necessary directories
+RUN mkdir -p /var/log /app/data /app/logs /app/config && \
+    chmod 755 /var/log /app/data /app/logs /app/config
+
+# Copy Python environment from builder
+COPY --from=builder /root/.local /root/.local
+COPY --from=builder /app/.venv /app/.venv
+
+# Install uv for runtime
+RUN pip install --no-cache-dir uv
+
+# Copy application files
+COPY . .
+
+# Create default configuration if needed
+RUN if [ ! -f "adahn.config" ]; then \
+    echo "[Settings]" > adahn.config && \
+    echo "speakers-group-name = athan" >> adahn.config && \
+    echo "location = naas" >> adahn.config && \
+    echo "pre_fajr_enabled = True" >> adahn.config; \
+    fi
+
+# Create non-root user
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app /var/log
+
+USER appuser
+
+# Expose ports
+EXPOSE 5000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:5000', timeout=5)" || exit 1
+
+# Environment variables
+ENV LOG_FILE=/var/log/azan_service.log
+ENV PYTHONUNBUFFERED=1
+ENV TZ=Europe/Dublin
+
+# Use uv run to execute with correct environment
+CMD ["uv", "run", "python", "main.py"]

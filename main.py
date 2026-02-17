@@ -1,330 +1,240 @@
-import os
-import sys
-import time
-import json
-import schedule
+#!/usr/bin/env python3
+"""
+Automated Azan - Main Entry Point
+
+This module serves as the main entry point for the Automated Azan application.
+It initializes the configuration, logging, and starts the Athan scheduler.
+All modules now return JSON responses for better integration and error handling.
+"""
+
 import logging
-import pychromecast
-import configparser
-import subprocess
 import threading
-import pystray
-from PIL import Image
-import webbrowser
-from datetime import datetime, timedelta
-from dateutil import tz
-from prayer_times_fetcher import PrayerTimesFetcher  # Import the new class
-from chromecast_manager import ChromecastManager
+import sys
+import os
+import json
+
+from config_manager import ConfigManager
+from logging_setup import setup_logging
+from athan_scheduler import AthanScheduler
 from web_interface import start_web_interface
-from time_sync import update_ntp_time
-from dotenv import load_dotenv
-
-load_dotenv()
-
-if hasattr(sys, '_MEIPASS'):
-    # Running in a PyInstaller bundle
-    media_dir = os.path.join(sys._MEIPASS, 'media')
-else:
-    # Running in normal Python environment
-    media_dir = os.path.join(os.getcwd(), 'media')
-
-# Configure logging
-log_file = os.environ.get('LOG_FILE', '/var/log/azan_service.log')
-logging.basicConfig(format='%(asctime)s [%(levelname)s]: %(message)s', 
-                    filename=log_file, level=logging.INFO)
-
-# Also log to console for Docker logs
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s]: %(message)s'))
-logging.getLogger().addHandler(console_handler)
-
-# Reduce pychromecast logging verbosity to reduce connection error spam
-logging.getLogger('pychromecast').setLevel(logging.WARNING)
-logging.getLogger('pychromecast.socket_client').setLevel(logging.ERROR)
+from config_watcher import ConfigWatcher
 
 
-class AthanScheduler:
+def print_json_status(result, operation_name):
     """
-    A class to fetch prayer times, schedule Athan playback, and handle execution failures gracefully.
+    Print status information from JSON responses with improved formatting.
+
+    Args:
+        result (dict): JSON response from a module function
+        operation_name (str): Name of the operation for logging
     """
-    
-    def __init__(self, location="icci", google_device="athan"):
-        """
-        Initializes the Athan scheduler with:
-        - `location`: 'naas' or 'icci' to select prayer times source.
-        - `google_device`: Name of the Google Home speaker or speaker group.
-        """
-        self.location = location
-        self.google_device = google_device
-        self.fetcher = PrayerTimesFetcher()  # Instantiate the prayer times fetcher
-        self.prayer_times = {}
-        self.tz = tz.gettz('Europe/Dublin')
-        self.load_prayer_times()  # Fetch prayer times immediately
-        self.chromecast_manager = ChromecastManager()
-
-    def get_next_prayer_time(self):
-        now = datetime.now(self.tz)
-        for prayer, time_tuple in self.prayer_times.items():
-            try:
-                hour, minute = map(int, time_tuple.split(":"))
-                prayer_time = datetime(now.year, now.month, now.day, hour, minute, tzinfo=self.tz)
-                if prayer_time > now:
-                    return prayer, prayer_time
-            except ValueError as e:
-                logging.error("Error parsing time for prayer %s: %s", prayer, e)
-        return None, None
-
-    def load_prayer_times(self):
-        """
-        Fetches and stores today's prayer times from the selected API.
-        """
-        logging.info("Fetching prayer times for location: %s", self.location)
-        try:
-            self.prayer_times = self.fetcher.fetch_prayer_times(self.location)
-            logging.info("Prayer times successfully fetched: %s", json.dumps(self.prayer_times, indent=4))
-        except Exception as e:
-            logging.error("Failed to fetch prayer times: %s", e)
-
-    def schedule_prayers(self):
-        """
-        Schedules Athan for all upcoming prayer times today.
-        """
-        schedule.clear()
-        now = datetime.now(self.tz)
-        logging.info("Clearing previous schedules and scheduling today's prayers. Current time: %s", now.strftime("%Y-%m-%d %H:%M:%S"))
-
-        chromecast_manager = ChromecastManager()
-        scheduled_count = 0
-
-        for prayer, time_tuple in self.prayer_times.items():
-            logging.debug("Processing prayer: %s, scheduled time: %s", prayer, time_tuple)
-
-            try:
-                hour, minute = map(int, time_tuple.split(":"))
-                prayer_time = datetime(now.year, now.month, now.day, hour, minute, tzinfo=self.tz)
-
-                if prayer_time > now:  # Schedule only future prayers
-                    formatted_time = prayer_time.strftime("%H:%M")
-                    logging.info("Scheduling %s at %s", prayer, formatted_time)
-                    
-                    if prayer != "Fajr":
-                        schedule.every().day.at(formatted_time).do(chromecast_manager.start_adahn)
-                        logging.debug("%s scheduled successfully at %s", prayer, formatted_time)
-                    else:
-                        schedule.every().day.at(formatted_time).do(chromecast_manager.start_adahn_alfajr)
-                        logging.debug("Fajr Athan scheduled at %s", formatted_time)
-
-                        wake_up_time = prayer_time - timedelta(minutes=45)
-                        wake_up_str = wake_up_time.strftime("%H:%M")
-                        schedule.every().day.at(wake_up_str).do(chromecast_manager.start_quran_radio)
-                        logging.info("Scheduled wake-up call for Fajr at %s", wake_up_str)
-
-                    scheduled_count += 1
-                else:
-                    logging.warning("Skipping %s at %s as it's in the past.", prayer, time_tuple)
-            
-            except ValueError as e:
-                logging.error("Error parsing time for prayer %s: %s", prayer, e)
-            except Exception as e:
-                logging.critical("Unexpected error while scheduling %s: %s", prayer, e, exc_info=True)
-
-        logging.info("Total prayers scheduled: %d", scheduled_count)
-        logging.info("Scheduling process completed.")
-
-    def daily_schedule(self):
-        """
-        Runs the daily scheduling tasks. Exits when there are no pending tasks.
-        """
-        logging.info("Starting daily Athan scheduler.")
-        self.schedule_prayers()  # Schedule today's prayers
-
-        next_run = schedule.next_run()
-        if next_run:
-            logging.info("First scheduled task is at: %s", next_run.strftime("%Y-%m-%d %H:%M:%S"))
-
-        while True:
-            try:
-                now = datetime.now(self.tz)
-                logging.info("Checking pending tasks at %s", now.strftime("%Y-%m-%d %H:%M:%S"))
-
-                schedule.run_pending()  # Execute scheduled jobs
-
-                # Log next job time if available
-                next_run = schedule.next_run()
-                if next_run:
-                    logging.info("Next scheduled task at: %s", next_run.strftime("%Y-%m-%d %H:%M:%S"))
-
-                # Use schedule.idle_seconds() to sleep efficiently
-                sleep_time = schedule.idle_seconds()
-
-                if sleep_time is None:
-                    logging.info("No pending tasks. Exiting daily schedule.")
-                    self.sleep_until_next_1am()
-                    break  # Exit the loop
-                elif sleep_time < 0:
-                    sleep_time = 0.1  # Small sleep to avoid excessive looping
-
-                logging.info(f"Sleeping for {sleep_time:.2f} seconds.")
-                time.sleep(sleep_time)
-
-            except Exception as e:
-                logging.error("Daily scheduler encountered an error: %s", e, exc_info=True)
-                time.sleep(10)  # Wait before retrying
+    if result.get('success', False):
+        logging.info(f"{operation_name}: {result.get('message', 'Success')}")
+        print(f"✓ {operation_name}: Success")
+    else:
+        error_msg = result.get('error', 'Unknown error')
+        logging.error(f"{operation_name}: {error_msg}")
+        print(f"✗ {operation_name}: {error_msg}")
 
 
-    def update_ntp_time(self):
-        """
+def main():
+    """
+    Main entry point for the Automated Azan application.
+    """
+    print("🕌 Starting Automated Azan application...")
 
-        Check and verify time synchronization using improved method
+    # Initialize logging first
+    logging_result = setup_logging()
+    print_json_status(logging_result, "Logging setup")
 
-        """
-        return update_ntp_time()  # Use the new implementation from time_sync.py
+    if not logging_result.get('success', False):
+        print("Failed to setup logging. Exiting.")
+        sys.exit(1)
 
+    logging.info("Starting Automated Azan application...")
 
-    def run_scheduler(self):
-        logging.info("Starting strict-loop Athan scheduler.")
-        last_update_date = None  # Track when we last updated prayer times
-        
-        while True:
-            try:
-                current_date = datetime.now(self.tz).date()
-                
-                # Only update prayer times once per day or on first run
-                if last_update_date != current_date:
-                    logging.info(f"Updating prayer times for new day: {current_date}")
-                    self.update_ntp_time()
-                    self.load_prayer_times()
-                    last_update_date = current_date
-                else:
-                    logging.debug(f"Using cached prayer times for {current_date}")
-
-                while True:
-                    prayer, next_prayer_time = self.get_next_prayer_time()
-                    if not prayer:
-                        logging.info("No remaining prayers for today. Sleeping until 1:00 AM.")
-                        self.sleep_until_next_1am()
-                        last_update_date = None  # Force update on next iteration
-                        break
-
-                    sleep_duration = (next_prayer_time - datetime.now(self.tz)).total_seconds()
-                    logging.info(f"Next prayer: {prayer} at {next_prayer_time.strftime('%H:%M')}. Sleeping for {sleep_duration:.2f} seconds.")
-
-                    if sleep_duration > 0:
-                        # Sleep in chunks to allow for graceful shutdown and reduce log spam
-                        chunk_size = min(sleep_duration, 300)  # Sleep in 5-minute chunks max
-                        while sleep_duration > 0:
-                            sleep_time = min(chunk_size, sleep_duration)
-                            time.sleep(sleep_time)
-                            sleep_duration -= sleep_time
-                            
-                            # Check if we've moved to a new day during sleep
-                            if datetime.now(self.tz).date() != current_date:
-                                logging.info("Date changed during sleep, will update prayer times")
-                                last_update_date = None
-                                break
-
-                    # Only execute if we're still on the same day
-                    if datetime.now(self.tz).date() == current_date:
-                        try:
-                            # Execute the Athan playback at precise time
-                            if prayer == "Fajr":
-                                success = self.chromecast_manager.start_adahn_alfajr()
-                            else:
-                                success = self.chromecast_manager.start_adahn()
-                                
-                            if not success:
-                                logging.error(f"Failed to play Athan for {prayer}")
-                            else:
-                                logging.info(f"Successfully played Athan for {prayer}")
-                                
-                        except Exception as e:
-                            logging.error(f"Error executing Athan for {prayer}: {e}")
-
-            except Exception as e:
-                logging.error("Scheduler encountered an error: %s", e, exc_info=True)
-                time.sleep(60)  # Wait 1 minute before retrying to avoid spam
-
-
-    def sleep_until_next_1am(self):
-        now = datetime.now(self.tz)
-        next_1am = now.replace(hour=1, minute=0, second=0, microsecond=0)
-
-        if now >= next_1am:
-            next_1am += timedelta(days=1)
-
-        sleep_duration = (next_1am - now).total_seconds()
-        logging.info("Sleeping until 1:00 AM (%s). Sleep duration: %.2f seconds", next_1am.strftime("%Y-%m-%d %H:%M:%S"), sleep_duration)
-        
-        # Sleep in chunks to avoid very long sleep periods that are hard to interrupt
-        while sleep_duration > 0:
-            sleep_time = min(sleep_duration, 1800)  # Sleep in 30-minute chunks
-            time.sleep(sleep_time)
-            sleep_duration -= sleep_time
-            
-            # Check if we're close to 1 AM
-            now = datetime.now(self.tz)
-            if now >= next_1am:
-                break
-
-        logging.info("Woke up at 1:00 AM. Will refresh prayer times on next iteration.")
-
-        
-    def refresh_schedule(self):
-        logging.info("Refreshing prayer times for a new day.")
-        self.load_prayer_times()
-        self.schedule_prayers()
-
-def setup_tray_menu():
-    icon_image_path = os.path.join(media_dir, 'azan.ico')
-    icon_image = Image.open(icon_image_path)
     try:
-        def quit_action(icon, item):
-            icon.stop()
-            sys.exit()
+        # Initialize configuration manager
+        config_manager = ConfigManager()
 
-        menu = pystray.Menu(
-            pystray.MenuItem('Open AzanUI', lambda: webbrowser.open("http://127.0.0.1:5000/")),
-            pystray.MenuItem('Quit', quit_action)
-        )
-        icon = pystray.Icon("AutomatedAzan", icon_image, "Automated Azan", menu)
-        icon.run()
-    except Exception as e:
-        logging.error(f"Error starting system tray icon: {e}", exc_info=True)
-        exit(1)
+        # Validate configuration
+        validation_result = config_manager.validate_config()
+        print_json_status(validation_result, "Configuration validation")
 
-if __name__ == "__main__":
-    logging.info("Starting Adahn configuration loading...")
+        if not validation_result.get('success', False):
+            logging.error("Configuration validation failed")
+            sys.exit(1)
 
-    config = configparser.ConfigParser()
-    config.read("adahn.config")
-    
-    try:
-        if config.sections():
-            group_name = config["Settings"]["speakers-group-name"]
-            location = config["Settings"]["location"]
-        else:
-            logging.warning("No sections found in configuration file. loading default values")
-            group_name = 'athan'
-            location = 'icci'
+        # Get configuration values using JSON responses
+        speakers_result = config_manager.get_speakers_group_name()
+        location_result = config_manager.get_location()
+
+        if not speakers_result.get('success', False):
+            logging.error(f"Failed to get speakers group name: {speakers_result.get('error')}")
+            sys.exit(1)
+
+        if not location_result.get('success', False):
+            logging.error(f"Failed to get location: {location_result.get('error')}")
+            sys.exit(1)
+
+        group_name = speakers_result['speakers_group_name']
+        location = location_result['location']
+
         logging.info(f"Loaded configuration - speakers-group-name: {group_name}, location: {location}")
-    except KeyError as e:
-        logging.error(f"Missing required configuration key: {e}")
-        exit(1)  # Stop execution if a key is missing
-    
-    try:
-    
+        print(f"✓ Configuration loaded - speakers: {group_name}, location: {location}")
+
+        # Initialize Athan scheduler
+        print("🔄 Initializing Athan scheduler...")
         scheduler = AthanScheduler(location=location, google_device=group_name)
+
+        # Get initial prayer times status
+        prayer_times_result = scheduler.get_prayer_times()
+        print_json_status(prayer_times_result, "Prayer times loading")
+
+        if prayer_times_result.get('success', False):
+            prayer_times = prayer_times_result['prayer_times']
+            logging.info(f"Prayer times for {location}: {prayer_times}")
+            print(f"📅 Prayer times for {location}:")
+            for prayer, time in prayer_times.items():
+                print(f"   {prayer}: {time}")
+
         logging.info("AthanScheduler initialized successfully.")
-        # Start web interface in background thread with shared chromecast manager
-        web_thread = threading.Thread(target=start_web_interface, args=(scheduler.chromecast_manager,), daemon=True)
+        print("✓ AthanScheduler initialized successfully")
+
+        # Setup config watching for hot reload
+        print("🔄 Setting up configuration hot-reload...")
+        config_watcher = ConfigWatcher(config_manager, scheduler)
+        watcher_result = config_watcher.start()
+
+        if watcher_result.get('success'):
+            logging.info("Config hot-reload enabled")
+            print("✓ Config hot-reload enabled - changes will apply automatically")
+        else:
+            logging.warning(f"Config hot-reload not available: {watcher_result.get('error')}")
+            print("⚠ Config hot-reload not available - restart required for config changes")
+
+        # Start web interface in background thread with shared chromecast manager and scheduler
+        print("🌐 Starting web interface...")
+        web_thread = threading.Thread(
+            target=start_web_interface,
+            args=(scheduler.chromecast_manager, scheduler, config_watcher),
+            daemon=True
+        )
         web_thread.start()
         logging.info("Web interface started in background thread")
-        tray_thread = threading.Thread(target=setup_tray_menu, daemon=True)
-        tray_thread.start()
-        logging.info("System tray menu started in background thread")
+        print("✓ Web interface started on http://localhost:5000")
+
+        # Get next prayer information before starting scheduler
+        next_prayer_result = scheduler.get_next_prayer_time()
+        if next_prayer_result.get('success', False) and next_prayer_result.get('prayer'):
+            next_prayer = next_prayer_result['prayer']
+            next_time = next_prayer_result['formatted_time']
+            logging.info(f"Next prayer: {next_prayer} at {next_time}")
+            print(f"🔔 Next prayer: {next_prayer} at {next_time}")
+        else:
+            logging.info("No remaining prayers for today")
+            print("ℹ️  No remaining prayers for today")
+
+        print("🚀 Starting main scheduler...")
+        print("📊 Monitor status at: http://localhost:5000")
+        print("🔍 Device management: http://localhost:5000/chromecasts")
+        print("🧪 Audio testing: http://localhost:5000/test")
+
+        # Start the main scheduler (this blocks)
         scheduler.run_scheduler()
         logging.info("AthanScheduler started successfully.")
-        
+
     except Exception as e:
-        logging.error(f"An error occurred while starting the scheduler: {e}", exc_info=True)
-        exit(1)  # Stop execution on failure
+        logging.error(f"An error occurred while starting the application: {e}", exc_info=True)
+        print(f"✗ Application startup failed: {e}")
+        sys.exit(1)
+
+
+def get_application_status():
+    """
+    Get the current application status as JSON.
+    This function can be called by other applications importing this module.
+
+    Returns:
+        dict: JSON response with application status
+    """
+    try:
+        # Initialize components to check status
+        config_manager = ConfigManager()
+
+        # Get configuration status
+        config_info = config_manager.get_config_info()
+        validation_result = config_manager.validate_config()
+
+        # Check if we can create scheduler (basic health check)
+        try:
+            if validation_result.get('success', False):
+                speakers_result = config_manager.get_speakers_group_name()
+                location_result = config_manager.get_location()
+
+                if speakers_result.get('success') and location_result.get('success'):
+                    # Try to create scheduler instance
+                    scheduler = AthanScheduler(
+                        location=location_result['location'],
+                        google_device=speakers_result['speakers_group_name']
+                    )
+                    prayer_times = scheduler.get_prayer_times()
+                    next_prayer = scheduler.get_next_prayer_time()
+                    scheduler_status = scheduler.get_scheduler_status()
+
+                    return {
+                        "success": True,
+                        "application": "Automated Azan",
+                        "status": "healthy",
+                        "configuration": {
+                            "valid": True,
+                            "speakers_group": speakers_result['speakers_group_name'],
+                            "location": location_result['location']
+                        },
+                        "prayer_times": prayer_times,
+                        "next_prayer": next_prayer,
+                        "scheduler": scheduler_status,
+                        "config_file_info": config_info,
+                        "timestamp": prayer_times.get('timestamp')
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "application": "Automated Azan",
+                        "status": "configuration_error",
+                        "error": "Failed to load required configuration",
+                        "speakers_result": speakers_result,
+                        "location_result": location_result
+                    }
+            else:
+                return {
+                    "success": False,
+                    "application": "Automated Azan",
+                    "status": "configuration_invalid",
+                    "validation_result": validation_result,
+                    "config_info": config_info
+                }
+
+        except Exception as scheduler_error:
+            return {
+                "success": False,
+                "application": "Automated Azan",
+                "status": "scheduler_error",
+                "error": str(scheduler_error),
+                "configuration": {
+                    "valid": validation_result.get('success', False)
+                },
+                "config_info": config_info
+            }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "application": "Automated Azan",
+            "status": "critical_error",
+            "error": str(e)
+        }
+
+
+if __name__ == "__main__":
+    main()

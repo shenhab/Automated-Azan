@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   automated-azan:
     build: 
@@ -17,7 +15,8 @@ services:
     environment:
       - LOG_FILE=/var/log/azan_service.log
       - PYTHONUNBUFFERED=1
-      - TZ=UTC  # Change to your timezone (e.g., Europe/Dublin, America/New_York)
+      - TZ=Europe/Dublin  # Change to your timezone (e.g., Europe/Dublin, America/New_York)
+      # - HOST_IP=192.168.86.161  # Uncomment and set your host IP for reliable media URLs
     
     # Volume mounts
     volumes:
@@ -39,7 +38,7 @@ services:
     
     # Health check
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(5); s.connect(('localhost', 5000)); s.close()"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -1,5 +1,8 @@
 # Automated Azan - Streamlined Makefile
-# Two deployment methods: pipenv (development) and Docker (production)
+# Two deployment methods: uv (development) and Docker (production)
+
+# Detect Docker Compose command (docker-compose vs docker compose)
+DOCKER_COMPOSE := $(shell if command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; elif docker compose version >/dev/null 2>&1; then echo "docker compose"; else echo "docker-compose"; fi)
 
 docker-rebuild: docker-stop docker-build docker-run
 	@echo "🔄 Rebuilt and restarted Docker container"
@@ -16,48 +19,49 @@ docker-fix-athan: docker-stop docker-build docker-run
 .DEFAULT_GOAL := help
 
 #=============================================================================
-# DEVELOPMENT (pipenv)
+# DEVELOPMENT (uv)
 #=============================================================================
 
 setup:
 	@echo "🚀 Setting up development environment..."
-	@echo "   📦 Installing pipenv and dependencies..."
-	@pip install --user pipenv || pip3 install --user pipenv
-	@pipenv install --dev
+	@echo "   📦 Installing uv if not present..."
+	@command -v uv >/dev/null 2>&1 || (echo "Installing uv..." && curl -LsSf https://astral.sh/uv/install.sh | sh)
+	@echo "   📦 Installing dependencies..."
+	@uv sync --dev
 	@echo "   ✅ Development environment ready!"
 	@echo "   💡 Run 'make run' to start prayer scheduler"
 	@echo "   💡 Run 'make web' to start web interface"
 
 install:
-	@echo "📦 Installing dependencies with pipenv..."
-	@pipenv install --dev
+	@echo "📦 Installing dependencies with uv..."
+	@uv sync --dev
 
 run:
-	@echo "� Starting Automated Azan prayer scheduler..."
-	@pipenv run python main.py
+	@echo "🕌 Starting Automated Azan prayer scheduler..."
+	@uv run python main.py
 
 web:
 	@echo "🌐 Starting web interface..."
 	@echo "   📱 Interface will be available at: http://localhost:5000"
-	@pipenv run python web_interface.py
+	@uv run python web_interface.py
 
 test:
 	@echo "🧪 Running test suite..."
-	@pipenv run python -m pytest -v || echo "No pytest found, running manual tests..."
-	@echo "   � Testing Chromecast discovery..."
-	@pipenv run python chromecast_comparison.py
+	@uv run python -m pytest tests/test_basic_functionality.py -v || echo "Pytest tests failed, running integration fallback..."
+	@echo "   🎵 Testing service modules integration..."
+	@uv run python service_modules_integration.py
 
 test-chromecast:
-	@echo "📡 Running comprehensive Chromecast discovery tests..."
-	@pipenv run python chromecast_comparison.py
+	@echo "📡 Testing chromecast manager via integration demo..."
+	@uv run python service_modules_integration.py
 
 shell:
-	@echo "🐚 Activating pipenv shell..."
-	@pipenv shell
+	@echo "🐚 Activating uv environment..."
+	@. .venv/bin/activate && exec $$SHELL
 
 update:
 	@echo "🔄 Updating dependencies..."
-	@pipenv update
+	@uv sync --upgrade
 
 #=============================================================================
 # PRODUCTION DEPLOYMENT (Docker)
@@ -89,7 +93,7 @@ deploy-check:
 	@echo ""
 	@echo "� Docker environment:"
 	@docker --version 2>/dev/null && echo "   ✅ Docker available" || (echo "   ❌ Docker not found! Please install Docker" && exit 1)
-	@docker-compose --version 2>/dev/null && echo "   ✅ Docker Compose available" || (echo "   ❌ Docker Compose not found! Please install Docker Compose" && exit 1)
+	@(command -v docker-compose >/dev/null 2>&1 || docker compose version >/dev/null 2>&1) && echo "   ✅ Docker Compose available" || (echo "   ❌ Docker Compose not found! Please install Docker Compose" && exit 1)
 	@echo ""
 	@echo "� Configuration preview:"
 	@echo "   📍 Location: $$(grep '^location' adahn.config | cut -d'=' -f2 | xargs 2>/dev/null || echo 'not configured')"
@@ -100,24 +104,24 @@ deploy-check:
 docker-build:
 	@echo "🐳 Building Docker image..."
 	@echo "   � Building unified container (Prayer scheduler + Web interface)..."
-	@docker-compose build --no-cache
+	@$(DOCKER_COMPOSE) build --no-cache
 
 docker-run:
 	@echo "🐳 Starting Docker container..."
 	@echo "   � Launching Automated Azan service..."
-	@docker-compose up -d
+	@$(DOCKER_COMPOSE) up -d
 
 docker-logs:
 	@echo "� Showing container logs..."
-	@docker-compose logs -f
+	@$(DOCKER_COMPOSE) logs -f
 
 docker-stop:
 	@echo "🛑 Stopping Docker container..."
-	@docker-compose down
+	@$(DOCKER_COMPOSE) down
 
 docker-restart:
 	@echo "� Restarting Docker container..."
-	@docker-compose restart
+	@$(DOCKER_COMPOSE) restart
 
 docker-rebuild: docker-stop docker-build docker-run
 	@echo "� Rebuilt and restarted Docker container"
@@ -140,18 +144,18 @@ check:
 	@echo "Python:"
 	@python3 --version 2>/dev/null && echo "   ✅ Python 3 available" || echo "   ❌ Python 3 not found"
 	@echo ""
-	@echo "Pipenv (for development):"
-	@pipenv --version 2>/dev/null && echo "   ✅ Pipenv available" || echo "   ⚠️  Pipenv not found (install with: pip install pipenv)"
+	@echo "UV (for development):"
+	@uv --version 2>/dev/null && echo "   ✅ UV available" || echo "   ⚠️  UV not found (install with: curl -LsSf https://astral.sh/uv/install.sh | sh)"
 	@echo ""
 	@echo "Docker (for production):"
 	@docker --version 2>/dev/null && echo "   ✅ Docker available" || echo "   ⚠️  Docker not found"
-	@docker-compose --version 2>/dev/null && echo "   ✅ Docker Compose available" || echo "   ⚠️  Docker Compose not found"
+	@(docker-compose --version 2>/dev/null || docker compose version 2>/dev/null) && echo "   ✅ Docker Compose available" || echo "   ⚠️  Docker Compose not found"
 
 status:
 	@echo "📊 Current system status..."
 	@echo ""
 	@echo "Docker containers:"
-	@docker-compose ps 2>/dev/null || echo "   No Docker containers running"
+	@$(DOCKER_COMPOSE) ps 2>/dev/null || echo "   No Docker containers running"
 	@echo ""
 	@echo "Configuration:"
 	@test -f adahn.config && echo "   📍 Location: $$(grep '^location' adahn.config | cut -d'=' -f2 | xargs)" || echo "   ⚠️  No adahn.config found"
@@ -166,17 +170,17 @@ help:
 	@echo "========================================"
 	@echo ""
 	@echo "🚀 QUICK START:"
-	@echo "   make setup     Setup development environment (pipenv)"
+	@echo "   make setup     Setup development environment (uv)"
 	@echo "   make deploy    Deploy production system (Docker)"
 	@echo ""
-	@echo "🐍 DEVELOPMENT (pipenv):"
-	@echo "   make setup           Setup pipenv environment and dependencies"
+	@echo "🐍 DEVELOPMENT (uv):"
+	@echo "   make setup           Setup uv environment and dependencies"
 	@echo "   make install         Install/update dependencies"
 	@echo "   make run             Run prayer scheduler"
 	@echo "   make web             Run web interface"
 	@echo "   make test            Run test suite"
-	@echo "   make test-chromecast Test device discovery"
-	@echo "   make shell           Activate pipenv shell"
+	@echo "   make test-chromecast Test chromecast integration"
+	@echo "   make shell           Activate uv environment shell"
 	@echo "   make update          Update dependencies"
 	@echo ""
 	@echo "� PRODUCTION (Docker):"

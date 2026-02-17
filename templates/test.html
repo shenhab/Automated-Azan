@@ -66,6 +66,9 @@
                             <button class="btn btn-danger" onclick="stopAllPlayback()">
                                 <i class="fas fa-stop me-1"></i>Stop All Playback
                             </button>
+                            <button class="btn btn-warning" onclick="resetPlaybackState()">
+                                <i class="fas fa-redo me-1"></i>Reset Playback State
+                            </button>
                             <button class="btn btn-info" onclick="refreshDevices()">
                                 <i class="fas fa-sync me-1"></i>Refresh Device List
                             </button>
@@ -104,6 +107,7 @@
 <!-- Status Messages -->
 <div class="row mt-4">
     <div class="col-12">
+        <div id="alerts-container"></div>
         <div id="status-messages"></div>
     </div>
 </div>
@@ -117,7 +121,10 @@
     // Initialize page
     document.addEventListener('DOMContentLoaded', function() {
         loadMediaInfo();
-        discoverDevices();
+        // Get devices from scheduler
+        setTimeout(() => {
+            getDevices();
+        }, 500);
     });
     
     // Socket.IO event handlers for real-time updates
@@ -189,30 +196,54 @@
         mediaInfoContainer.innerHTML = html;
     }
     
-    // Discover Chromecast devices
-    function discoverDevices() {
+    // Get Chromecast devices from scheduler
+    function getDevices() {
+        console.log('Getting devices from scheduler...');
         const spinner = document.querySelector('.discovery-spinner');
-        spinner.style.display = 'inline-block';
-        
+        if (spinner) {
+            spinner.style.display = 'inline-block';
+        }
+
         fetch('/api/discover-chromecasts', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
         })
-        .then(response => response.json())
+        .then(response => {
+            console.log('Discovery response received:', response.status);
+            return response.json();
+        })
         .then(data => {
-            spinner.style.display = 'none';
+            console.log('Discovery data:', data);
+            if (spinner) {
+                spinner.style.display = 'none';
+            }
             if (data.success) {
                 devices = data.devices;
                 updateDeviceGrid(devices);
-                showAlert(`Discovered ${devices.length} Chromecast devices`, 'success');
+                console.log(`Found ${devices.length} devices`);
+                // Show status message
+                const statusDiv = document.getElementById('status-messages');
+                if (statusDiv && devices.length > 0) {
+                    statusDiv.innerHTML = `<div class="alert alert-success">Discovered ${devices.length} Chromecast devices</div>`;
+                }
             } else {
-                showAlert(`Error discovering devices: ${data.error}`, 'danger');
+                console.error(`Error discovering devices: ${data.error}`);
+                const statusDiv = document.getElementById('status-messages');
+                if (statusDiv) {
+                    statusDiv.innerHTML = `<div class="alert alert-danger">Error: ${data.error}</div>`;
+                }
             }
         })
         .catch(error => {
-            spinner.style.display = 'none';
             console.error('Error discovering devices:', error);
-            showAlert('Failed to discover devices', 'danger');
+            if (spinner) {
+                spinner.style.display = 'none';
+            }
+            const statusDiv = document.getElementById('status-messages');
+            if (statusDiv) {
+                statusDiv.innerHTML = `<div class="alert alert-danger">Failed to discover devices: ${error.message || error}</div>`;
+            }
         });
     }
     
@@ -259,9 +290,14 @@
                                 <button class="btn btn-warning btn-sm" onclick="testDeviceAdhan('${device.uuid}', '${device.name}', 'fajr')">
                                     <i class="fas fa-sun me-1"></i>Fajr Adhan
                                 </button>
-                                <button class="btn btn-danger btn-sm" onclick="stopDevicePlayback('${device.uuid}', '${device.name}')">
-                                    <i class="fas fa-stop me-1"></i>Stop
-                                </button>
+                                <div class="btn-group w-100" role="group">
+                                    <button class="btn btn-danger btn-sm" onclick="stopDevicePlayback('${device.uuid}', '${device.name}')">
+                                        <i class="fas fa-stop me-1"></i>Stop Device
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-sm" onclick="resetPlaybackState()" title="Reset internal playback state (use if device stop fails)">
+                                        <i class="fas fa-redo me-1"></i>Reset State
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -388,6 +424,38 @@
     function stopAllPlayback() {
         devices.forEach(device => {
             stopDevicePlayback(device.uuid, device.name);
+        });
+    }
+
+    // Reset internal playback state (use when device communication fails)
+    function resetPlaybackState() {
+        fetch('/api/reset-playback-state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                if (data.was_playing) {
+                    showAlert(`Playback state reset. Was tracking ${data.elapsed_time}s of playback.`, 'success');
+                } else {
+                    showAlert('Playback state reset. No active playback was being tracked.', 'info');
+                }
+                // Update all device status badges to ready
+                devices.forEach(device => {
+                    const statusBadge = document.getElementById(`status-${device.uuid}`);
+                    if (statusBadge) {
+                        statusBadge.textContent = 'Ready';
+                        statusBadge.className = 'badge bg-secondary';
+                    }
+                });
+            } else {
+                showAlert(`Reset failed: ${data.error}`, 'danger');
+            }
+        })
+        .catch(error => {
+            console.error('Error resetting playback state:', error);
+            showAlert('Reset request failed', 'danger');
         });
     }
     

@@ -75,9 +75,9 @@
                         <h6 class="card-title mb-1">Scheduler</h6>
                         <p class="card-text mb-0">
                             {% if scheduler_status.running %}
-                                <span class="badge bg-success">Running</span>
+                                <span id="scheduler-status-badge" class="badge bg-success">Running</span>
                             {% else %}
-                                <span class="badge bg-secondary">Stopped</span>
+                                <span id="scheduler-status-badge" class="badge bg-secondary">Stopped</span>
                             {% endif %}
                         </p>
                     </div>
@@ -97,7 +97,17 @@
                     <div class="ms-3">
                         <h6 class="card-title mb-1">Speaker</h6>
                         <p class="card-text mb-0">
-                            <span class="badge bg-secondary" id="speaker-status">Unknown</span>
+                            {% if speaker_status.status == 'Available' %}
+                                <span class="badge bg-success" id="speaker-status">Available</span>
+                            {% elif speaker_status.status == 'Not Found' %}
+                                <span class="badge bg-warning" id="speaker-status">Not Found</span>
+                            {% elif speaker_status.status == 'Not Configured' %}
+                                <span class="badge bg-secondary" id="speaker-status">Not Configured</span>
+                            {% elif speaker_status.status == 'Error' %}
+                                <span class="badge bg-danger" id="speaker-status">Error</span>
+                            {% else %}
+                                <span class="badge bg-secondary" id="speaker-status">Unknown</span>
+                            {% endif %}
                         </p>
                     </div>
                 </div>
@@ -120,13 +130,18 @@
             <div class="card-body">
                 {% if prayer_times and 'error' not in prayer_times %}
                     <div class="row" id="prayer-times-container">
-                        {% for prayer, time in prayer_times.items() %}
+                        {% set prayer_order = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'] %}
+                        {% for prayer in prayer_order %}
+                            {% if prayer in prayer_times %}
                             <div class="col-6 mb-3">
-                                <div class="text-center">
-                                    <h6 class="fw-bold">{{ prayer }}</h6>
-                                    <div class="h5">{{ time }}</div>
+                                <div class="text-center p-2">
+                                    <h6 class="fw-bold text-white-50 mb-1">{{ prayer }}</h6>
+                                    <div class="h4 text-white mb-0" data-time="{{ prayer_times[prayer] }}">
+                                        {{ prayer_times[prayer] }}
+                                    </div>
                                 </div>
                             </div>
+                            {% endif %}
                         {% endfor %}
                     </div>
                     
@@ -335,30 +350,117 @@
     
     // Socket event handlers
     socket.on('prayer_times_updated', function(data) {
+        console.log('[DEBUG] Prayer times updated event:', data);
         if (data.prayer_times && !data.prayer_times.error) {
             prayerTimes = data.prayer_times;
             updateNextPrayer();
             showAlert('Prayer times updated!', 'success');
         }
     });
-    
+
     socket.on('status_update', function(data) {
+        console.log('[DEBUG] Status update received:', data);
+        console.log('[DEBUG] Scheduler status:', data.scheduler_status);
+
         if (data.prayer_times) {
             prayerTimes = data.prayer_times;
             updateNextPrayer();
+        }
+
+        // Update scheduler status badge
+        if (data.scheduler_status) {
+            // Try multiple selectors to find the scheduler status badge
+            let statusBadge = document.querySelector('#scheduler-status-badge');
+            if (!statusBadge) {
+                // Fallback: find badge in scheduler card
+                const schedulerCards = document.querySelectorAll('.card-body');
+                for (const card of schedulerCards) {
+                    const title = card.querySelector('h6');
+                    if (title && title.textContent.includes('Scheduler')) {
+                        statusBadge = card.querySelector('.badge');
+                        break;
+                    }
+                }
+            }
+
+            if (statusBadge) {
+                const isRunning = data.scheduler_status.running;
+                console.log('[DEBUG] Scheduler running state:', isRunning);
+                console.log('[DEBUG] Found status badge:', statusBadge);
+                statusBadge.className = isRunning ? 'badge bg-success' : 'badge bg-secondary';
+                statusBadge.textContent = isRunning ? 'Running' : 'Stopped';
+            } else {
+                console.log('[DEBUG] Could not find scheduler status badge');
+            }
+        }
+
+        // Update speaker status badge
+        if (data.speaker_status) {
+            const speakerBadge = document.getElementById('speaker-status');
+            if (speakerBadge) {
+                const status = data.speaker_status.status;
+                console.log('[DEBUG] Speaker status:', status);
+
+                // Update badge class and text based on status
+                speakerBadge.className = 'badge';
+                switch (status) {
+                    case 'Available':
+                        speakerBadge.classList.add('bg-success');
+                        speakerBadge.textContent = 'Available';
+                        break;
+                    case 'Not Found':
+                        speakerBadge.classList.add('bg-warning');
+                        speakerBadge.textContent = 'Not Found';
+                        break;
+                    case 'Not Configured':
+                        speakerBadge.classList.add('bg-secondary');
+                        speakerBadge.textContent = 'Not Configured';
+                        break;
+                    case 'Error':
+                        speakerBadge.classList.add('bg-danger');
+                        speakerBadge.textContent = 'Error';
+                        break;
+                    default:
+                        speakerBadge.classList.add('bg-secondary');
+                        speakerBadge.textContent = 'Unknown';
+                }
+            } else {
+                console.log('[DEBUG] Could not find speaker status badge');
+            }
         }
     });
     
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
+        // Debug logging on page load
+        const initialSchedulerStatus = {{ scheduler_status|tojson }};
+        const initialSpeakerStatus = {{ speaker_status|tojson }};
+        console.log('[DEBUG] Initial scheduler status from server:', initialSchedulerStatus);
+        console.log('[DEBUG] Initial scheduler running state:', initialSchedulerStatus.running);
+        console.log('[DEBUG] Initial speaker status from server:', initialSpeakerStatus);
+
         updateNextPrayer();
         loadRecentLogs();
-        
+
+        // Format prayer times to 12-hour format
+        document.querySelectorAll('[data-time]').forEach(element => {
+            const time24 = element.getAttribute('data-time');
+            if (time24) {
+                element.textContent = formatTime(time24);
+            }
+        });
+
         // Update every minute
         setInterval(updateNextPrayer, 60000);
-        
+
         // Update last updated time
         document.getElementById('last-updated').textContent = new Date().toLocaleString();
+
+        // Request fresh status after page load with longer delay to allow scheduler to initialize
+        console.log('[DEBUG] Requesting fresh status from server...');
+        setTimeout(() => {
+            socket.emit('request_status');
+        }, 2000);  // Increased delay to allow scheduler to complete initialization
     });
 </script>
 {% endblock %}
