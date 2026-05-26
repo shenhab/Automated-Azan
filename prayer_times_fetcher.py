@@ -130,74 +130,81 @@ class PrayerTimesFetcher:
 
     def _download_naas_timetable(self) -> Dict[str, Any]:
         """
-        Fetches prayer timetable data for Naas using the Mawaqit API.
-        Extracts 'calendar' data from the API response and saves it to a JSON file.
-        Includes a fallback to a GitHub raw URL if the primary API fails.
+        Fetches the Naas Masjid timetable by scraping the Mawaqit web page.
+
+        The Mawaqit REST API now requires authentication (401), so we scrape
+        https://mawaqit.net/en/m/-34 directly. The page embeds a `confData` JSON
+        object in a <script> tag whose `calendar` field contains 12 months of
+        prayer times in Dublin local time (BST/GMT as appropriate) — the same
+        format the rest of the code already expects.
 
         Returns:
             dict: JSON response with download status
         """
-        primary_url = self.sources['naas']
-        fallback_url = "https://raw.githubusercontent.com/shenhab/Automated-Azan/refs/heads/main/naas_prayers_timetable.json"
-        
-        logging.debug(f"Attempting to download Naas timetable from primary URL: {primary_url}")
-        
+        url = self.sources['naas']
+        logging.debug("Fetching Naas timetable from Mawaqit page: %s", url)
+
         try:
-            response = requests.get(primary_url, timeout=10)
+            response = requests.get(
+                url,
+                timeout=15,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                    ),
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                },
+            )
             response.raise_for_status()
-            api_data = response.json()
-            logging.info("Successfully fetched data from primary URL.")
-
         except requests.RequestException as e:
-            logging.warning(f"❌ Primary URL for Naas failed ({e}). Attempting fallback...")
-            
-            try:
-                response = requests.get(fallback_url, timeout=10)
-                response.raise_for_status()
-                # The fallback URL directly contains the calendar list, not nested in a dict
-                api_data = {"calendar": response.json()} 
-                logging.info("Successfully fetched data from fallback URL.")
-
-            except requests.RequestException as fallback_e:
-                logging.error(f"❌ Fallback URL for Naas also failed: {fallback_e}")
-                return {
-                    "success": False, "source": "naas",
-                    "error": f"Primary and fallback URLs failed. Primary: {e}, Fallback: {fallback_e}",
-                    "error_type": "network_error", "timestamp": datetime.now(self.tz).isoformat()
-                }
+            logging.error("❌ Failed to fetch Mawaqit page for Naas: %s", e)
+            return {
+                "success": False, "source": "naas", "url": url,
+                "error": str(e), "error_type": "network_error",
+                "timestamp": datetime.now(self.tz).isoformat(),
+            }
 
         try:
-            if 'calendar' not in api_data:
-                logging.error("❌ Calendar data not found in Mawaqit API response!")
-                return {
-                    "success": False, "source": "naas", "url": primary_url,
-                    "error": "Calendar data not found in API response", "error_type": "parsing_error",
-                    "timestamp": datetime.now(self.tz).isoformat()
-                }
+            # The page embeds prayer data as:  var confData = { ... };
+            m = re.search(r'var confData = ({.*?});', response.text, re.DOTALL)
+            if not m:
+                raise ValueError("confData block not found in Mawaqit page")
 
-            calendar_list = api_data['calendar']
-            with open(self.naas_prayers_timetable_file, "w", encoding="utf-8") as file:
-                json.dump(calendar_list, file, indent=2, ensure_ascii=False)
+            conf = json.loads(m.group(1))
+            calendar_list = conf.get("calendar")
+            if not calendar_list or not isinstance(calendar_list, list) or len(calendar_list) != 12:
+                raise ValueError(
+                    f"Unexpected calendar structure: {type(calendar_list).__name__}, "
+                    f"length={len(calendar_list) if isinstance(calendar_list, list) else 'N/A'}"
+                )
+
+            with open(self.naas_prayers_timetable_file, "w", encoding="utf-8") as fh:
+                json.dump(calendar_list, fh, indent=2, ensure_ascii=False)
 
             self._save_dst_metadata("naas")
-            logging.info("✅ Naas prayer timetable saved successfully.")
+            logging.info("✅ Naas timetable scraped from Mawaqit page and saved (%d months).", len(calendar_list))
             return {
-                "success": True, "source": "naas", "url": primary_url,
-                "file_path": self.naas_prayers_timetable_file, "calendar_entries": len(calendar_list),
-                "message": "Naas prayer timetable saved successfully", "timestamp": datetime.now(self.tz).isoformat()
+                "success": True, "source": "naas", "url": url,
+                "file_path": self.naas_prayers_timetable_file,
+                "calendar_entries": len(calendar_list),
+                "message": "Naas prayer timetable saved successfully",
+                "timestamp": datetime.now(self.tz).isoformat(),
             }
-            
-        except json.JSONDecodeError as e:
-            logging.error("❌ Error parsing Naas JSON: %s", e)
+
+        except (json.JSONDecodeError, ValueError) as e:
+            logging.error("❌ Failed to parse Mawaqit page for Naas: %s", e)
             return {
-                "success": False, "source": "naas", "error": str(e),
-                "error_type": "json_error", "timestamp": datetime.now(self.tz).isoformat()
+                "success": False, "source": "naas", "url": url,
+                "error": str(e), "error_type": "parsing_error",
+                "timestamp": datetime.now(self.tz).isoformat(),
             }
         except Exception as e:
-            logging.error("❌ Unexpected error processing Naas timetable: %s", e)
+            logging.error("❌ Unexpected error saving Naas timetable: %s", e)
             return {
-                "success": False, "source": "naas", "error": str(e),
-                "error_type": "file_error", "timestamp": datetime.now(self.tz).isoformat()
+                "success": False, "source": "naas", "url": url,
+                "error": str(e), "error_type": "file_error",
+                "timestamp": datetime.now(self.tz).isoformat(),
             }
 
     def _get_dst_offset(self, dt: Optional[datetime] = None) -> int:
