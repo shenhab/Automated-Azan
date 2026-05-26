@@ -60,19 +60,19 @@
                 </h6>
                 <div class="row text-center">
                     <div class="col-3">
-                        <div class="fw-bold text-danger" id="error-count">0</div>
+                        <div class="fw-bold text-danger fs-5" id="error-count">0</div>
                         <small class="text-muted">Errors</small>
                     </div>
                     <div class="col-3">
-                        <div class="fw-bold text-warning" id="warning-count">0</div>
+                        <div class="fw-bold fs-5" style="color:#e67e22" id="warning-count">0</div>
                         <small class="text-muted">Warnings</small>
                     </div>
                     <div class="col-3">
-                        <div class="fw-bold text-info" id="info-count">0</div>
+                        <div class="fw-bold fs-5" style="color:var(--islamic-blue)" id="info-count">0</div>
                         <small class="text-muted">Info</small>
                     </div>
                     <div class="col-3">
-                        <div class="fw-bold text-secondary" id="total-count">0</div>
+                        <div class="fw-bold fs-5 text-secondary" id="total-count">0</div>
                         <small class="text-muted">Total</small>
                     </div>
                 </div>
@@ -96,10 +96,9 @@
                 </div>
             </div>
             <div class="card-body p-0">
-                <div class="log-container" id="log-display" style="height: 600px; overflow-y: auto;">
-                    <div class="p-3 text-muted text-center">
-                        <i class="fas fa-spinner fa-spin me-2"></i>
-                        Loading logs...
+                <div class="log-container" id="log-display" style="height: 600px; overflow-y: auto; max-height: none;">
+                    <div class="log-placeholder">
+                        <i class="fas fa-spinner fa-spin me-2"></i>Loading logs…
                     </div>
                 </div>
             </div>
@@ -195,7 +194,7 @@
         const wasAtBottom = logDisplay.scrollTop + logDisplay.clientHeight >= logDisplay.scrollHeight - 10;
         
         if (!logs || logs.trim() === '') {
-            logDisplay.innerHTML = '<div class="p-3 text-muted text-center">No logs available</div>';
+            logDisplay.innerHTML = '<div class="log-placeholder">No logs available</div>';
             updateLogStats([], []);
             return;
         }
@@ -219,81 +218,13 @@
     
     function filterLogLines(lines) {
         const level = document.getElementById('log-level').value;
-        
-        if (level === 'all') {
-            return lines;
-        }
-        
-        const levelPriority = {
-            'DEBUG': 1,
-            'INFO': 2,
-            'WARNING': 3,
-            'ERROR': 4
-        };
-        
-        const minPriority = levelPriority[level] || 1;
-        
+        if (level === 'all') return lines;
+        const priority = { 'DEBUG': 1, 'INFO': 2, 'WARNING': 3, 'WARN': 3, 'ERROR': 4 };
+        const min = priority[level] || 1;
         return lines.filter(line => {
-            // Extract log level from line (assuming format: TIMESTAMP - LEVEL - MESSAGE)
-            const levelMatch = line.match(/\[(DEBUG|INFO|WARNING|ERROR)\]/i);
-            if (!levelMatch) return true; // Include lines without clear level
-            
-            const lineLevel = levelMatch[1].toUpperCase();
-            return levelPriority[lineLevel] >= minPriority;
+            const m = line.match(/\b(ERROR|WARNING|WARN|INFO|DEBUG)\b/i);
+            return !m || (priority[m[1].toUpperCase()] || 0) >= min;
         });
-    }
-    
-    function formatLogLine(line) {
-        if (!line.trim()) return '<br>';
-        
-        // Extract components: timestamp, level, message
-        const timestampMatch = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[,\d]*)/);
-        const levelMatch = line.match(/\[(DEBUG|INFO|WARNING|ERROR)\]/i);
-        
-        let cssClass = 'log-line';
-        let levelBadge = '';
-        
-        if (levelMatch) {
-            const level = levelMatch[1].toUpperCase();
-            switch(level) {
-                case 'ERROR':
-                    cssClass += ' text-danger';
-                    levelBadge = '<span class="badge bg-danger me-2">ERROR</span>';
-                    break;
-                case 'WARNING':
-                    cssClass += ' text-warning';
-                    levelBadge = '<span class="badge bg-warning me-2">WARN</span>';
-                    break;
-                case 'INFO':
-                    cssClass += ' text-info';
-                    levelBadge = '<span class="badge bg-info me-2">INFO</span>';
-                    break;
-                case 'DEBUG':
-                    cssClass += ' text-muted';
-                    levelBadge = '<span class="badge bg-secondary me-2">DEBUG</span>';
-                    break;
-            }
-        }
-        
-        let formattedLine = line;
-        
-        // Highlight timestamps
-        if (timestampMatch) {
-            formattedLine = formattedLine.replace(timestampMatch[1], 
-                `<span class="text-muted">${timestampMatch[1]}</span>`);
-        }
-        
-        // Highlight important keywords
-        formattedLine = formattedLine.replace(/\b(Starting|Started|Completed|Failed|Error|Success)\b/gi, 
-            '<span class="fw-bold">$1</span>');
-        
-        // Highlight file paths and URLs
-        formattedLine = formattedLine.replace(/([a-zA-Z]:)?[\\\/][\w\\\/\.-]+\.\w+/g, 
-            '<span class="text-primary">$&</span>');
-        
-        return `<div class="${cssClass}" style="padding: 2px 10px; font-family: monospace; font-size: 12px; line-height: 1.4; border-left: 3px solid transparent;">
-                    ${levelBadge}${formattedLine}
-                </div>`;
     }
     
     function updateLogStats(allLines, filteredLines) {
@@ -314,18 +245,11 @@
     function updateConnectionStatus(status) {
         const badge = document.getElementById('connection-status-badge');
         badge.textContent = status;
-        
-        badge.className = 'badge ';
-        switch(status) {
-            case 'Connected':
-                badge.className += 'bg-success';
-                break;
-            case 'Error':
-                badge.className += 'bg-danger';
-                break;
-            default:
-                badge.className += 'bg-secondary';
-        }
+        badge.className = 'badge ' + (
+            status === 'Connected'  ? 'bg-success' :
+            status === 'Error'      ? 'bg-danger'  :
+            'bg-secondary'
+        );
     }
     
     function updateLastUpdate() {
@@ -340,8 +264,8 @@
     }
     
     function clearDisplay() {
-        const logDisplay = document.getElementById('log-display');
-        logDisplay.innerHTML = '<div class="p-3 text-muted text-center">Display cleared. Click refresh to reload logs.</div>';
+        document.getElementById('log-display').innerHTML =
+            '<div class="log-placeholder">Display cleared — click Refresh to reload.</div>';
         updateLogStats([], []);
     }
     
@@ -456,7 +380,7 @@
             }
         });
         
-        updateConnectionStatus('Connecting...');
+        updateConnectionStatus('Loading');
     });
 </script>
 {% endblock %}

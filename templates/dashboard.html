@@ -170,9 +170,9 @@
         </div>
     </div>
     
-    <!-- Current Configuration -->
-    <div class="col-md-6 mb-4">
-        <div class="card islamic-card">
+    <!-- Right column: Configuration + Quran player -->
+    <div class="col-md-6">
+        <div class="card islamic-card mb-4">
             <div class="card-header">
                 <h5 class="card-title mb-0">
                     <i class="fas fa-cogs me-2"></i>
@@ -212,6 +212,33 @@
                     <a href="/chromecasts" class="btn btn-primary">
                         <i class="fas fa-cast"></i> Manage Devices
                     </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quran Playback -->
+        <div class="card islamic-card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-book-open me-2 islamic-icon"></i>
+                    Quran Playback
+                </h5>
+                <span class="badge bg-secondary" id="quran-status-badge">Idle</span>
+            </div>
+            <div class="card-body">
+                <div id="quran-now-playing" class="mb-3 p-2 rounded" style="display:none; background:rgba(46,125,50,0.07);">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="fas fa-music text-success fa-beat"></i>
+                        <span id="quran-station-name" class="fw-semibold text-success"></span>
+                    </div>
+                </div>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-success" id="btn-quran-play" onclick="playRandomQuran()">
+                        <i class="fas fa-play me-2"></i>Play Random Quran
+                    </button>
+                    <button class="btn btn-outline-danger" id="btn-quran-stop" onclick="stopQuranPlayback()">
+                        <i class="fas fa-stop me-2"></i>Stop Playback
+                    </button>
                 </div>
             </div>
         </div>
@@ -335,22 +362,25 @@
     
     function loadRecentLogs() {
         fetch('/api/logs')
-        .then(response => response.json())
+        .then(r => r.json())
         .then(data => {
-            if (data.success) {
-                const logContainer = document.getElementById('recent-logs');
-                const lines = data.logs.split('\n').slice(-10).join('\n');
-                logContainer.textContent = lines || 'No recent logs available';
+            const el = document.getElementById('recent-logs');
+            if (data.success && data.logs) {
+                const lines = data.logs.trim().split('\n').slice(-15);
+                el.innerHTML = lines.map(l => formatLogLine(l)).join('') ||
+                    '<div class="log-placeholder">No recent logs</div>';
+            } else {
+                el.innerHTML = '<div class="log-placeholder">No recent logs available</div>';
             }
         })
-        .catch(error => {
-            document.getElementById('recent-logs').textContent = 'Error loading logs';
+        .catch(() => {
+            document.getElementById('recent-logs').innerHTML =
+                '<div class="log-placeholder">Error loading logs</div>';
         });
     }
     
     // Socket event handlers
     socket.on('prayer_times_updated', function(data) {
-        console.log('[DEBUG] Prayer times updated event:', data);
         if (data.prayer_times && !data.prayer_times.error) {
             prayerTimes = data.prayer_times;
             updateNextPrayer();
@@ -359,9 +389,6 @@
     });
 
     socket.on('status_update', function(data) {
-        console.log('[DEBUG] Status update received:', data);
-        console.log('[DEBUG] Scheduler status:', data.scheduler_status);
-
         if (data.prayer_times) {
             prayerTimes = data.prayer_times;
             updateNextPrayer();
@@ -385,12 +412,8 @@
 
             if (statusBadge) {
                 const isRunning = data.scheduler_status.running;
-                console.log('[DEBUG] Scheduler running state:', isRunning);
-                console.log('[DEBUG] Found status badge:', statusBadge);
                 statusBadge.className = isRunning ? 'badge bg-success' : 'badge bg-secondary';
                 statusBadge.textContent = isRunning ? 'Running' : 'Stopped';
-            } else {
-                console.log('[DEBUG] Could not find scheduler status badge');
             }
         }
 
@@ -399,9 +422,6 @@
             const speakerBadge = document.getElementById('speaker-status');
             if (speakerBadge) {
                 const status = data.speaker_status.status;
-                console.log('[DEBUG] Speaker status:', status);
-
-                // Update badge class and text based on status
                 speakerBadge.className = 'badge';
                 switch (status) {
                     case 'Available':
@@ -424,21 +444,12 @@
                         speakerBadge.classList.add('bg-secondary');
                         speakerBadge.textContent = 'Unknown';
                 }
-            } else {
-                console.log('[DEBUG] Could not find speaker status badge');
             }
         }
     });
     
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
-        // Debug logging on page load
-        const initialSchedulerStatus = {{ scheduler_status|tojson }};
-        const initialSpeakerStatus = {{ speaker_status|tojson }};
-        console.log('[DEBUG] Initial scheduler status from server:', initialSchedulerStatus);
-        console.log('[DEBUG] Initial scheduler running state:', initialSchedulerStatus.running);
-        console.log('[DEBUG] Initial speaker status from server:', initialSpeakerStatus);
-
         updateNextPrayer();
         loadRecentLogs();
 
@@ -456,11 +467,74 @@
         // Update last updated time
         document.getElementById('last-updated').textContent = new Date().toLocaleString();
 
-        // Request fresh status after page load with longer delay to allow scheduler to initialize
-        console.log('[DEBUG] Requesting fresh status from server...');
         setTimeout(() => {
             socket.emit('request_status');
-        }, 2000);  // Increased delay to allow scheduler to complete initialization
+        }, 2000);
+
+        // Sync Quran status on load
+        fetch('/api/quran/status')
+            .then(r => r.json())
+            .then(data => { if (data.playing && data.station) setQuranPlaying(data.station); })
+            .catch(() => {});
     });
+
+    // ---- Quran playback ----
+    function playRandomQuran() {
+        const btn = document.getElementById('btn-quran-play');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Starting…';
+
+        fetch('/api/quran/play', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    setQuranPlaying(data.station);
+                    showAlert('Now playing: ' + data.station.name, 'success');
+                } else {
+                    showAlert('Could not start Quran: ' + (data.error || 'Unknown error'), 'danger');
+                }
+            })
+            .catch(err => showAlert('Error: ' + err, 'danger'))
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-play me-2"></i>Play Random Quran';
+            });
+    }
+
+    function stopQuranPlayback() {
+        const btn = document.getElementById('btn-quran-stop');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Stopping…';
+
+        fetch('/api/quran/stop', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                setQuranIdle();
+                if (!data.success) {
+                    showAlert('Stop may have failed: ' + (data.error || ''), 'warning');
+                }
+            })
+            .catch(err => showAlert('Error: ' + err, 'danger'))
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-stop me-2"></i>Stop Playback';
+            });
+    }
+
+    function setQuranPlaying(station) {
+        document.getElementById('quran-status-badge').textContent = 'Playing';
+        document.getElementById('quran-status-badge').className = 'badge bg-success';
+        document.getElementById('quran-station-name').textContent = station.name;
+        document.getElementById('quran-now-playing').style.display = '';
+    }
+
+    function setQuranIdle() {
+        document.getElementById('quran-status-badge').textContent = 'Idle';
+        document.getElementById('quran-status-badge').className = 'badge bg-secondary';
+        document.getElementById('quran-now-playing').style.display = 'none';
+    }
+
+    socket.on('quran_started', data => setQuranPlaying(data.station));
+    socket.on('quran_stopped', () => setQuranIdle());
 </script>
 {% endblock %}

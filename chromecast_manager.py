@@ -45,6 +45,8 @@ class ChromecastManager:
         self.discovery_complete = threading.Event()
         self.athan_playing = False
         self.athan_start_time = None
+        self.quran_playing = False
+        self.current_station = None
         self.playback_lock = threading.Lock()
 
         # Only discover if no cached devices or cache is old
@@ -1570,6 +1572,93 @@ class ChromecastManager:
                 "message": "Quran radio stream started successfully",
                 "timestamp": datetime.now().isoformat()
             }
+
+    # Curated list of Quran radio streams (add/remove as needed)
+    QURAN_STATIONS = [
+        {"name": "Holy Quran – Makkah",     "url": "https://n03.radiojar.com/8s5u5tpdtwzuv"},
+        {"name": "Quran Radio – Egypt",     "url": "http://airspectrum.cdnstream1.com:8114/1704_128"},
+        {"name": "Saudi Holy Quran",        "url": "https://qurango.net/radio/taraweeh"},
+        {"name": "Al-Quran Al-Kareem",      "url": "https://stream.radiojar.com/0tpy1h0kgtzuv"},
+        {"name": "Murattal – Al-Ghamdi",   "url": "http://stream.zeno.fm/q6f5vzuvhvhvv"},
+    ]
+
+    def play_random_quran(self):
+        """
+        Pick a random station from QURAN_STATIONS and stream it on the Chromecast.
+
+        Returns:
+            dict: JSON response with the chosen station and playback status
+        """
+        import random
+        station = random.choice(self.QURAN_STATIONS)
+        logging.info("Starting Quran stream: %s (%s)", station["name"], station["url"])
+
+        result = self.play_url_on_cast(station["url"])
+        if result.get("success"):
+            self.quran_playing = True
+            self.current_station = station
+            return {
+                "success": True,
+                "station": station,
+                "playback_result": result,
+                "message": f"Now playing: {station['name']}",
+                "timestamp": datetime.now().isoformat(),
+            }
+        else:
+            logging.error("Failed to start Quran stream: %s", result.get("error"))
+            return {
+                "success": False,
+                "station": station,
+                "error": result.get("error", "Playback failed"),
+                "playback_result": result,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+    def stop_playback(self):
+        """
+        Stop whatever is currently playing (Athan or Quran) and reset all state.
+
+        Returns:
+            dict: JSON response with stop status
+        """
+        with self.playback_lock:
+            try:
+                stopped = False
+                if self.target_device:
+                    try:
+                        self.target_device.media_controller.stop()
+                        stopped = True
+                        logging.info("Playback stopped via media controller")
+                    except Exception as e:
+                        logging.warning("media_controller.stop() raised: %s", e)
+
+                was_quran = self.quran_playing
+                was_athan = self.athan_playing
+                self.athan_playing = False
+                self.athan_start_time = None
+                self.quran_playing = False
+                self.current_station = None
+
+                return {
+                    "success": True,
+                    "stopped": stopped,
+                    "was_quran": was_quran,
+                    "was_athan": was_athan,
+                    "message": "Playback stopped",
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logging.error("Error in stop_playback: %s", e)
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+    def get_quran_status(self):
+        """Return current Quran playback state."""
+        return {
+            "success": True,
+            "playing": self.quran_playing,
+            "station": self.current_station,
+            "stations": self.QURAN_STATIONS,
+        }
 
     def start_adahn_alfajr(self):
         """

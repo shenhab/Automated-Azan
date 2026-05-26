@@ -712,6 +712,54 @@ def toggle_friday_kahf():
         }), 500
 
 
+@app.route('/api/quran/stations', methods=['GET'])
+def api_quran_stations():
+    """Return the list of available Quran radio stations."""
+    return jsonify({"success": True, "stations": ChromecastManager.QURAN_STATIONS})
+
+
+@app.route('/api/quran/play', methods=['POST'])
+def api_quran_play():
+    """Start a random Quran radio stream on the configured speaker."""
+    try:
+        if not web_cast_manager:
+            return jsonify({"success": False, "error": "Chromecast manager not available"}), 503
+
+        result = web_cast_manager.play_random_quran()
+        if result.get("success"):
+            socketio.emit('quran_started', {
+                'station': result['station'],
+                'timestamp': datetime.now().isoformat(),
+            })
+        return jsonify(result)
+    except Exception as e:
+        logging.error(f"Error starting Quran playback: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/quran/stop', methods=['POST'])
+def api_quran_stop():
+    """Stop whatever is currently playing on the configured speaker."""
+    try:
+        if not web_cast_manager:
+            return jsonify({"success": False, "error": "Chromecast manager not available"}), 503
+
+        result = web_cast_manager.stop_playback()
+        socketio.emit('quran_stopped', {'timestamp': datetime.now().isoformat()})
+        return jsonify(result)
+    except Exception as e:
+        logging.error(f"Error stopping playback: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/quran/status', methods=['GET'])
+def api_quran_status():
+    """Return current Quran playback state."""
+    if not web_cast_manager:
+        return jsonify({"success": False, "playing": False, "station": None})
+    return jsonify(web_cast_manager.get_quran_status())
+
+
 @app.route('/api/save-config', methods=['POST'])
 def api_save_config():
     """API endpoint to save configuration."""
