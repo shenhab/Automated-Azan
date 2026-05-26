@@ -540,7 +540,7 @@ def reload_config():
         socketio.emit('config_reloaded', {
             'message': 'Configuration reloaded successfully',
             'timestamp': datetime.now().isoformat()
-        }, broadcast=True)
+        })
         return jsonify({
             "success": True,
             "message": "Configuration reloaded successfully",
@@ -637,7 +637,7 @@ def api_scheduler_refresh():
             socketio.emit('scheduler_refreshed', {
                 'scheduled_count': result.get('scheduled_count', 0),
                 'timestamp': datetime.now().isoformat()
-            }, broadcast=True)
+            })
 
         return jsonify(result)
     except Exception as e:
@@ -661,7 +661,7 @@ def toggle_pre_fajr():
             socketio.emit('pre_fajr_toggled', {
                 'enabled': enable,
                 'timestamp': datetime.now().isoformat()
-            }, broadcast=True)
+            })
 
             return jsonify(result)
         else:
@@ -694,7 +694,7 @@ def toggle_friday_kahf():
             socketio.emit('friday_kahf_toggled', {
                 'enabled': enable,
                 'timestamp': datetime.now().isoformat()
-            }, broadcast=True)
+            })
 
             return jsonify(result)
         else:

@@ -101,8 +101,8 @@ deploy-check:
 
 docker-build:
 	@echo "🐳 Building Docker image..."
-	@echo "   � Building unified container (Prayer scheduler + Web interface)..."
-	@$(DOCKER_COMPOSE) build --no-cache
+	@echo "   🏗️  Building unified container (Prayer scheduler + Web interface)..."
+	@$(DOCKER_COMPOSE) build
 
 docker-run:
 	@echo "🐳 Starting Docker container..."
