@@ -234,9 +234,9 @@
             const timeStr = job.scheduled_time || '—';
 
             if (isDone) {
-                return `<tr class="table-secondary">
+                return `<tr style="opacity:0.55; background-color: var(--bs-secondary-bg);">
                     <td class="text-muted">${job.label || '—'}</td>
-                    <td>${typeBadge(job.type)}</td>
+                    <td><span class="badge bg-secondary">${(TYPE_CONFIG[job.type] || TYPE_CONFIG.unknown).label}</span></td>
                     <td class="font-monospace text-muted">${timeStr}</td>
                     <td><span class="text-success fw-semibold">
                         <i class="fas fa-check-circle me-1"></i>Done
@@ -251,7 +251,7 @@
                 <td class="fw-semibold">${job.label || '—'}</td>
                 <td>${typeBadge(job.type)}</td>
                 <td class="font-monospace">${timeStr}</td>
-                <td class="font-monospace" data-next-run="${job.next_run || ''}">${countdown}</td>
+                <td class="font-monospace text-muted" data-next-run="${job.next_run || ''}">${countdown}</td>
             </tr>`;
         }).join('');
     }

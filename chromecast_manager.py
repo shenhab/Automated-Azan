@@ -1551,7 +1551,7 @@ class ChromecastManager:
         Returns:
             dict: JSON response with Quran radio start status
         """
-        quran_radio_streaming = "https://n03.radiojar.com/8s5u5tpdtwzuv?rj-ttl=5&rj-tok=AAABlVflrAAAJLe-IOoD4VTShA"
+        quran_radio_streaming = self.QURAN_STATION["url"]
 
         playback_result = self.play_url_on_cast(quran_radio_streaming)
 
@@ -1574,23 +1574,10 @@ class ChromecastManager:
             }
 
     # Curated list of Quran radio streams (add/remove as needed)
-    QURAN_STATIONS = [
-        {"name": "Holy Quran – Makkah",     "url": "https://n03.radiojar.com/8s5u5tpdtwzuv"},
-        {"name": "Quran Radio – Egypt",     "url": "http://airspectrum.cdnstream1.com:8114/1704_128"},
-        {"name": "Saudi Holy Quran",        "url": "https://qurango.net/radio/taraweeh"},
-        {"name": "Al-Quran Al-Kareem",      "url": "https://stream.radiojar.com/0tpy1h0kgtzuv"},
-        {"name": "Murattal – Al-Ghamdi",   "url": "http://stream.zeno.fm/q6f5vzuvhvhvv"},
-    ]
+    QURAN_STATION = {"name": "Mahmoud Khalil Al-Hussary (Warsh)", "url": "https://backup.qurango.net/radio/mahmoud_khalil_alhussary_warsh"}
 
     def play_random_quran(self):
-        """
-        Pick a random station from QURAN_STATIONS and stream it on the Chromecast.
-
-        Returns:
-            dict: JSON response with the chosen station and playback status
-        """
-        import random
-        station = random.choice(self.QURAN_STATIONS)
+        station = self.QURAN_STATION
         logging.info("Starting Quran stream: %s (%s)", station["name"], station["url"])
 
         result = self.play_url_on_cast(station["url"])
@@ -1600,7 +1587,6 @@ class ChromecastManager:
             return {
                 "success": True,
                 "station": station,
-                "playback_result": result,
                 "message": f"Now playing: {station['name']}",
                 "timestamp": datetime.now().isoformat(),
             }
@@ -1610,7 +1596,6 @@ class ChromecastManager:
                 "success": False,
                 "station": station,
                 "error": result.get("error", "Playback failed"),
-                "playback_result": result,
                 "timestamp": datetime.now().isoformat(),
             }
 
@@ -1657,7 +1642,7 @@ class ChromecastManager:
             "success": True,
             "playing": self.quran_playing,
             "station": self.current_station,
-            "stations": self.QURAN_STATIONS,
+            "station_info": self.QURAN_STATION,
         }
 
     def start_adahn_alfajr(self):

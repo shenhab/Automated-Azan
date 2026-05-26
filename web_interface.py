@@ -715,7 +715,7 @@ def toggle_friday_kahf():
 @app.route('/api/quran/stations', methods=['GET'])
 def api_quran_stations():
     """Return the list of available Quran radio stations."""
-    return jsonify({"success": True, "stations": ChromecastManager.QURAN_STATIONS})
+    return jsonify({"success": True, "station": ChromecastManager.QURAN_STATION})
 
 
 @app.route('/api/quran/play', methods=['POST'])
