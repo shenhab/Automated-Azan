@@ -4,16 +4,14 @@
 # Detect Docker Compose command (docker-compose vs docker compose)
 DOCKER_COMPOSE := $(shell if command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; elif docker compose version >/dev/null 2>&1; then echo "docker compose"; else echo "docker-compose"; fi)
 
-docker-rebuild: docker-stop docker-build docker-run
-	@echo "🔄 Rebuilt and restarted Docker container"
-
 docker-fix-health: docker-stop docker-build docker-run
 	@echo "🏥 Fixed health check and restarted container"
 	@echo "   💡 This rebuilds the container with health check fixes"
 
 docker-fix-athan: docker-stop docker-build docker-run
 	@echo "🎵 Fixed Athan collision protection and restarted container"
-	@echo "   💡 Prevents Athan from interrupting itself during playback"HONY: help setup install run web test clean deploy docker-build docker-run docker-logs docker-stop
+	@echo "   💡 Prevents Athan from interrupting itself during playback"
+HONY: help setup install run web test clean deploy docker-build docker-run docker-logs docker-stop
 
 # Default target
 .DEFAULT_GOAL := help
@@ -117,7 +115,8 @@ docker-logs:
 
 docker-stop:
 	@echo "🛑 Stopping Docker container..."
-	@$(DOCKER_COMPOSE) down
+	@$(DOCKER_COMPOSE) down || true
+	@docker rm -f athan >/dev/null 2>&1 || true
 
 docker-restart:
 	@echo "� Restarting Docker container..."
