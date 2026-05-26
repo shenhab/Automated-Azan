@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dbus \
     # iputils-ping for network checks in entrypoint
     iputils-ping \
-    # Temporary: gcc for building Python packages (will be removed)
-    gcc \
+    # curl needed for uv installer
+    curl \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -23,30 +23,18 @@ WORKDIR /app
 RUN mkdir -p /var/log /app/data /app/logs /app/config && \
     chmod 755 /var/log /app/data /app/logs /app/config
 
-# Install uv for fast Python package management (no-cache for smaller image)
-RUN pip install --no-cache-dir --upgrade pip uv
+# Install uv using the official installer, place it globally
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Copy package configuration files first for better layer caching
-COPY pyproject.toml ./
-# Copy uv.lock if exists for reproducible builds
-COPY uv.lock* ./
-# Copy requirements.txt as fallback for compatibility
-COPY requirements.txt* ./
+COPY pyproject.toml uv.lock ./
 
-# Install dependencies using uv (system-wide for Docker)
-RUN if [ -f "requirements.txt" ]; then \
-        # Use requirements.txt for system-wide installation in Docker
-        uv pip install --system -r requirements.txt; \
-    elif [ -f "uv.lock" ]; then \
-        # Fallback to uv sync if no requirements.txt
-        uv sync --no-dev --frozen; \
-    else \
-        echo "ERROR: No dependency files found"; exit 1; \
-    fi \
-    # Remove build dependencies after Python packages are installed
-    && apt-get remove -y gcc \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/*
+# Install dependencies using uv sync with the lockfile for reproducible builds
+RUN uv sync --no-dev --frozen
+
+# Add the venv to PATH so python/uvicorn etc. resolve without 'uv run'
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Copy application files
 COPY . .
@@ -55,16 +43,8 @@ COPY . .
 RUN chmod +x docker-entrypoint.sh
 
 # Create default configuration if none exists
-RUN if [ ! -f "adahn.config" ]; then \
-    echo "[Settings]" > adahn.config && \
-    echo "# Your Chromecast/Google Home speaker name (case-sensitive)" >> adahn.config && \
-    echo "speakers-group-name = athan" >> adahn.config && \
-    echo "" >> adahn.config && \
-    echo "# Prayer time location (naas, icci, or custom location)" >> adahn.config && \
-    echo "location = naas" >> adahn.config && \
-    echo "" >> adahn.config && \
-    echo "# Optional: Enable pre-Fajr Quran" >> adahn.config && \
-    echo "# pre_fajr_enabled = True" >> adahn.config; \
+RUN if [ ! -f "azan.toml" ]; then \
+    printf '[speaker]\ngroup_name = "athan"\n\n[prayer]\nlocation = "naas"\npre_fajr_enabled = false\npre_fajr_minutes = 30\n\n[web]\nhost = "0.0.0.0"\nport = 5000\n\n[log]\nlevel = "INFO"\nfile_path = "logs/azan.log"\n' > azan.toml; \
     fi
 
 # Create placeholder files for data directory

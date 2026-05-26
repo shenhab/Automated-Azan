@@ -15,24 +15,29 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 @pytest.fixture
-def temp_config_file():
-    """Create a temporary config file for testing."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.config', delete=False) as f:
-        # Using the actual format expected by ConfigManager (Settings section)
-        config_content = """[Settings]
-location = new-york-usa
-speakers-group-name = Test Speakers
-default-athan-source = naas
-volume-level = 70
+def temp_config_file(tmp_path):
+    """Create a temporary TOML config file for testing."""
+    config_content = """
+[speaker]
+group_name = "Test Speakers"
+
+[prayer]
+location = "naas"
+pre_fajr_enabled = false
+pre_fajr_minutes = 30
+
+[web]
+host = "0.0.0.0"
+port = 5000
+secret_key = "test-secret"
+
+[log]
+level = "INFO"
+file_path = "logs/azan.log"
 """
-        f.write(config_content)
-        temp_path = f.name
-
-    yield temp_path
-
-    # Cleanup
-    if os.path.exists(temp_path):
-        os.unlink(temp_path)
+    config_file = tmp_path / "test_azan.toml"
+    config_file.write_text(config_content)
+    return str(config_file)
 
 
 @pytest.fixture

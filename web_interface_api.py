@@ -10,11 +10,10 @@ All methods return JSON responses for API compatibility.
 import os
 import json
 import logging
-import configparser
-import shutil
 from datetime import datetime
 from prayer_times_fetcher import PrayerTimesFetcher
 from chromecast_manager import ChromecastManager
+from settings import settings
 
 
 class WebInterfaceAPI:
@@ -25,11 +24,6 @@ class WebInterfaceAPI:
 
     def __init__(self):
         """Initialize the Web Interface API."""
-        self.config_paths = [
-            '/app/config/adahn.config',  # Docker volume location (writable)
-            'config/adahn.config',       # Local config directory
-            'adahn.config'               # Default location (may be read-only in Docker)
-        ]
         self.current_config = {}
         self.prayer_times = {}
         self.prayer_times_last_updated = None
@@ -37,133 +31,49 @@ class WebInterfaceAPI:
         self.cast_manager = None
 
     def load_config(self):
-        """
-        Load current configuration from multiple possible locations.
-
-        Returns:
-            dict: JSON response with configuration loading status
-        """
+        """Load current configuration from the settings singleton."""
         try:
-            config = configparser.ConfigParser()
-            config_loaded = False
-            loaded_from = None
-
-            for config_path in self.config_paths:
-                if os.path.exists(config_path):
-                    try:
-                        config.read(config_path)
-                        loaded_from = config_path
-                        config_loaded = True
-                        logging.info(f"Successfully loaded config from {config_path}")
-                        break
-                    except Exception as e:
-                        logging.warning(f"Failed to load config from {config_path}: {e}")
-                        continue
-
-            if not config_loaded:
-                return {
-                    "success": False,
-                    "error": "No configuration file found",
-                    "searched_paths": self.config_paths,
-                    "timestamp": datetime.now().isoformat()
-                }
-
-            # Convert config to dictionary
-            self.current_config = {}
-            for section in config.sections():
-                self.current_config[section] = dict(config[section])
-
+            self.current_config = settings.as_web_dict()
             return {
                 "success": True,
-                "config_file": loaded_from,
-                "searched_paths": self.config_paths,
-                "sections": list(self.current_config.keys()),
                 "config": self.current_config,
-                "message": f"Configuration loaded successfully from {loaded_from}",
-                "timestamp": datetime.now().isoformat()
+                "message": "Configuration loaded successfully",
+                "timestamp": datetime.now().isoformat(),
             }
-
         except Exception as e:
             logging.error(f"Error loading configuration: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "searched_paths": self.config_paths,
-                "timestamp": datetime.now().isoformat()
-            }
+            return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
 
-    def save_config(self, config_data):
+    def save_config(self, config_data: dict):
         """
-        Save configuration to file.
-
-        Args:
-            config_data (dict): Configuration data to save
-
-        Returns:
-            dict: JSON response with save status
+        Save configuration from a dict. Accepts either the new flat web dict
+        or a section-keyed dict for backwards compatibility.
         """
         try:
-            # Find writable config path
-            writable_paths = [
-                '/app/config/adahn.config',  # Docker volume (preferred)
-                'config/adahn.config',       # Local config directory
-                'adahn.config'               # Current directory (fallback)
-            ]
+            # Support flat web-dict format {"speakers_group_name": ..., "location": ..., ...}
+            updates = {}
+            if "speakers_group_name" in config_data:
+                updates["speaker"] = {"group_name": config_data["speakers_group_name"]}
+            if "location" in config_data:
+                updates.setdefault("prayer", {})["location"] = config_data["location"]
+            if "pre_fajr_enabled" in config_data:
+                updates.setdefault("prayer", {})["pre_fajr_enabled"] = config_data["pre_fajr_enabled"]
 
-            saved_to = None
-            for config_path in writable_paths:
-                try:
-                    # Ensure directory exists
-                    config_dir = os.path.dirname(config_path)
-                    if config_dir and not os.path.exists(config_dir):
-                        os.makedirs(config_dir, exist_ok=True)
+            if updates:
+                settings.update(**updates)
 
-                    # Create ConfigParser object
-                    config = configparser.ConfigParser()
-
-                    # Convert dict to ConfigParser format
-                    for section_name, section_data in config_data.items():
-                        config.add_section(section_name)
-                        for key, value in section_data.items():
-                            config.set(section_name, key, str(value))
-
-                    # Try to write to this path
-                    with open(config_path, 'w') as configfile:
-                        config.write(configfile)
-
-                    saved_to = config_path
-                    logging.info(f"Configuration saved to {config_path}")
-                    break
-
-                except (PermissionError, OSError) as e:
-                    logging.warning(f"Cannot write to {config_path}: {e}")
-                    continue
-
-            if saved_to:
-                # Update current config
-                self.current_config = config_data
-                return {
-                    "success": True,
-                    "config_file": saved_to,
-                    "config": config_data,
-                    "message": f"Configuration saved successfully to {saved_to}",
-                    "timestamp": datetime.now().isoformat()
-                }
-            else:
-                return {
-                    "success": False,
-                    "error": "No writable configuration path found",
-                    "attempted_paths": writable_paths,
-                    "timestamp": datetime.now().isoformat()
-                }
-
+            path = settings.save()
+            self.current_config = settings.as_web_dict()
+            return {
+                "success": True,
+                "config_file": str(path),
+                "config": self.current_config,
+                "message": f"Configuration saved to {path}",
+                "timestamp": datetime.now().isoformat(),
+            }
         except Exception as e:
             logging.error(f"Error saving configuration: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            }
+            return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
 
     def discover_chromecasts(self):
         """

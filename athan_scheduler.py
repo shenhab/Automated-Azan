@@ -1,8 +1,10 @@
 import time
 import json
 import os
+import random
 import schedule
 import logging
+import threading
 from datetime import datetime, timedelta
 from dateutil import tz
 from prayer_times_fetcher import PrayerTimesFetcher
@@ -142,9 +144,8 @@ class AthanScheduler:
             logging.info(f"[DEBUG] Available prayer times: {self.prayer_times}")
 
             # Check if pre-Fajr Quran is enabled
-            from app_config import get_app_config
-            config = get_app_config()
-            pre_fajr_enabled = config.prayer.pre_fajr_enabled
+            from settings import settings
+            pre_fajr_enabled = settings.prayer.pre_fajr_enabled
 
             # Use the existing chromecast_manager instance instead of creating a new one
             chromecast_manager = self.chromecast_manager
@@ -194,7 +195,7 @@ class AthanScheduler:
                             "time": time_tuple,
                             "reason": "Past time"
                         })
-                        logging.warning("Skipping %s at %s as it's in the past.", prayer, time_tuple)
+                        logging.info("Skipping %s at %s as it's in the past.", prayer, time_tuple)
 
                 except ValueError as e:
                     logging.error("Error parsing time for prayer %s: %s", prayer, e)
@@ -450,7 +451,7 @@ class AthanScheduler:
 
     def schedule_pre_fajr_quran_for_time(self, fajr_time):
         """
-        Schedule Quran recitation 30 minutes before given Fajr time.
+        Schedule Quran recitation before Fajr using the configured pre_fajr_minutes offset.
 
         Args:
             fajr_time (datetime): The Fajr prayer time
@@ -459,20 +460,21 @@ class AthanScheduler:
             dict: JSON response with scheduling result
         """
         try:
-            # Calculate 30 minutes before Fajr
-            pre_fajr_dt = fajr_time - timedelta(minutes=30)
+            from settings import settings
+            offset = settings.prayer.pre_fajr_minutes
+            pre_fajr_dt = fajr_time - timedelta(minutes=offset)
             pre_fajr_time = pre_fajr_dt.strftime("%H:%M")
 
-            # Schedule the pre-Fajr Quran
             schedule.every().day.at(pre_fajr_time).do(
                 self.play_pre_fajr_quran
             ).tag('pre_fajr')
 
-            logging.info(f"Scheduled pre-Fajr Quran at {pre_fajr_time} (30 min before Fajr at {fajr_time.strftime('%H:%M')}")
+            logging.info(f"Scheduled pre-Fajr Quran at {pre_fajr_time} ({offset} min before Fajr at {fajr_time.strftime('%H:%M')})")
             return {
                 "success": True,
                 "scheduled_time": pre_fajr_time,
-                "fajr_time": fajr_time.strftime('%H:%M')
+                "fajr_time": fajr_time.strftime('%H:%M'),
+                "offset_minutes": offset,
             }
         except Exception as e:
             logging.error(f"Failed to schedule pre-Fajr Quran: {e}")
@@ -480,57 +482,121 @@ class AthanScheduler:
 
     def play_pre_fajr_quran(self):
         """
-        Play Quran recitation before Fajr.
-
-        Returns:
-            dict: JSON response with playback result
+        Start a background playlist of shuffled Quran recitations from
+        server13.mp3quran.net/husr/ that plays until pre_fajr_minutes have elapsed.
         """
-        logging.info("Playing pre-Fajr Quran recitation")
+        from settings import settings
 
-        # List of Quran recitation URLs (you can expand this)
-        quran_urls = [
-            "https://server6.mp3quran.net/qtm/001.mp3",  # Al-Fatiha
-            "https://server6.mp3quran.net/qtm/112.mp3",  # Al-Ikhlas
-            "https://server6.mp3quran.net/qtm/113.mp3",  # Al-Falaq
-            "https://server6.mp3quran.net/qtm/114.mp3",  # An-Nas
+        _BASE = "https://server13.mp3quran.net/husr"
+        _SUBDIRS = [
+            "",
+            "Almusshaf-Al-Mojawwad",
+            "Rewayat-Aldori-A-n-Abi-Amr",
+            "Rewayat-Qalon-A-n-Nafi",
+            "Rewayat-Warsh-A-n-Nafi",
         ]
+        all_urls = [
+            f"{_BASE}/{subdir + '/' if subdir else ''}{n:03d}.mp3"
+            for subdir in _SUBDIRS
+            for n in range(1, 115)
+        ]
+        random.shuffle(all_urls)
 
-        # Rotate through different surahs (you could make this configurable)
-        import random
-        quran_url = random.choice(quran_urls)
+        duration_seconds = settings.prayer.pre_fajr_minutes * 60
 
-        result = self.chromecast_manager.play_media(
-            quran_url,
-            content_type="audio/mpeg",
-            title="Pre-Fajr Quran Recitation"
+        # Stop any previous playlist still running
+        if hasattr(self, '_pre_fajr_stop_event') and self._pre_fajr_stop_event:
+            self._pre_fajr_stop_event.set()
+
+        stop_event = threading.Event()
+        self._pre_fajr_stop_event = stop_event
+
+        t = threading.Thread(
+            target=self._run_quran_playlist,
+            args=(all_urls, duration_seconds, stop_event),
+            daemon=True,
+            name="pre-fajr-quran",
         )
+        t.start()
 
-        if result.get('success'):
-            logging.info("Pre-Fajr Quran started successfully")
-        else:
-            logging.error(f"Failed to play pre-Fajr Quran: {result.get('error')}")
+        logging.info(
+            f"Pre-Fajr Quran playlist started: {len(all_urls)} tracks shuffled, "
+            f"{settings.prayer.pre_fajr_minutes}-minute window"
+        )
+        return {
+            "success": True,
+            "tracks_available": len(all_urls),
+            "duration_minutes": settings.prayer.pre_fajr_minutes,
+            "message": f"Pre-Fajr Quran playlist started ({settings.prayer.pre_fajr_minutes} min window)",
+            "timestamp": datetime.now().isoformat(),
+        }
 
-        return result
+    def _run_quran_playlist(self, urls, duration_seconds, stop_event):
+        """Background thread: play URLs sequentially until the window closes or stop is requested."""
+        end_time = time.time() + duration_seconds
+
+        for url in urls:
+            if stop_event.is_set() or time.time() >= end_time:
+                break
+
+            logging.info(f"Pre-Fajr Quran: playing {url}")
+            result = self.chromecast_manager.play_url_on_cast(url)
+
+            if not result.get('success'):
+                logging.warning(f"Pre-Fajr Quran: failed to play {url}, skipping")
+                continue
+
+            self._wait_for_track_end(end_time, stop_event)
+
+        logging.info("Pre-Fajr Quran playlist finished")
+
+    def _wait_for_track_end(self, end_time, stop_event, poll_interval=5):
+        """Poll Chromecast status until the current track ends, stop fires, or end_time passes."""
+        # Wait for playback to start (up to ~20s)
+        for _ in range(4):
+            if stop_event.is_set() or time.time() >= end_time:
+                return
+            try:
+                mc = self.chromecast_manager.target_device.media_controller
+                mc.update_status()
+                if mc.status.player_state in ("PLAYING", "BUFFERING"):
+                    break
+            except Exception:
+                pass
+            time.sleep(poll_interval)
+
+        # Wait for IDLE (track ended)
+        while time.time() < end_time and not stop_event.is_set():
+            try:
+                mc = self.chromecast_manager.target_device.media_controller
+                mc.update_status()
+                if mc.status.player_state in ("IDLE", "UNKNOWN", None, ""):
+                    return
+            except Exception:
+                pass
+            time.sleep(poll_interval)
 
     def cancel_pre_fajr_quran(self):
         """
-        Cancel scheduled pre-Fajr Quran.
+        Cancel scheduled pre-Fajr Quran and stop any running playlist thread.
 
         Returns:
             dict: JSON response with cancellation result
         """
         try:
-            # Get all jobs with 'pre_fajr' tag
-            pre_fajr_jobs = [job for job in schedule.jobs if 'pre_fajr' in getattr(job, 'tags', set())]
+            # Stop the background playlist thread if running
+            if hasattr(self, '_pre_fajr_stop_event') and self._pre_fajr_stop_event:
+                self._pre_fajr_stop_event.set()
+                self._pre_fajr_stop_event = None
 
-            # Clear jobs tagged with 'pre_fajr'
+            pre_fajr_jobs = [job for job in schedule.jobs if 'pre_fajr' in getattr(job, 'tags', set())]
             schedule.clear('pre_fajr')
 
             logging.info(f"Cancelled {len(pre_fajr_jobs)} pre-Fajr Quran schedule(s)")
             return {
                 "success": True,
                 "message": f"Pre-Fajr Quran cancelled ({len(pre_fajr_jobs)} job(s) removed)",
-                "jobs_removed": len(pre_fajr_jobs)
+                "jobs_removed": len(pre_fajr_jobs),
             }
         except Exception as e:
             logging.error(f"Error cancelling pre-Fajr Quran: {e}")

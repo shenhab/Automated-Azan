@@ -1,0 +1,28 @@
+# Automated Azan Configuration
+# Edit this file — changes apply automatically without restart.
+
+[speaker]
+# Name of your Google Home speaker or speaker group (case-sensitive).
+# Create a speaker group in the Google Home app, then paste the exact name here.
+group_name = "athan"
+
+[prayer]
+# Prayer time source:
+#   "naas" — Dublin/Naas, Ireland (Naas mosque timetable)
+#   "icci" — Islamic Cultural Centre of Ireland
+location = "naas"
+
+# Play Quran recitation 30 minutes before Fajr
+pre_fajr_enabled = false
+pre_fajr_minutes = 30
+
+[web]
+host = "0.0.0.0"
+port = 5000
+# Change this to a long random string before exposing to the internet
+secret_key = "automated-azan-secret-key"
+
+[log]
+# DEBUG, INFO, WARNING, ERROR, CRITICAL
+level = "INFO"
+file_path = "logs/azan.log"

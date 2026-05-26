@@ -1,434 +1,178 @@
 """
-Configuration File Watcher Module
+Configuration File Watcher
 
-This module provides real-time configuration file monitoring and automatic
-reload capabilities for the Automated Azan application.
+Watches azan.toml for changes and hot-reloads settings into the running
+scheduler without a restart.
 """
 
-import asyncio
+import hashlib
+import logging
 import os
 import time
-import logging
-import hashlib
-from pathlib import Path
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-from typing import Optional, Dict, Any, List, Callable
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Callable, Dict, Optional
+
 import schedule
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
+
+from settings import settings, _find_config_file
 
 logger = logging.getLogger(__name__)
 
 
-class ConfigFileWatcher(FileSystemEventHandler):
-    """
-    Watches configuration file for changes and triggers reload.
-    """
+class _FileWatcher(FileSystemEventHandler):
+    """Debounced filesystem event handler for a single file."""
 
-    def __init__(self, config_path: str, callback: Callable, debounce_seconds: float = 1.0):
-        """
-        Initialize the config watcher.
-
-        Args:
-            config_path: Path to the configuration file
-            callback: Function to call when config changes
-            debounce_seconds: Minimum time between reloads to prevent rapid firing
-        """
-        self.config_path = Path(config_path).resolve()
+    def __init__(self, config_path: Path, callback: Callable, debounce: float = 2.0):
+        self.config_path = config_path.resolve()
         self.callback = callback
-        self.debounce_seconds = debounce_seconds
-        self.last_reload_time = 0
-        self.last_hash = self._get_file_hash()
+        self.debounce = debounce
+        self._last_reload = 0.0
+        self._last_hash = self._hash()
 
-    def _get_file_hash(self) -> str:
-        """Calculate MD5 hash of the config file."""
+    def _hash(self) -> str:
         try:
-            with open(self.config_path, 'rb') as f:
-                return hashlib.md5(f.read()).hexdigest()
-        except Exception as e:
-            logger.error(f"Failed to hash config file: {e}")
+            return hashlib.md5(self.config_path.read_bytes()).hexdigest()
+        except Exception:
             return ""
 
     def on_modified(self, event):
-        """Handle file modification events."""
-        if not event.src_path.endswith(self.config_path.name):
+        if not str(event.src_path).endswith(self.config_path.name):
             return
-
-        current_hash = self._get_file_hash()
-        if current_hash == self.last_hash:
-            logger.debug("File modified but content unchanged, skipping reload")
+        new_hash = self._hash()
+        if new_hash == self._last_hash:
             return
-
-        # Debounce rapid changes
-        current_time = time.time()
-        if current_time - self.last_reload_time < self.debounce_seconds:
-            logger.debug("Debouncing config reload (too soon after last reload)")
+        now = time.time()
+        if now - self._last_reload < self.debounce:
             return
-
-        self.last_reload_time = current_time
-        self.last_hash = current_hash
-
-        logger.info(f"Config file changed, triggering reload")
-
-        # Try async callback first, fall back to sync
+        self._last_reload = now
+        self._last_hash = new_hash
+        logger.info("Config file changed — reloading")
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(self.callback())
-            else:
-                # Run synchronously if no event loop
-                if asyncio.iscoroutinefunction(self.callback):
-                    asyncio.run(self.callback())
-                else:
-                    self.callback()
-        except RuntimeError:
-            # No event loop, use sync callback
-            if asyncio.iscoroutinefunction(self.callback):
-                # Create new event loop for async callback
-                asyncio.run(self.callback())
-            else:
-                self.callback()
+            self.callback()
+        except Exception as exc:
+            logger.error("Error in config reload callback: %s", exc, exc_info=True)
+
+    @property
+    def last_reload_time(self) -> float:
+        return self._last_reload
+
+    @property
+    def last_hash(self) -> str:
+        return self._last_hash
 
 
 class ConfigWatcher:
     """
-    Main configuration watcher that handles config changes and updates components.
+    Watches azan.toml and propagates changes to the live scheduler.
     """
 
-    def __init__(self, config_manager, scheduler):
-        """
-        Initialize the config watcher.
-
-        Args:
-            config_manager: ConfigManager instance
-            scheduler: AthanScheduler instance
-        """
-        self.config_manager = config_manager
+    def __init__(self, scheduler):
         self.scheduler = scheduler
-        self.observer = None
-        self.previous_config = {}
-        self.file_watcher = None
+        self.observer: Optional[Observer] = None
+        self._file_watcher: Optional[_FileWatcher] = None
 
-    def start(self):
-        """
-        Start watching config file.
+    def start(self) -> Dict[str, Any]:
+        if self.observer and self.observer.is_alive():
+            return {"success": False, "message": "Already watching", "timestamp": datetime.now().isoformat()}
 
-        Returns:
-            dict: Status of the watch operation
-        """
+        watch_path = _find_config_file() or Path("azan.toml")
+
         try:
-            if self.observer and self.observer.is_alive():
-                return {
-                    "success": False,
-                    "message": "Already watching",
-                    "timestamp": datetime.now().isoformat()
-                }
-
-            # Get initial config snapshot
-            self.previous_config = self.config_manager.get_config_snapshot()
-
-            # Determine which config file to watch (prioritize writable locations)
-            config_paths_to_watch = [
-                '/app/config/adahn.config',  # Docker volume location (writable)
-                'config/adahn.config',       # Local config directory
-                self.config_manager.config_file  # Original config file
-            ]
-
-            watch_file = None
-            for config_path in config_paths_to_watch:
-                if os.path.exists(config_path):
-                    watch_file = config_path
-                    logger.info(f"Found existing config file to watch: {config_path}")
-                    break
-
-            # If no config exists, watch the primary writable location where saves will happen
-            if not watch_file:
-                watch_file = '/app/config/adahn.config'
-                logger.info(f"No existing config found, will watch primary save location: {watch_file}")
-
-            # Create file watcher
-            self.file_watcher = ConfigFileWatcher(
-                watch_file,
-                self.handle_config_change,
-                debounce_seconds=2.0
-            )
-
-            # Setup observer
+            self._file_watcher = _FileWatcher(watch_path, self._on_change)
             self.observer = Observer()
-            watch_dir = str(Path(watch_file).parent.resolve())
-
-            # Ensure watch directory exists
+            watch_dir = str(watch_path.resolve().parent)
             os.makedirs(watch_dir, exist_ok=True)
-
-            self.observer.schedule(self.file_watcher, watch_dir, recursive=False)
+            self.observer.schedule(self._file_watcher, watch_dir, recursive=False)
             self.observer.start()
-
-            logger.info(f"Started watching config: {watch_file}")
+            logger.info("Watching config file: %s", watch_path)
             return {
                 "success": True,
                 "message": "Config watcher started",
-                "watching": watch_file,
-                "timestamp": datetime.now().isoformat()
+                "watching": str(watch_path),
+                "timestamp": datetime.now().isoformat(),
             }
+        except Exception as exc:
+            logger.error("Failed to start config watcher: %s", exc)
+            return {"success": False, "error": str(exc), "timestamp": datetime.now().isoformat()}
 
-        except Exception as e:
-            logger.error(f"Failed to start config watcher: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            }
-
-    def stop(self):
-        """
-        Stop watching config file.
-
-        Returns:
-            dict: Status of stop operation
-        """
+    def stop(self) -> Dict[str, Any]:
         try:
             if self.observer and self.observer.is_alive():
                 self.observer.stop()
                 self.observer.join(timeout=5)
-                logger.info("Config watcher stopped")
-                return {
-                    "success": True,
-                    "message": "Config watcher stopped",
-                    "timestamp": datetime.now().isoformat()
-                }
+                return {"success": True, "message": "Config watcher stopped", "timestamp": datetime.now().isoformat()}
+            return {"success": False, "message": "Not running", "timestamp": datetime.now().isoformat()}
+        except Exception as exc:
+            return {"success": False, "error": str(exc), "timestamp": datetime.now().isoformat()}
+
+    def _on_change(self):
+        """Reload settings and apply any changes to the live scheduler."""
+        old_location = settings.prayer.location
+        old_speaker = settings.speaker.group_name
+        old_pre_fajr = settings.prayer.pre_fajr_enabled
+
+        settings.reload()
+
+        if settings.prayer.location != old_location:
+            self._apply_location_change(old_location, settings.prayer.location)
+
+        if settings.speaker.group_name != old_speaker:
+            self._apply_speaker_change(old_speaker, settings.speaker.group_name)
+
+        if settings.prayer.pre_fajr_enabled != old_pre_fajr:
+            self._apply_pre_fajr_change(settings.prayer.pre_fajr_enabled)
+
+    def _apply_location_change(self, old: str, new: str):
+        logger.info("Location changed: %s → %s", old, new)
+        schedule.clear()
+        self.scheduler.location = new
+        if hasattr(self.scheduler.fetcher, "_cache"):
+            self.scheduler.fetcher._cache.clear()
+        result = self.scheduler.load_prayer_times()
+        if result.get("success"):
+            schedule_result = self.scheduler.schedule_prayers()
+            if schedule_result.get("success"):
+                logger.info("Location change applied — %d prayers rescheduled", schedule_result.get("scheduled_count", 0))
             else:
-                return {
-                    "success": False,
-                    "message": "Not watching",
-                    "timestamp": datetime.now().isoformat()
-                }
-        except Exception as e:
-            logger.error(f"Error stopping config watcher: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            }
-
-    def handle_config_change(self):
-        """Handle config file changes."""
-        try:
-            logger.info("Handling configuration change...")
-
-            # Reload config
-            result = self.config_manager.reload_config()
-            if not result.get('success'):
-                logger.error(f"Failed to reload config: {result.get('error')}")
-                return
-
-            # Get new config
-            new_config = self.config_manager.get_config_snapshot()
-
-            # Detect changes
-            changes = self.config_manager.detect_changes(self.previous_config, new_config)
-
-            if not changes:
-                logger.info("No actual configuration changes detected")
-                return
-
-            logger.info(f"Configuration changes detected: {changes}")
-
-            # Handle changes
-            for section, items in changes.items():
-                if section == 'Settings':
-                    for key, (old_val, new_val) in items.items():
-                        self._handle_setting_change(key, old_val, new_val)
-
-            # Update stored config
-            self.previous_config = new_config
-
-            logger.info("Configuration changes applied successfully")
-
-        except Exception as e:
-            logger.error(f"Error handling config change: {e}", exc_info=True)
-
-    def _handle_setting_change(self, key: str, old_val: str, new_val: str):
-        """
-        Handle specific setting changes.
-
-        Args:
-            key: Setting key that changed
-            old_val: Previous value
-            new_val: New value
-        """
-        logger.info(f"Config change: {key}: '{old_val}' → '{new_val}'")
-
-        handlers = {
-            'location': self._handle_location_change,
-            'speakers-group-name': self._handle_speaker_change,
-            'pre_fajr_enabled': self._handle_pre_fajr_change,
-            'prayer_source': self._handle_prayer_source_change,
-        }
-
-        handler = handlers.get(key)
-        if handler:
-            try:
-                handler(old_val, new_val)
-                logger.info(f"Successfully handled change for {key}")
-            except Exception as e:
-                logger.error(f"Failed to handle change for {key}: {e}", exc_info=True)
+                logger.error("Reschedule after location change failed: %s", schedule_result.get("error"))
         else:
-            logger.debug(f"No handler for config key: {key}")
+            logger.error("Prayer times load failed for new location %s: %s", new, result.get("error"))
 
-    def _handle_location_change(self, old_val: str, new_val: str):
-        """Handle location changes."""
-        try:
-            logger.info(f"Handling location change from {old_val} to {new_val}")
+    def _apply_speaker_change(self, old: str, new: str):
+        logger.info("Speaker changed: %s → %s", old, new)
+        if hasattr(self.scheduler, "google_device"):
+            self.scheduler.google_device = new
+        cm = getattr(self.scheduler, "chromecast_manager", None)
+        if cm:
+            if hasattr(cm, "target_device"):
+                cm.target_device = None
+            if hasattr(cm, "last_discovery_time"):
+                cm.last_discovery_time = 0
 
-            # Clear all scheduled jobs
+    def _apply_pre_fajr_change(self, enabled: bool):
+        logger.info("Pre-Fajr Quran %s", "enabled" if enabled else "disabled")
+        if hasattr(self.scheduler, "toggle_pre_fajr_quran"):
+            result = self.scheduler.toggle_pre_fajr_quran(enabled)
+            if not result.get("success"):
+                logger.error("Failed to toggle pre-Fajr: %s", result.get("error"))
+        else:
             schedule.clear()
-            logger.info("Cleared all scheduled jobs")
-
-            # Update location
-            self.scheduler.location = new_val
-
-            # Clear prayer times cache
-            if hasattr(self.scheduler.fetcher, '_cache'):
-                self.scheduler.fetcher._cache.clear()
-                logger.info("Cleared prayer times cache")
-
-            # Reload prayer times
-            result = self.scheduler.load_prayer_times()
-
-            if result.get('success'):
-                # Reschedule prayers with new times
-                schedule_result = self.scheduler.schedule_prayers()
-                if schedule_result.get('success'):
-                    logger.info(f"Location changed to {new_val}, {schedule_result.get('scheduled_count', 0)} prayers rescheduled")
-                else:
-                    logger.error(f"Failed to reschedule prayers: {schedule_result.get('error')}")
-            else:
-                logger.error(f"Failed to load prayer times for new location: {result.get('error')}")
-
-        except Exception as e:
-            logger.error(f"Error handling location change: {e}", exc_info=True)
-
-    def _handle_speaker_change(self, old_val: str, new_val: str):
-        """Handle speaker group changes."""
-        try:
-            logger.info(f"Handling speaker change from {old_val} to {new_val}")
-
-            # Update device name in scheduler and chromecast manager
-            if hasattr(self.scheduler, 'google_device'):
-                self.scheduler.google_device = new_val
-                logger.info(f"Updated scheduler device name to: {new_val}")
-
-            # Clear any cached device connections to force rediscovery
-            if hasattr(self.scheduler.chromecast_manager, 'target_device'):
-                self.scheduler.chromecast_manager.target_device = None
-                logger.info(f"Cleared target device cache")
-
-            # Force device rediscovery on next use
-            if hasattr(self.scheduler.chromecast_manager, 'last_discovery_time'):
-                self.scheduler.chromecast_manager.last_discovery_time = 0
-                logger.info(f"Reset discovery time to force rediscovery")
-
-            logger.info(f"Speaker change handled. New device '{new_val}' will be used for next prayer announcement.")
-
-        except Exception as e:
-            logger.error(f"Error handling speaker change: {e}", exc_info=True)
-
-    def _handle_pre_fajr_change(self, old_val: str, new_val: str):
-        """Handle pre-Fajr setting changes."""
-        try:
-            # Parse boolean values
-            is_enabled = new_val.lower() in ['true', '1', 'yes', 'on'] if new_val else False
-            was_enabled = old_val.lower() in ['true', '1', 'yes', 'on'] if old_val else False
-
-            logger.info(f"Handling pre-Fajr change: was_enabled={was_enabled}, is_enabled={is_enabled}")
-
-            if is_enabled != was_enabled:
-                if hasattr(self.scheduler, 'toggle_pre_fajr_quran'):
-                    result = self.scheduler.toggle_pre_fajr_quran(is_enabled)
-                    if result.get('success'):
-                        logger.info(f"Pre-Fajr Quran {'enabled' if is_enabled else 'disabled'}")
-                    else:
-                        logger.error(f"Failed to toggle pre-Fajr: {result.get('error')}")
-                else:
-                    # Fallback: reschedule all prayers
-                    schedule.clear()
-                    schedule_result = self.scheduler.schedule_prayers()
-                    if schedule_result.get('success'):
-                        logger.info(f"Pre-Fajr Quran {'enabled' if is_enabled else 'disabled'} (via reschedule)")
-                    else:
-                        logger.error(f"Failed to reschedule prayers: {schedule_result.get('error')}")
-
-        except Exception as e:
-            logger.error(f"Error handling pre-Fajr change: {e}", exc_info=True)
-
-    def _handle_prayer_source_change(self, old_val: str, new_val: str):
-        """Handle prayer source changes."""
-        try:
-            logger.info(f"Handling prayer source change from {old_val} to {new_val}")
-
-            # Update source preference if configurable
-            if hasattr(self.scheduler.fetcher, 'config') and hasattr(self.scheduler.fetcher.config, 'sources'):
-                self.scheduler.fetcher.config.sources[self.scheduler.location] = new_val
-                logger.info(f"Updated prayer source preference to {new_val}")
-
-            # Clear cache
-            if hasattr(self.scheduler.fetcher, '_cache'):
-                self.scheduler.fetcher._cache.clear()
-                logger.info("Cleared prayer times cache")
-
-            # Reload prayer times from new source
-            result = self.scheduler.load_prayer_times()
-
-            if result.get('success'):
-                # Check if times changed
-                old_times = self.scheduler.prayer_times.copy()
-                new_times = result.get('prayer_times', {})
-
-                if old_times != new_times:
-                    # Reschedule if times are different
-                    schedule.clear()
-                    schedule_result = self.scheduler.schedule_prayers()
-                    if schedule_result.get('success'):
-                        logger.info(f"Prayer source changed to {new_val}, prayers rescheduled")
-                    else:
-                        logger.error(f"Failed to reschedule prayers: {schedule_result.get('error')}")
-                else:
-                    logger.info(f"Prayer source changed to {new_val}, times unchanged")
-            else:
-                logger.error(f"Failed to load prayer times from new source: {result.get('error')}")
-
-        except Exception as e:
-            logger.error(f"Error handling prayer source change: {e}", exc_info=True)
+            self.scheduler.schedule_prayers()
 
     def get_status(self) -> Dict[str, Any]:
-        """
-        Get the current status of the config watcher.
-
-        Returns:
-            dict: Watcher status information
-        """
-        try:
-            is_running = self.observer and self.observer.is_alive()
-
-            status = {
-                "success": True,
-                "running": is_running,
-                "config_file": self.config_manager.config_file if self.config_manager else None,
-                "last_reload": datetime.fromtimestamp(
-                    self.file_watcher.last_reload_time
-                ).isoformat() if self.file_watcher and self.file_watcher.last_reload_time > 0 else None,
-                "current_hash": self.file_watcher.last_hash if self.file_watcher else None,
-                "timestamp": datetime.now().isoformat()
-            }
-
-            if self.previous_config:
-                status["monitoring_sections"] = list(self.previous_config.keys())
-
-            return status
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            }
+        is_running = bool(self.observer and self.observer.is_alive())
+        return {
+            "success": True,
+            "running": is_running,
+            "config_file": str(_find_config_file() or "azan.toml"),
+            "last_reload": (
+                datetime.fromtimestamp(self._file_watcher.last_reload_time).isoformat()
+                if self._file_watcher and self._file_watcher.last_reload_time > 0
+                else None
+            ),
+            "current_hash": self._file_watcher.last_hash if self._file_watcher else None,
+            "timestamp": datetime.now().isoformat(),
+        }
