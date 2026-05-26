@@ -186,7 +186,7 @@ class AthanScheduler:
                                 "time": formatted_time,
                                 "type": "regular_athan"
                             })
-                            if friday_kahf_enabled:
+                            if friday_kahf_enabled and now.weekday() == 4:  # 4 = Friday
                                 kahf_result = self.schedule_friday_kahf_for_time(prayer_time)
                                 if kahf_result.get('success'):
                                     scheduled_prayers.append({
@@ -222,10 +222,9 @@ class AthanScheduler:
                         "reason": f"Parse error: {str(e)}"
                     })
 
-            # Final status check
-            jobs_after = schedule.jobs
-            logging.info(f"[DEBUG] Scheduling complete - {len(scheduled_prayers)} prayers scheduled")
-            logging.info(f"[DEBUG] Total jobs in schedule: {len(jobs_after)}")
+            self.skipped_prayers = skipped_prayers  # persist for status view
+            logging.info("Scheduling complete — %d upcoming, %d already past",
+                         len(scheduled_prayers), len(skipped_prayers))
 
             return {
                 "success": True,
@@ -315,60 +314,92 @@ class AthanScheduler:
 
     def get_scheduler_status(self):
         """
-        Get current scheduler status.
+        Get current scheduler status including done and upcoming jobs for today.
 
         Returns:
             dict: JSON response with scheduler status
         """
         try:
-            next_run = schedule.next_run()
-            jobs = schedule.jobs
-
-            # Debug logging
-            logging.info(f"[DEBUG] Scheduler status check - found {len(jobs)} jobs")
-            logging.info(f"[DEBUG] Next run: {next_run}")
-            for i, job in enumerate(jobs):
-                logging.info(f"[DEBUG] Job {i}: {job.job_func.__name__ if hasattr(job.job_func, '__name__') else str(job.job_func)} at {job.next_run}")
+            from datetime import timedelta
+            now = datetime.now(self.tz)
+            today = now.date()
 
             _label_map = {
-                "fajr": ("Fajr Athan", "fajr_athan"),
-                "dhuhr": ("Dhuhr Athan", "regular_athan"),
-                "asr": ("Asr Athan", "regular_athan"),
-                "maghrib": ("Maghrib Athan", "regular_athan"),
-                "isha": ("Isha Athan", "regular_athan"),
-                "pre_fajr": ("Pre-Fajr Quran", "quran_recitation"),
-                "friday_kahf": ("Friday Surah Al-Kahf", "friday_kahf"),
+                "fajr":         ("Fajr Athan",           "fajr_athan"),
+                "dhuhr":        ("Dhuhr Athan",           "regular_athan"),
+                "asr":          ("Asr Athan",             "regular_athan"),
+                "maghrib":      ("Maghrib Athan",         "regular_athan"),
+                "isha":         ("Isha Athan",            "regular_athan"),
+                "pre_fajr":     ("Pre-Fajr Quran",        "quran_recitation"),
+                "friday_kahf":  ("Friday Surah Al-Kahf",  "friday_kahf"),
             }
 
             def _job_label(job):
-                tags = getattr(job, 'tags', set())
-                for tag in tags:
+                for tag in getattr(job, 'tags', set()):
                     if tag in _label_map:
                         return _label_map[tag]
-                func = getattr(job.job_func, '__name__', str(job.job_func))
-                return func, "unknown"
+                return getattr(job.job_func, '__name__', str(job.job_func)), "unknown"
 
+            upcoming = []
+            done_today = []
+
+            for job in schedule.jobs:
+                label, type_ = _job_label(job)
+                tags = list(getattr(job, 'tags', set()))
+
+                if job.next_run and job.next_run.date() > today:
+                    # Job fired today — next_run is tomorrow; recover the time it played
+                    played_at = job.next_run - timedelta(days=1)
+                    done_today.append({
+                        "label": label,
+                        "type": type_,
+                        "tags": tags,
+                        "status": "done",
+                        "scheduled_time": played_at.strftime("%H:%M"),
+                        "next_run": None,
+                    })
+                else:
+                    upcoming.append({
+                        "label": label,
+                        "type": type_,
+                        "tags": tags,
+                        "status": "upcoming",
+                        "scheduled_time": job.next_run.strftime("%H:%M") if job.next_run else None,
+                        "next_run": job.next_run.isoformat() if job.next_run else None,
+                    })
+
+            # Prayers that were already past when schedule_prayers() last ran
+            for s in getattr(self, 'skipped_prayers', []):
+                prayer_key = s.get('prayer', '').lower()
+                label, type_ = _label_map.get(prayer_key, (s.get('prayer', 'Unknown'), 'unknown'))
+                done_today.append({
+                    "label": label,
+                    "type": type_,
+                    "tags": [prayer_key],
+                    "status": "done",
+                    "scheduled_time": s.get('time'),
+                    "next_run": None,
+                })
+
+            done_today.sort(key=lambda j: j['scheduled_time'] or '')
+            upcoming.sort(key=lambda j: j['next_run'] or '')
+            all_jobs = done_today + upcoming
+
+            next_run = schedule.next_run()
             return {
                 "success": True,
+                "running": True,
                 "next_run": next_run.isoformat() if next_run else None,
-                "total_jobs": len(jobs),
-                "jobs": [
-                    {
-                        "next_run": job.next_run.isoformat() if job.next_run else None,
-                        "job_func": getattr(job.job_func, '__name__', str(job.job_func)),
-                        "tags": list(getattr(job, 'tags', set())),
-                        "label": _job_label(job)[0],
-                        "type": _job_label(job)[1],
-                    } for job in sorted(jobs, key=lambda j: j.next_run or datetime.max)
-                ],
-                "current_time": datetime.now(self.tz).isoformat()
+                "total_jobs": len(upcoming),
+                "jobs": all_jobs,
+                "current_time": now.isoformat(),
             }
         except Exception as e:
-            logging.error(f"Error getting scheduler status: {e}")
+            logging.error("Error getting scheduler status: %s", e)
             return {
                 "success": False,
                 "error": str(e),
-                "current_time": datetime.now(self.tz).isoformat()
+                "current_time": datetime.now(self.tz).isoformat(),
             }
 
     def check_dst_change(self):

@@ -55,9 +55,12 @@
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="card-title mb-0">
                     <i class="fas fa-list me-2"></i>
-                    Queued Jobs
+                    Today's Schedule
                 </h5>
-                <span class="badge bg-secondary" id="jobs-count-badge">0 jobs</span>
+                <div class="d-flex gap-2 align-items-center">
+                    <span class="badge bg-secondary" id="done-count-badge">0 done</span>
+                    <span class="badge bg-primary" id="jobs-count-badge">0 upcoming</span>
+                </div>
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -66,8 +69,8 @@
                             <tr>
                                 <th>Prayer / Event</th>
                                 <th>Type</th>
-                                <th>Scheduled At</th>
-                                <th>Countdown</th>
+                                <th>Time</th>
+                                <th>Status</th>
                             </tr>
                         </thead>
                         <tbody id="jobs-tbody">
@@ -198,42 +201,54 @@
     }
 
     function renderStatus(data) {
-        document.getElementById('stat-total-jobs').textContent = data.total_jobs ?? '—';
+        const upcoming = data.total_jobs ?? 0;
+        document.getElementById('stat-total-jobs').textContent = upcoming;
 
         if (data.next_run) {
             const d = new Date(data.next_run);
-            document.getElementById('stat-next-run-time').textContent = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+            document.getElementById('stat-next-run-time').textContent =
+                d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
             document.getElementById('stat-next-run-label').textContent = 'Next Scheduled Run';
         } else {
             document.getElementById('stat-next-run-time').textContent = 'None';
             document.getElementById('stat-next-run-label').textContent = 'No jobs queued';
         }
 
-        const count = data.total_jobs ?? 0;
-        document.getElementById('jobs-count-badge').textContent = `${count} job${count !== 1 ? 's' : ''}`;
+        const done = (data.jobs || []).filter(j => j.status === 'done').length;
+        document.getElementById('done-count-badge').textContent = `${done} done`;
+        document.getElementById('jobs-count-badge').textContent =
+            `${upcoming} upcoming`;
     }
 
     function renderJobs(jobs) {
         const tbody = document.getElementById('jobs-tbody');
         if (!jobs.length) {
             tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-4">
-                <i class="fas fa-calendar-times me-2"></i>No jobs scheduled
+                <i class="fas fa-calendar-times me-2"></i>No schedule data
             </td></tr>`;
             return;
         }
 
         tbody.innerHTML = jobs.map(job => {
-            const timeStr = job.next_run
-                ? new Date(job.next_run).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})
-                : '—';
+            const isDone = job.status === 'done';
+            const timeStr = job.scheduled_time || '—';
+
+            if (isDone) {
+                return `<tr class="table-secondary">
+                    <td class="text-muted">${job.label || '—'}</td>
+                    <td>${typeBadge(job.type)}</td>
+                    <td class="font-monospace text-muted">${timeStr}</td>
+                    <td><span class="text-success fw-semibold">
+                        <i class="fas fa-check-circle me-1"></i>Done
+                    </span></td>
+                </tr>`;
+            }
+
             const secUntil = job.next_run ? (new Date(job.next_run) - Date.now()) / 1000 : null;
             const countdown = secUntil !== null ? secondsToHMS(secUntil) : '—';
-            const isPast = secUntil !== null && secUntil < 0;
-            const rowClass = isPast ? 'table-secondary text-muted' : '';
-            const cdId = `cd-${encodeURIComponent(job.next_run || Math.random())}`;
 
-            return `<tr class="${rowClass}">
-                <td class="fw-semibold">${job.label || job.job_func}</td>
+            return `<tr>
+                <td class="fw-semibold">${job.label || '—'}</td>
                 <td>${typeBadge(job.type)}</td>
                 <td class="font-monospace">${timeStr}</td>
                 <td class="font-monospace" data-next-run="${job.next_run || ''}">${countdown}</td>
@@ -283,15 +298,17 @@
                 const nextRun = cell.dataset.nextRun;
                 if (!nextRun) return;
                 const sec = (new Date(nextRun) - Date.now()) / 1000;
-                cell.textContent = secondsToHMS(sec);
                 const row = cell.closest('tr');
-                if (sec < 0) {
-                    row.classList.add('table-secondary', 'text-muted');
-                } else if (sec < 60) {
+                if (sec <= 0) {
+                    // Transition to done — reload data to get proper done state
+                    loadSchedulerStatus();
+                    return;
+                }
+                cell.textContent = secondsToHMS(sec);
+                if (sec < 60) {
                     row.classList.add('table-warning');
-                    row.classList.remove('table-secondary', 'text-muted');
                 } else {
-                    row.classList.remove('table-warning', 'table-secondary', 'text-muted');
+                    row.classList.remove('table-warning');
                 }
             });
 
