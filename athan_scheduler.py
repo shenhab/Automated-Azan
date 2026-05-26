@@ -143,9 +143,9 @@ class AthanScheduler:
             logging.info("Clearing previous schedules and scheduling today's prayers. Current time: %s", now.strftime("%Y-%m-%d %H:%M:%S"))
             logging.info(f"[DEBUG] Available prayer times: {self.prayer_times}")
 
-            # Check if pre-Fajr Quran is enabled
             from settings import settings
             pre_fajr_enabled = settings.prayer.pre_fajr_enabled
+            friday_kahf_enabled = settings.prayer.friday_kahf_enabled
 
             # Use the existing chromecast_manager instance instead of creating a new one
             chromecast_manager = self.chromecast_manager
@@ -161,22 +161,13 @@ class AthanScheduler:
                         formatted_time = prayer_time.strftime("%H:%M")
                         logging.info("Scheduling %s at %s", prayer, formatted_time)
 
-                        if prayer != "Fajr":
-                            schedule.every().day.at(formatted_time).do(chromecast_manager.start_adahn)
-                            scheduled_prayers.append({
-                                "prayer": prayer,
-                                "time": formatted_time,
-                                "type": "regular_athan"
-                            })
-                        else:
-                            schedule.every().day.at(formatted_time).do(chromecast_manager.start_adahn_alfajr)
+                        if prayer == "Fajr":
+                            schedule.every().day.at(formatted_time).do(chromecast_manager.start_adahn_alfajr).tag(prayer.lower())
                             scheduled_prayers.append({
                                 "prayer": prayer,
                                 "time": formatted_time,
                                 "type": "fajr_athan"
                             })
-
-                            # Schedule pre-Fajr Quran if enabled
                             if pre_fajr_enabled:
                                 pre_fajr_result = self.schedule_pre_fajr_quran_for_time(prayer_time)
                                 if pre_fajr_result.get('success'):
@@ -187,6 +178,32 @@ class AthanScheduler:
                                     })
                                 else:
                                     logging.warning(f"Failed to schedule pre-Fajr Quran: {pre_fajr_result.get('error')}")
+
+                        elif prayer == "Dhuhr":
+                            schedule.every().day.at(formatted_time).do(chromecast_manager.start_adahn).tag(prayer.lower())
+                            scheduled_prayers.append({
+                                "prayer": prayer,
+                                "time": formatted_time,
+                                "type": "regular_athan"
+                            })
+                            if friday_kahf_enabled:
+                                kahf_result = self.schedule_friday_kahf_for_time(prayer_time)
+                                if kahf_result.get('success'):
+                                    scheduled_prayers.append({
+                                        "prayer": "Friday Surah Al-Kahf",
+                                        "time": kahf_result.get('scheduled_time'),
+                                        "type": "friday_kahf"
+                                    })
+                                else:
+                                    logging.warning(f"Failed to schedule Friday Surah Al-Kahf: {kahf_result.get('error')}")
+
+                        else:
+                            schedule.every().day.at(formatted_time).do(chromecast_manager.start_adahn).tag(prayer.lower())
+                            scheduled_prayers.append({
+                                "prayer": prayer,
+                                "time": formatted_time,
+                                "type": "regular_athan"
+                            })
 
                         logging.debug("%s scheduled successfully at %s", prayer, formatted_time)
                     else:
@@ -313,6 +330,24 @@ class AthanScheduler:
             for i, job in enumerate(jobs):
                 logging.info(f"[DEBUG] Job {i}: {job.job_func.__name__ if hasattr(job.job_func, '__name__') else str(job.job_func)} at {job.next_run}")
 
+            _label_map = {
+                "fajr": ("Fajr Athan", "fajr_athan"),
+                "dhuhr": ("Dhuhr Athan", "regular_athan"),
+                "asr": ("Asr Athan", "regular_athan"),
+                "maghrib": ("Maghrib Athan", "regular_athan"),
+                "isha": ("Isha Athan", "regular_athan"),
+                "pre_fajr": ("Pre-Fajr Quran", "quran_recitation"),
+                "friday_kahf": ("Friday Surah Al-Kahf", "friday_kahf"),
+            }
+
+            def _job_label(job):
+                tags = getattr(job, 'tags', set())
+                for tag in tags:
+                    if tag in _label_map:
+                        return _label_map[tag]
+                func = getattr(job.job_func, '__name__', str(job.job_func))
+                return func, "unknown"
+
             return {
                 "success": True,
                 "next_run": next_run.isoformat() if next_run else None,
@@ -320,8 +355,11 @@ class AthanScheduler:
                 "jobs": [
                     {
                         "next_run": job.next_run.isoformat() if job.next_run else None,
-                        "job_func": job.job_func.__name__ if hasattr(job.job_func, '__name__') else str(job.job_func)
-                    } for job in jobs
+                        "job_func": getattr(job.job_func, '__name__', str(job.job_func)),
+                        "tags": list(getattr(job, 'tags', set())),
+                        "label": _job_label(job)[0],
+                        "type": _job_label(job)[1],
+                    } for job in sorted(jobs, key=lambda j: j.next_run or datetime.max)
                 ],
                 "current_time": datetime.now(self.tz).isoformat()
             }
@@ -640,6 +678,83 @@ class AthanScheduler:
         except Exception as e:
             logging.error(f"Error toggling pre-Fajr Quran: {e}")
             return {"success": False, "error": str(e)}
+
+    # ------------------------------------------------------------------ #
+    #  Friday Surah Al-Kahf                                                #
+    # ------------------------------------------------------------------ #
+
+    def schedule_friday_kahf_for_time(self, dhuhr_time):
+        """Schedule Surah Al-Kahf every Friday, 2 hours before the given Dhuhr time."""
+        try:
+            kahf_dt = dhuhr_time - timedelta(hours=2)
+            kahf_time = kahf_dt.strftime("%H:%M")
+
+            schedule.every().friday.at(kahf_time).do(
+                self.play_friday_kahf
+            ).tag('friday_kahf')
+
+            logging.info(
+                f"Scheduled Friday Surah Al-Kahf at {kahf_time} "
+                f"(2 hours before Dhuhr at {dhuhr_time.strftime('%H:%M')})"
+            )
+            return {
+                "success": True,
+                "scheduled_time": kahf_time,
+                "dhuhr_time": dhuhr_time.strftime('%H:%M'),
+            }
+        except Exception as e:
+            logging.error(f"Failed to schedule Friday Surah Al-Kahf: {e}")
+            return {"success": False, "error": str(e)}
+
+    def play_friday_kahf(self):
+        """Play Surah Al-Kahf (018.mp3) from server13.mp3quran.net/husr/."""
+        url = "https://server13.mp3quran.net/husr/018.mp3"
+        logging.info(f"Friday: playing Surah Al-Kahf from {url}")
+        result = self.chromecast_manager.play_url_on_cast(url)
+        if result.get('success'):
+            logging.info("Friday Surah Al-Kahf started successfully")
+        else:
+            logging.error(f"Failed to play Surah Al-Kahf: {result.get('error')}")
+        return result
+
+    def cancel_friday_kahf(self):
+        """Remove all scheduled Friday Al-Kahf jobs."""
+        try:
+            jobs = [j for j in schedule.jobs if 'friday_kahf' in getattr(j, 'tags', set())]
+            schedule.clear('friday_kahf')
+            logging.info(f"Cancelled {len(jobs)} Friday Al-Kahf schedule(s)")
+            return {
+                "success": True,
+                "message": f"Friday Al-Kahf cancelled ({len(jobs)} job(s) removed)",
+                "jobs_removed": len(jobs),
+            }
+        except Exception as e:
+            logging.error(f"Error cancelling Friday Al-Kahf: {e}")
+            return {"success": False, "error": str(e)}
+
+    def toggle_friday_kahf(self, enable):
+        """Enable or disable Friday Surah Al-Kahf playback."""
+        try:
+            self.cancel_friday_kahf()
+            if enable:
+                result = self.schedule_friday_kahf_for_time(self._dhuhr_as_datetime())
+                if result.get('success'):
+                    return {"success": True, "enabled": True,
+                            "message": f"Friday Al-Kahf enabled at {result.get('scheduled_time')}"}
+                return result
+            return {"success": True, "enabled": False, "message": "Friday Al-Kahf disabled"}
+        except Exception as e:
+            logging.error(f"Error toggling Friday Al-Kahf: {e}")
+            return {"success": False, "error": str(e)}
+
+    def _dhuhr_as_datetime(self):
+        """Return today's Dhuhr time as a timezone-aware datetime (or raise if not loaded)."""
+        dhuhr_str = self.prayer_times.get('Dhuhr')
+        if not dhuhr_str:
+            raise ValueError("Dhuhr prayer time not loaded")
+        hour, minute = map(int, dhuhr_str.split(':'))
+        now = datetime.now(self.tz)
+        return datetime(now.year, now.month, now.day, hour, minute, tzinfo=self.tz)
 
     def run_scheduler(self):
         """

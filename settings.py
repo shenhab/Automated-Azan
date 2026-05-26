@@ -44,7 +44,11 @@ def _search_paths() -> list[Path]:
 
 
 def _find_config_file() -> Optional[Path]:
-    for p in _search_paths():
+    # If the env var is explicitly set, only check that path — no fallback.
+    if env := os.environ.get("AZAN_CONFIG_FILE", ""):
+        p = Path(env)
+        return p if p.exists() else None
+    for p in [Path("/app/config/azan.toml"), Path("azan.toml")]:
         if p.exists():
             return p
     return None
@@ -79,6 +83,7 @@ class PrayerSettings(BaseModel):
     location: Literal["naas", "icci"] = "naas"
     pre_fajr_enabled: bool = False
     pre_fajr_minutes: int = Field(30, ge=1, le=60)
+    friday_kahf_enabled: bool = False
 
 
 class WebSettings(BaseModel):
@@ -115,7 +120,7 @@ class Settings(BaseModel):
                 logger.warning("No config file found on reload — keeping current settings")
                 return self
             fresh = _read_toml(source)
-            for field_name in self.model_fields:
+            for field_name in type(self).model_fields:
                 setattr(self, field_name, getattr(fresh, field_name))
             logger.info("Settings reloaded from %s", source)
             return self
@@ -137,7 +142,7 @@ class Settings(BaseModel):
                 else:
                     current[section] = updates
             fresh = Settings(**current)
-            for field_name in self.model_fields:
+            for field_name in type(self).model_fields:
                 setattr(self, field_name, getattr(fresh, field_name))
         return self
 
@@ -148,6 +153,7 @@ class Settings(BaseModel):
             "location": self.prayer.location,
             "pre_fajr_enabled": self.prayer.pre_fajr_enabled,
             "pre_fajr_minutes": self.prayer.pre_fajr_minutes,
+            "friday_kahf_enabled": self.prayer.friday_kahf_enabled,
             "web_port": self.web.port,
             "log_level": self.log.level,
         }

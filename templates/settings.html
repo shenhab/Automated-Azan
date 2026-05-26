@@ -70,6 +70,23 @@
                             When enabled, Quran recitation will play 30 minutes before the Fajr prayer time.
                         </div>
                     </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">
+                            <i class="fas fa-book-open me-2"></i>
+                            Friday Surah Al-Kahf
+                        </label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="friday-kahf-enabled"
+                                   {{ 'checked' if config.friday_kahf_enabled else '' }}>
+                            <label class="form-check-label" for="friday-kahf-enabled">
+                                Enable Friday Surah Al-Kahf (2 hours before Dhuhr)
+                            </label>
+                        </div>
+                        <div class="form-text">
+                            When enabled, Surah Al-Kahf will play every Friday 2 hours before the Dhuhr prayer time.
+                        </div>
+                    </div>
                     
                     <div class="d-grid gap-2 d-md-flex justify-content-md-end">
                         <button type="button" class="btn btn-outline-secondary me-md-2" onclick="resetForm()">
@@ -189,6 +206,17 @@
                         {% endif %}
                     </span>
                 </div>
+
+                <div class="mb-2">
+                    <strong>Friday Surah Al-Kahf:</strong><br>
+                    <span class="text-muted" id="status-friday-kahf">
+                        {% if config.friday_kahf_enabled %}
+                            <span class="badge bg-success">Enabled</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Disabled</span>
+                        {% endif %}
+                    </span>
+                </div>
                 
                 <div class="mb-2">
                     <strong>Last Updated:</strong><br>
@@ -264,6 +292,7 @@
         document.getElementById('speakers-name').value = '{{ config.speakers_group_name }}';
         document.getElementById('location').value = '{{ config.location }}';
         document.getElementById('pre-fajr-enabled').checked = {{ 'true' if config.pre_fajr_enabled else 'false' }};
+        document.getElementById('friday-kahf-enabled').checked = {{ 'true' if config.friday_kahf_enabled else 'false' }};
         showAlert('Form reset to current values', 'info');
     }
     
@@ -373,6 +402,7 @@
         const speakersName = document.getElementById('speakers-name').value.trim();
         const location = document.getElementById('location').value;
         const preFajrEnabled = document.getElementById('pre-fajr-enabled').checked;
+        const fridayKahfEnabled = document.getElementById('friday-kahf-enabled').checked;
 
         // Client-side validation
         if (!speakersName) {
@@ -413,7 +443,8 @@
             body: JSON.stringify({
                 speakers_name: speakersName,
                 location: location,
-                pre_fajr_enabled: preFajrEnabled
+                pre_fajr_enabled: preFajrEnabled,
+                friday_kahf_enabled: fridayKahfEnabled
             })
         })
         .then(response => response.json())
@@ -454,6 +485,9 @@
         if (data.config.pre_fajr_enabled !== undefined) {
             document.getElementById('pre-fajr-enabled').checked = data.config.pre_fajr_enabled;
         }
+        if (data.config.friday_kahf_enabled !== undefined) {
+            document.getElementById('friday-kahf-enabled').checked = data.config.friday_kahf_enabled;
+        }
 
         // Update status display
         updateStatusDisplay(data.config);
@@ -475,6 +509,14 @@
         const sidebarSpeaker = document.getElementById('sidebar-speaker');
         if (sidebarSpeaker && config.speakers_group_name) {
             sidebarSpeaker.textContent = config.speakers_group_name;
+        }
+
+        // Update Friday Al-Kahf status badge
+        const kahfStatus = document.getElementById('status-friday-kahf');
+        if (kahfStatus && config.friday_kahf_enabled !== undefined) {
+            kahfStatus.innerHTML = config.friday_kahf_enabled
+                ? '<span class="badge bg-success">Enabled</span>'
+                : '<span class="badge bg-secondary">Disabled</span>';
         }
     }
     
@@ -560,6 +602,9 @@
                     }
                     if (config.pre_fajr_enabled !== undefined) {
                         document.getElementById('pre-fajr-enabled').checked = config.pre_fajr_enabled;
+                    }
+                    if (config.friday_kahf_enabled !== undefined) {
+                        document.getElementById('friday-kahf-enabled').checked = config.friday_kahf_enabled;
                     }
 
                     updateStatusDisplay(config);

@@ -340,7 +340,13 @@
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'settings' %}active{% endif %}" href="/settings">
+                            <a class="nav-link {% if request.endpoint == 'scheduler_page' %}active{% endif %}" href="/scheduler">
+                                <i class="fas fa-calendar-alt me-2"></i>
+                                Scheduler
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'settings_page' %}active{% endif %}" href="/settings">
                                 <i class="fas fa-cog me-2"></i>
                                 Settings
                             </a>

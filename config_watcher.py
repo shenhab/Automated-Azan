@@ -113,6 +113,7 @@ class ConfigWatcher:
         old_location = settings.prayer.location
         old_speaker = settings.speaker.group_name
         old_pre_fajr = settings.prayer.pre_fajr_enabled
+        old_friday_kahf = settings.prayer.friday_kahf_enabled
 
         settings.reload()
 
@@ -124,6 +125,9 @@ class ConfigWatcher:
 
         if settings.prayer.pre_fajr_enabled != old_pre_fajr:
             self._apply_pre_fajr_change(settings.prayer.pre_fajr_enabled)
+
+        if settings.prayer.friday_kahf_enabled != old_friday_kahf:
+            self._apply_friday_kahf_change(settings.prayer.friday_kahf_enabled)
 
     def _apply_location_change(self, old: str, new: str):
         logger.info("Location changed: %s → %s", old, new)
@@ -161,6 +165,13 @@ class ConfigWatcher:
         else:
             schedule.clear()
             self.scheduler.schedule_prayers()
+
+    def _apply_friday_kahf_change(self, enabled: bool):
+        logger.info("Friday Surah Al-Kahf %s", "enabled" if enabled else "disabled")
+        if hasattr(self.scheduler, "toggle_friday_kahf"):
+            result = self.scheduler.toggle_friday_kahf(enabled)
+            if not result.get("success"):
+                logger.error("Failed to toggle Friday Al-Kahf: %s", result.get("error"))
 
     def get_status(self) -> Dict[str, Any]:
         is_running = bool(self.observer and self.observer.is_alive())

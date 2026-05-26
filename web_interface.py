@@ -266,6 +266,12 @@ def settings_page():
     load_config()
     return render_template('settings.html', config=current_config)
 
+@app.route('/scheduler')
+def scheduler_page():
+    """Scheduler viewer/manager page"""
+    load_config()
+    return render_template('scheduler.html', config=current_config)
+
 @app.route('/logs')
 def logs():
     """Logs viewer page"""
@@ -596,6 +602,49 @@ def restart_watcher():
             "timestamp": datetime.now().isoformat()
         }), 500
 
+@app.route('/api/scheduler/status')
+def api_scheduler_status():
+    """Get detailed scheduler status including all queued jobs."""
+    try:
+        if not web_scheduler:
+            return jsonify({"success": False, "error": "Scheduler not available"}), 503
+
+        status = web_scheduler.get_scheduler_status()
+        next_prayer = web_scheduler.get_next_prayer_time()
+        prayer_times_result = web_scheduler.get_prayer_times()
+
+        return jsonify({
+            **status,
+            "next_prayer": next_prayer,
+            "prayer_times": prayer_times_result.get("prayer_times", {}),
+            "location": prayer_times_result.get("location"),
+        })
+    except Exception as e:
+        logging.error(f"Error getting scheduler status: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/scheduler/refresh', methods=['POST'])
+def api_scheduler_refresh():
+    """Force a full prayer-times reload and reschedule."""
+    try:
+        if not web_scheduler:
+            return jsonify({"success": False, "error": "Scheduler not available"}), 503
+
+        result = web_scheduler.refresh_schedule()
+
+        if result.get("success"):
+            socketio.emit('scheduler_refreshed', {
+                'scheduled_count': result.get('scheduled_count', 0),
+                'timestamp': datetime.now().isoformat()
+            }, broadcast=True)
+
+        return jsonify(result)
+    except Exception as e:
+        logging.error(f"Error refreshing scheduler: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route('/api/config/pre-fajr', methods=['POST'])
 def toggle_pre_fajr():
     """Toggle pre-Fajr Quran feature"""
@@ -629,6 +678,40 @@ def toggle_pre_fajr():
             "timestamp": datetime.now().isoformat()
         }), 500
 
+@app.route('/api/config/friday-kahf', methods=['POST'])
+def toggle_friday_kahf():
+    """Toggle Friday Surah Al-Kahf feature"""
+    try:
+        data = request.json
+        enable = bool(data.get('enable', False))
+
+        if web_scheduler and hasattr(web_scheduler, 'toggle_friday_kahf'):
+            result = web_scheduler.toggle_friday_kahf(enable)
+
+            settings.update(prayer={"friday_kahf_enabled": enable})
+            settings.save()
+
+            socketio.emit('friday_kahf_toggled', {
+                'enabled': enable,
+                'timestamp': datetime.now().isoformat()
+            }, broadcast=True)
+
+            return jsonify(result)
+        else:
+            return jsonify({
+                "success": False,
+                "error": "Scheduler not available or feature not supported",
+                "timestamp": datetime.now().isoformat()
+            }), 400
+    except Exception as e:
+        logging.error(f"Error toggling Friday Al-Kahf: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+
 @app.route('/api/save-config', methods=['POST'])
 def api_save_config():
     """API endpoint to save configuration."""
@@ -652,6 +735,12 @@ def api_save_config():
             prayer_update['pre_fajr_enabled'] = bool(data['pre_fajr_enabled'])
             updates['prayer'] = prayer_update
             settings_updated.append('pre_fajr_enabled')
+
+        if 'friday_kahf_enabled' in data:
+            prayer_update = updates.get('prayer', settings.prayer.model_dump())
+            prayer_update['friday_kahf_enabled'] = bool(data['friday_kahf_enabled'])
+            updates['prayer'] = prayer_update
+            settings_updated.append('friday_kahf_enabled')
 
         # Validate via Pydantic before writing
         settings.update(**updates)
