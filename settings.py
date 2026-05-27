@@ -77,6 +77,20 @@ def _find_writable_path() -> Path:
 
 class SpeakerSettings(BaseModel):
     group_name: str = Field("athan", min_length=1, max_length=100)
+    athan_speaker: str = ""
+    pre_fajr_speaker: str = ""
+    friday_kahf_speaker: str = ""
+    quran_speaker: str = ""
+
+    def resolve(self, type_: str) -> str:
+        """Return the effective speaker name for this audio type (falls back to group_name)."""
+        overrides = {
+            "athan": self.athan_speaker,
+            "pre_fajr": self.pre_fajr_speaker,
+            "friday_kahf": self.friday_kahf_speaker,
+            "quran": self.quran_speaker,
+        }
+        return overrides.get(type_, "") or self.group_name
 
 
 class PrayerSettings(BaseModel):
@@ -150,6 +164,10 @@ class Settings(BaseModel):
         """Flat dict for API responses and template context."""
         return {
             "speakers_group_name": self.speaker.group_name,
+            "athan_speaker": self.speaker.athan_speaker,
+            "pre_fajr_speaker": self.speaker.pre_fajr_speaker,
+            "friday_kahf_speaker": self.speaker.friday_kahf_speaker,
+            "quran_speaker": self.speaker.quran_speaker,
             "location": self.prayer.location,
             "pre_fajr_enabled": self.prayer.pre_fajr_enabled,
             "pre_fajr_minutes": self.prayer.pre_fajr_minutes,

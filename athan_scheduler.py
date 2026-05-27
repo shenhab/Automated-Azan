@@ -579,10 +579,11 @@ class AthanScheduler:
 
         stop_event = threading.Event()
         self._pre_fajr_stop_event = stop_event
+        pre_fajr_speaker = settings.speaker.resolve("pre_fajr")
 
         t = threading.Thread(
             target=self._run_quran_playlist,
-            args=(all_urls, duration_seconds, stop_event),
+            args=(all_urls, duration_seconds, stop_event, pre_fajr_speaker),
             daemon=True,
             name="pre-fajr-quran",
         )
@@ -600,7 +601,7 @@ class AthanScheduler:
             "timestamp": datetime.now().isoformat(),
         }
 
-    def _run_quran_playlist(self, urls, duration_seconds, stop_event):
+    def _run_quran_playlist(self, urls, duration_seconds, stop_event, speaker_override=None):
         """Background thread: play URLs sequentially until the window closes or stop is requested."""
         end_time = time.time() + duration_seconds
 
@@ -609,7 +610,7 @@ class AthanScheduler:
                 break
 
             logging.info(f"Pre-Fajr Quran: playing {url}")
-            result = self.chromecast_manager.play_url_on_cast(url)
+            result = self.chromecast_manager.play_url_on_cast(url, speaker_override=speaker_override)
 
             if not result.get('success'):
                 logging.warning(f"Pre-Fajr Quran: failed to play {url}, skipping")
@@ -741,7 +742,9 @@ class AthanScheduler:
         """Play Surah Al-Kahf (018.mp3) from server13.mp3quran.net/husr/."""
         url = "https://server13.mp3quran.net/husr/018.mp3"
         logging.info(f"Friday: playing Surah Al-Kahf from {url}")
-        result = self.chromecast_manager.play_url_on_cast(url)
+        result = self.chromecast_manager.play_url_on_cast(
+            url, speaker_override=settings.speaker.resolve("friday_kahf")
+        )
         if result.get('success'):
             logging.info("Friday Surah Al-Kahf started successfully")
         else:

@@ -531,6 +531,23 @@ class ChromecastManager:
             if self.target_device and getattr(self.target_device, 'uuid', None) == uuid:
                 self.target_device = None
 
+    def get_discovered_device_names(self) -> list:
+        """Return sorted list of discovered Chromecast device names for UI dropdowns."""
+        return sorted(info['name'] for info in self.chromecasts.values() if 'name' in info)
+
+    def _resolve_speaker_device(self, name: str):
+        """Find and return a cast device object for the given speaker name."""
+        for cast_info in self.chromecasts.values():
+            if cast_info.get('name', '').lower() == name.lower():
+                return self._create_cast_device(cast_info)
+        # Try a fresh discovery before giving up
+        self.discover_devices(force_rediscovery=True)
+        for cast_info in self.chromecasts.values():
+            if cast_info.get('name', '').lower() == name.lower():
+                return self._create_cast_device(cast_info)
+        logging.warning("Speaker override '%s' not found after rediscovery", name)
+        return None
+
     def _find_casting_candidate(self, retry_discovery=True):
         """
         Finds a suitable Chromecast device to cast to.
@@ -900,7 +917,7 @@ class ChromecastManager:
             "timestamp": datetime.now().isoformat()
         }
 
-    def play_url_on_cast(self, url, max_retries=2, preserve_target=False):
+    def play_url_on_cast(self, url, max_retries=2, preserve_target=False, speaker_override=None):
         """
         Plays an MP3 URL on the selected Chromecast device with robust error handling.
 
@@ -908,17 +925,28 @@ class ChromecastManager:
             url (str): The media URL to play
             max_retries (int): Maximum number of retries for playback
             preserve_target (bool): If True, don't clear target_device on retry
+            speaker_override (str): Optional device name to use instead of the configured default
 
         Returns:
             dict: JSON response with playback status
         """
         playback_attempts = []
 
+        # Resolve override device once (outside the retry loop)
+        _override_device = None
+        if speaker_override:
+            _override_device = self._resolve_speaker_device(speaker_override)
+            if _override_device is None:
+                logging.warning("Speaker override '%s' not found — using default device", speaker_override)
+
         for retry in range(max_retries + 1):
             attempt_start = time.time()
 
-            # Use existing target device if set, otherwise find one
-            if hasattr(self, 'target_device') and self.target_device:
+            # Use override device, then cached device, then discover
+            if _override_device:
+                target_device = _override_device
+                device_source = "override"
+            elif hasattr(self, 'target_device') and self.target_device:
                 target_device = self.target_device
                 logging.debug("Using pre-set target device for playback")
                 device_source = "cached"
@@ -1514,8 +1542,9 @@ class ChromecastManager:
             self.athan_playing = True
             self.athan_start_time = time.time()
 
-            # Attempt playback
-            playback_result = self.play_url_on_cast(adahn_url)
+            # Attempt playback on the athan-specific speaker (or global fallback)
+            from settings import settings as _s
+            playback_result = self.play_url_on_cast(adahn_url, speaker_override=_s.speaker.resolve("athan"))
 
             if not playback_result.get('success', False):
                 # Reset state if playback failed
@@ -1553,7 +1582,8 @@ class ChromecastManager:
         """
         quran_radio_streaming = self.QURAN_STATION["url"]
 
-        playback_result = self.play_url_on_cast(quran_radio_streaming)
+        from settings import settings as _s
+        playback_result = self.play_url_on_cast(quran_radio_streaming, speaker_override=_s.speaker.resolve("pre_fajr"))
 
         if not playback_result.get('success', False):
             logging.error("Failed to start Quran radio stream")
@@ -1580,7 +1610,8 @@ class ChromecastManager:
         station = self.QURAN_STATION
         logging.info("Starting Quran stream: %s (%s)", station["name"], station["url"])
 
-        result = self.play_url_on_cast(station["url"])
+        from settings import settings as _s
+        result = self.play_url_on_cast(station["url"], speaker_override=_s.speaker.resolve("quran"))
         if result.get("success"):
             self.quran_playing = True
             self.current_station = station

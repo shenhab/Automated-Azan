@@ -718,6 +718,16 @@ def api_quran_stations():
     return jsonify({"success": True, "station": ChromecastManager.QURAN_STATION})
 
 
+@app.route('/api/chromecast/devices', methods=['GET'])
+def api_chromecast_devices():
+    """Return discovered Chromecast device names for speaker-assignment dropdowns."""
+    try:
+        names = web_cast_manager.get_discovered_device_names() if web_cast_manager else []
+        return jsonify({"success": True, "devices": names})
+    except Exception as e:
+        return jsonify({"success": False, "devices": [], "error": str(e)})
+
+
 @app.route('/api/quran/play', methods=['POST'])
 def api_quran_play():
     """Start a random Quran radio stream on the configured speaker."""
@@ -770,8 +780,12 @@ def api_save_config():
         if not speakers_name:
             return jsonify({'success': False, 'error': 'Speaker name is required'}), 400
 
-        updates: dict = {'speaker': {'group_name': speakers_name}}
-        settings_updated = ['speakers_group_name']
+        speaker_update: dict = {'group_name': speakers_name}
+        for key in ('athan_speaker', 'pre_fajr_speaker', 'friday_kahf_speaker', 'quran_speaker'):
+            if key in data:
+                speaker_update[key] = data[key].strip()
+        updates: dict = {'speaker': speaker_update}
+        settings_updated = ['speakers_group_name'] + [k for k in speaker_update if k != 'group_name']
 
         location = data.get('location', '').strip()
         if location:

@@ -100,6 +100,51 @@
             </div>
         </div>
         
+        <!-- Speaker Assignment -->
+        <div class="card islamic-card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-volume-up me-2"></i>
+                    Speaker Assignment
+                </h5>
+                <button class="btn btn-outline-secondary btn-sm" type="button" onclick="refreshDevices(this)">
+                    <i class="fas fa-sync-alt me-1"></i> Refresh Devices
+                </button>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Assign a specific speaker or group for each audio type.
+                    Leave as <em>Use global speaker</em> to use the default speaker set above.
+                </p>
+                <div class="row g-3 mb-3" id="speaker-assignment-rows">
+                    {% set speaker_types = [
+                        ('athan_speaker',        'Athan',            'fas fa-broadcast-tower'),
+                        ('pre_fajr_speaker',     'Pre-Fajr Quran',   'fas fa-moon'),
+                        ('friday_kahf_speaker',  'Friday Al-Kahf',   'fas fa-book-open'),
+                        ('quran_speaker',        'Manual Quran',     'fas fa-music'),
+                    ] %}
+                    {% for field, label, icon in speaker_types %}
+                    <div class="col-sm-6">
+                        <label class="form-label small fw-semibold">
+                            <i class="{{ icon }} me-1 text-muted"></i>{{ label }}
+                        </label>
+                        <select class="form-select form-select-sm speaker-select"
+                                id="select-{{ field }}"
+                                data-field="{{ field }}"
+                                data-saved="{{ config.get(field, '') }}">
+                            <option value="">Use global speaker</option>
+                        </select>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="d-flex justify-content-end">
+                    <button type="button" class="btn btn-success btn-sm" onclick="saveSpeakerAssignment()">
+                        <i class="fas fa-save me-1"></i> Save Speaker Assignment
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- Environment Variables -->
         <div class="card islamic-card mb-4">
             <div class="card-header">
@@ -575,6 +620,67 @@
         }
     }
 
+    // ---------- Speaker Assignment ----------
+    function refreshDevices(btn) {
+        const orig = btn ? btn.innerHTML : '';
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Refreshing…'; }
+        fetch('/api/chromecast/devices')
+            .then(r => r.json())
+            .then(data => populateSpeakerSelects(data.devices || []))
+            .catch(() => {})
+            .finally(() => { if (btn) { btn.disabled = false; btn.innerHTML = orig; } });
+    }
+
+    function populateSpeakerSelects(devices) {
+        document.querySelectorAll('.speaker-select').forEach(sel => {
+            const saved = sel.dataset.saved || '';
+            sel.innerHTML = '<option value="">Use global speaker</option>';
+            devices.forEach(name => {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name;
+                if (name === saved) opt.selected = true;
+                sel.appendChild(opt);
+            });
+            if (saved && !devices.includes(saved)) {
+                // Device was saved but not currently discovered — show it greyed out
+                const opt = document.createElement('option');
+                opt.value = saved;
+                opt.textContent = saved + ' (not found)';
+                opt.selected = true;
+                opt.style.color = '#999';
+                sel.appendChild(opt);
+            }
+        });
+    }
+
+    function saveSpeakerAssignment() {
+        const payload = {
+            speakers_name: document.getElementById('speakers-name').value.trim(),
+        };
+        document.querySelectorAll('.speaker-select').forEach(sel => {
+            payload[sel.dataset.field] = sel.value;
+        });
+        fetch('/api/save-config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Speaker assignment saved.', 'success');
+                // Update saved markers so refresh re-selects correctly
+                document.querySelectorAll('.speaker-select').forEach(sel => {
+                    sel.dataset.saved = sel.value;
+                });
+            } else {
+                showAlert('Save failed: ' + (data.error || 'unknown error'), 'danger');
+            }
+        })
+        .catch(err => showAlert('Error: ' + err, 'danger'));
+    }
+
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('last-update-time').textContent = new Date().toLocaleString();
@@ -584,6 +690,9 @@
 
         // Setup real-time validation
         setupValidation();
+
+        // Load devices for speaker assignment dropdowns
+        refreshDevices(null);
     });
 
     function loadCurrentConfig() {
