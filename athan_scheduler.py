@@ -610,7 +610,13 @@ class AthanScheduler:
                 break
 
             logging.info(f"Pre-Fajr Quran: playing {url}")
-            result = self.chromecast_manager.play_url_on_cast(url, speaker_override=speaker_override)
+            result = self.chromecast_manager.play_url_on_cast(
+                url,
+                speaker_override=speaker_override,
+                media_title="تلاوة ما قبل الفجر",
+                media_artist="القرآن الكريم",
+                stream_type="BUFFERED",
+            )
 
             if not result.get('success'):
                 logging.warning(f"Pre-Fajr Quran: failed to play {url}, skipping")
@@ -743,7 +749,11 @@ class AthanScheduler:
         url = "https://server13.mp3quran.net/husr/018.mp3"
         logging.info(f"Friday: playing Surah Al-Kahf from {url}")
         result = self.chromecast_manager.play_url_on_cast(
-            url, speaker_override=settings.speaker.resolve("friday_kahf")
+            url,
+            speaker_override=settings.speaker.resolve("friday_kahf"),
+            media_title="سورة الكهف",
+            media_artist="تلاوة جمعة مباركة",
+            stream_type="BUFFERED",
         )
         if result.get('success'):
             logging.info("Friday Surah Al-Kahf started successfully")

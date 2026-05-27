@@ -917,15 +917,20 @@ class ChromecastManager:
             "timestamp": datetime.now().isoformat()
         }
 
-    def play_url_on_cast(self, url, max_retries=2, preserve_target=False, speaker_override=None):
+    def play_url_on_cast(self, url, max_retries=2, preserve_target=False, speaker_override=None,
+                         media_title=None, media_artist=None, media_thumb=None, stream_type=None):
         """
-        Plays an MP3 URL on the selected Chromecast device with robust error handling.
+        Plays a URL on the selected Chromecast device with robust error handling.
 
         Args:
             url (str): The media URL to play
             max_retries (int): Maximum number of retries for playback
             preserve_target (bool): If True, don't clear target_device on retry
             speaker_override (str): Optional device name to use instead of the configured default
+            media_title (str): Title shown on the Chromecast display
+            media_artist (str): Artist/subtitle shown on the Chromecast display
+            media_thumb (str): URL of a thumbnail image to show
+            stream_type (str): "LIVE" for radio streams, "BUFFERED" for on-demand files
 
         Returns:
             dict: JSON response with playback status
@@ -1029,11 +1034,29 @@ class ChromecastManager:
                 elif url.endswith('.m4a'):
                     content_type = "audio/mp4"
 
-                logging.info(f"About to call play_media with URL: {url}, content_type: {content_type}")
+                # stream_type: BUFFERED for local MP3 files, LIVE for radio streams
+                _stream_type = stream_type or (
+                    "BUFFERED" if url.endswith(('.mp3', '.m4a', '.aac')) else "LIVE"
+                )
+
+                # Build metadata dict (artist goes here, not as a top-level kwarg)
+                _meta: dict = {"metadataType": 3}  # MusicTrackMediaMetadata
+                if media_title:
+                    _meta["title"] = media_title
+                if media_artist:
+                    _meta["artist"] = media_artist
+
+                _media_kwargs: dict = {"stream_type": _stream_type, "metadata": _meta}
+                if media_title:
+                    _media_kwargs["title"] = media_title   # shown as primary line on display
+                if media_thumb:
+                    _media_kwargs["thumb"] = media_thumb
+
+                logging.info(f"About to call play_media with URL: {url}, content_type: {content_type}, meta: {_media_kwargs}")
 
                 # Add timeout wrapper around the potentially hanging play_media call
                 def play_media_with_timeout():
-                    media_controller.play_media(url, content_type)
+                    media_controller.play_media(url, content_type, **_media_kwargs)
 
                 try:
                     import signal
@@ -1045,7 +1068,7 @@ class ChromecastManager:
 
                     def target():
                         try:
-                            media_controller.play_media(url, content_type)
+                            media_controller.play_media(url, content_type, **_media_kwargs)
                             result_container[0] = "success"
                         except Exception as e:
                             exception_container[0] = e
@@ -1521,9 +1544,11 @@ class ChromecastManager:
             if prayer_type == "fajr":
                 url_result = self._get_media_url("media_adhan_al_fajr.mp3")
                 logging.info("Starting Fajr Adhan playback...")
+                _title, _artist = "Fajr Athan", "الأذان - صلاة الفجر"
             else:
                 url_result = self._get_media_url("media_Athan.mp3")
                 logging.info("Starting regular Adhan playback...")
+                _title, _artist = "Athan", "الأذان - حان وقت الصلاة"
             
 
             if not url_result.get('success', False):
@@ -1544,7 +1569,13 @@ class ChromecastManager:
 
             # Attempt playback on the athan-specific speaker (or global fallback)
             from settings import settings as _s
-            playback_result = self.play_url_on_cast(adahn_url, speaker_override=_s.speaker.resolve("athan"))
+            playback_result = self.play_url_on_cast(
+                adahn_url,
+                speaker_override=_s.speaker.resolve("athan"),
+                media_title=_title,
+                media_artist=_artist,
+                stream_type="BUFFERED",
+            )
 
             if not playback_result.get('success', False):
                 # Reset state if playback failed
@@ -1583,7 +1614,13 @@ class ChromecastManager:
         quran_radio_streaming = self.QURAN_STATION["url"]
 
         from settings import settings as _s
-        playback_result = self.play_url_on_cast(quran_radio_streaming, speaker_override=_s.speaker.resolve("pre_fajr"))
+        playback_result = self.play_url_on_cast(
+            quran_radio_streaming,
+            speaker_override=_s.speaker.resolve("pre_fajr"),
+            media_title="Pre-Fajr Quran",
+            media_artist="محمود خليل الحصري - رواية ورش",
+            stream_type="LIVE",
+        )
 
         if not playback_result.get('success', False):
             logging.error("Failed to start Quran radio stream")
@@ -1611,7 +1648,13 @@ class ChromecastManager:
         logging.info("Starting Quran stream: %s (%s)", station["name"], station["url"])
 
         from settings import settings as _s
-        result = self.play_url_on_cast(station["url"], speaker_override=_s.speaker.resolve("quran"))
+        result = self.play_url_on_cast(
+            station["url"],
+            speaker_override=_s.speaker.resolve("quran"),
+            media_title="Quran Recitation",
+            media_artist="محمود خليل الحصري - رواية ورش",
+            stream_type="LIVE",
+        )
         if result.get("success"):
             self.quran_playing = True
             self.current_station = station
