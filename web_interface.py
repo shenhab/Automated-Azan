@@ -8,21 +8,20 @@ import os
 import json
 import time
 import logging
-import configparser
-
 import shutil
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory
 from flask_socketio import SocketIO, emit
 import pychromecast
+from pydantic import ValidationError
 from prayer_times_fetcher import PrayerTimesFetcher
 from chromecast_manager import ChromecastManager
-from config_manager import ConfigManager
+from settings import settings
 import threading
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-change-this'  # Change this in production
-socketio = SocketIO(app, cors_allowed_origins="*", allow_unsafe_werkzeug=True)
+socketio = SocketIO(app, cors_allowed_origins="*", allow_unsafe_werkzeug=True, logger=False, engineio_logger=False)
 
 # Global variables for real-time updates
 current_config = {}
@@ -142,72 +141,15 @@ def get_next_prayer_info():
 web_cast_manager = None
 
 def load_config():
-    """Load current configuration using ConfigManager"""
+    """Refresh current_config from the live settings singleton."""
     global current_config
-
-    try:
-        config_manager = ConfigManager()
-
-        # Get all settings using ConfigManager
-        speakers_result = config_manager.get_speakers_group_name()
-        location_result = config_manager.get_location()
-        pre_fajr_result = config_manager.is_pre_fajr_enabled()
-
-        current_config = {
-            'speakers_group_name': speakers_result.get('speakers_group_name', 'athan'),
-            'location': location_result.get('location', 'naas'),
-            'pre_fajr_enabled': pre_fajr_result.get('pre_fajr_enabled', True)
-        }
-
-        logging.debug("Configuration loaded successfully via ConfigManager")
-
-    except Exception as e:
-        logging.error(f"Error loading config via ConfigManager: {e}")
-        # Fallback to default configuration
-        current_config = {
-            'speakers_group_name': 'athan',
-            'location': 'naas',
-            'pre_fajr_enabled': True
-        }
-        logging.info("Using default configuration")
-    
+    current_config = settings.as_web_dict()
     return current_config
 
-def save_config(speakers_name, location):
-    """Save configuration to file with Docker volume support"""
-    config = configparser.ConfigParser()
-    config.add_section('Settings')
-    config.set('Settings', 'speakers-group-name', speakers_name)
-    config.set('Settings', 'location', location)
-    
-    # Try to save to different possible locations
-    config_paths = [
-        '/app/config/adahn.config',  # Docker volume location
-        'config/adahn.config',       # Local config directory
-        'adahn.config'               # Default location
-    ]
-    
-    saved = False
-    for config_path in config_paths:
-        try:
-            # Create directory if it doesn't exist
-            config_dir = os.path.dirname(config_path)
-            if config_dir and not os.path.exists(config_dir):
-                os.makedirs(config_dir, exist_ok=True)
-                
-            with open(config_path, 'w') as config_file:
-                config.write(config_file)
-            logging.info(f"Configuration saved to {config_path}")
-            saved = True
-            break
-        except (PermissionError, OSError) as e:
-            logging.debug(f"Cannot write to {config_path}: {e}")
-            continue
-    
-    if not saved:
-        raise PermissionError("Cannot write configuration file - all locations read-only")
-    
-    load_config()  # Reload to update global variable
+def _persist_config():
+    """Persist settings to disk and refresh the in-memory web dict."""
+    settings.save()
+    load_config()
 
 def load_prayer_times(force_reload=False):
     """Load current prayer times with caching"""
@@ -319,10 +261,16 @@ def chromecasts():
                          devices=get_discovered_devices())
 
 @app.route('/settings')
-def settings():
+def settings_page():
     """Settings page"""
     load_config()
     return render_template('settings.html', config=current_config)
+
+@app.route('/scheduler')
+def scheduler_page():
+    """Scheduler viewer/manager page"""
+    load_config()
+    return render_template('scheduler.html', config=current_config)
 
 @app.route('/logs')
 def logs():
@@ -587,28 +535,17 @@ def api_test_chromecast():
 def reload_config():
     """Manual config reload endpoint"""
     try:
-        from config_manager import ConfigManager
-        config_manager = ConfigManager()
-        result = config_manager.reload_config()
-
-        if result.get('success'):
-            # Notify via WebSocket
-            socketio.emit('config_reloaded', {
-                'message': 'Configuration reloaded successfully',
-                'timestamp': datetime.now().isoformat()
-            }, broadcast=True)
-
-            return jsonify({
-                "success": True,
-                "message": "Configuration reloaded successfully",
-                "timestamp": datetime.now().isoformat()
-            })
-        else:
-            return jsonify({
-                "success": False,
-                "error": result.get('error', 'Failed to reload configuration'),
-                "timestamp": datetime.now().isoformat()
-            }), 500
+        settings.reload()
+        load_config()
+        socketio.emit('config_reloaded', {
+            'message': 'Configuration reloaded successfully',
+            'timestamp': datetime.now().isoformat()
+        })
+        return jsonify({
+            "success": True,
+            "message": "Configuration reloaded successfully",
+            "timestamp": datetime.now().isoformat()
+        })
     except Exception as e:
         logging.error(f"Error reloading config: {e}")
         return jsonify({
@@ -665,27 +602,66 @@ def restart_watcher():
             "timestamp": datetime.now().isoformat()
         }), 500
 
+@app.route('/api/scheduler/status')
+def api_scheduler_status():
+    """Get detailed scheduler status including all queued jobs."""
+    try:
+        if not web_scheduler:
+            return jsonify({"success": False, "error": "Scheduler not available"}), 503
+
+        status = web_scheduler.get_scheduler_status()
+        next_prayer = web_scheduler.get_next_prayer_time()
+        prayer_times_result = web_scheduler.get_prayer_times()
+
+        return jsonify({
+            **status,
+            "next_prayer": next_prayer,
+            "prayer_times": prayer_times_result.get("prayer_times", {}),
+            "location": prayer_times_result.get("location"),
+        })
+    except Exception as e:
+        logging.error(f"Error getting scheduler status: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/scheduler/refresh', methods=['POST'])
+def api_scheduler_refresh():
+    """Force a full prayer-times reload and reschedule."""
+    try:
+        if not web_scheduler:
+            return jsonify({"success": False, "error": "Scheduler not available"}), 503
+
+        result = web_scheduler.refresh_schedule()
+
+        if result.get("success"):
+            socketio.emit('scheduler_refreshed', {
+                'scheduled_count': result.get('scheduled_count', 0),
+                'timestamp': datetime.now().isoformat()
+            })
+
+        return jsonify(result)
+    except Exception as e:
+        logging.error(f"Error refreshing scheduler: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route('/api/config/pre-fajr', methods=['POST'])
 def toggle_pre_fajr():
     """Toggle pre-Fajr Quran feature"""
     try:
         data = request.json
-        enable = data.get('enable', False)
+        enable = bool(data.get('enable', False))
 
         if web_scheduler and hasattr(web_scheduler, 'toggle_pre_fajr_quran'):
             result = web_scheduler.toggle_pre_fajr_quran(enable)
 
-            # Update config file
-            from config_manager import ConfigManager
-            config_manager = ConfigManager()
-            config_manager.update_setting('Settings', 'pre_fajr_enabled', str(enable))
-            config_manager.save_config()
+            settings.update(prayer={"pre_fajr_enabled": enable})
+            settings.save()
 
-            # Notify via WebSocket
             socketio.emit('pre_fajr_toggled', {
                 'enabled': enable,
                 'timestamp': datetime.now().isoformat()
-            }, broadcast=True)
+            })
 
             return jsonify(result)
         else:
@@ -702,115 +678,162 @@ def toggle_pre_fajr():
             "timestamp": datetime.now().isoformat()
         }), 500
 
-@app.route('/api/save-config', methods=['POST'])
-def api_save_config():
-    """API endpoint to save configuration - supports all config options"""
+@app.route('/api/config/friday-kahf', methods=['POST'])
+def toggle_friday_kahf():
+    """Toggle Friday Surah Al-Kahf feature"""
     try:
         data = request.json
+        enable = bool(data.get('enable', False))
 
-        # Initialize config manager
-        config_manager = ConfigManager()
+        if web_scheduler and hasattr(web_scheduler, 'toggle_friday_kahf'):
+            result = web_scheduler.toggle_friday_kahf(enable)
 
-        # Validate required fields
+            settings.update(prayer={"friday_kahf_enabled": enable})
+            settings.save()
+
+            socketio.emit('friday_kahf_toggled', {
+                'enabled': enable,
+                'timestamp': datetime.now().isoformat()
+            })
+
+            return jsonify(result)
+        else:
+            return jsonify({
+                "success": False,
+                "error": "Scheduler not available or feature not supported",
+                "timestamp": datetime.now().isoformat()
+            }), 400
+    except Exception as e:
+        logging.error(f"Error toggling Friday Al-Kahf: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+
+@app.route('/api/quran/stations', methods=['GET'])
+def api_quran_stations():
+    """Return the list of available Quran radio stations."""
+    return jsonify({"success": True, "station": ChromecastManager.QURAN_STATION})
+
+
+@app.route('/api/chromecast/devices', methods=['GET'])
+def api_chromecast_devices():
+    """Return discovered Chromecast device names for speaker-assignment dropdowns."""
+    try:
+        names = web_cast_manager.get_discovered_device_names() if web_cast_manager else []
+        return jsonify({"success": True, "devices": names})
+    except Exception as e:
+        return jsonify({"success": False, "devices": [], "error": str(e)})
+
+
+@app.route('/api/quran/play', methods=['POST'])
+def api_quran_play():
+    """Start a random Quran radio stream on the configured speaker."""
+    try:
+        if not web_cast_manager:
+            return jsonify({"success": False, "error": "Chromecast manager not available"}), 503
+
+        result = web_cast_manager.play_random_quran()
+        if result.get("success"):
+            socketio.emit('quran_started', {
+                'station': result['station'],
+                'timestamp': datetime.now().isoformat(),
+            })
+        return jsonify(result)
+    except Exception as e:
+        logging.error(f"Error starting Quran playback: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/quran/stop', methods=['POST'])
+def api_quran_stop():
+    """Stop whatever is currently playing on the configured speaker."""
+    try:
+        if not web_cast_manager:
+            return jsonify({"success": False, "error": "Chromecast manager not available"}), 503
+
+        result = web_cast_manager.stop_playback()
+        socketio.emit('quran_stopped', {'timestamp': datetime.now().isoformat()})
+        return jsonify(result)
+    except Exception as e:
+        logging.error(f"Error stopping playback: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/quran/status', methods=['GET'])
+def api_quran_status():
+    """Return current Quran playback state."""
+    if not web_cast_manager:
+        return jsonify({"success": False, "playing": False, "station": None})
+    return jsonify(web_cast_manager.get_quran_status())
+
+
+@app.route('/api/save-config', methods=['POST'])
+def api_save_config():
+    """API endpoint to save configuration."""
+    try:
+        data = request.json or {}
+
         speakers_name = data.get('speakers_name', '').strip()
         if not speakers_name:
             return jsonify({'success': False, 'error': 'Speaker name is required'}), 400
 
-        # Validate speakers name format
-        if len(speakers_name) < 2:
-            return jsonify({'success': False, 'error': 'Speaker name must be at least 2 characters long'}), 400
+        speaker_update: dict = {'group_name': speakers_name}
+        for key in ('athan_speaker', 'pre_fajr_speaker', 'friday_kahf_speaker', 'quran_speaker'):
+            if key in data:
+                speaker_update[key] = data[key].strip()
+        updates: dict = {'speaker': speaker_update}
+        settings_updated = ['speakers_group_name'] + [k for k in speaker_update if k != 'group_name']
 
-        if len(speakers_name) > 100:
-            return jsonify({'success': False, 'error': 'Speaker name cannot exceed 100 characters'}), 400
-
-        # Update all provided settings
-        settings_updated = []
-
-        # Update speakers group name
-        result = config_manager.update_setting('Settings', 'speakers-group-name', speakers_name)
-        if not result['success']:
-            return jsonify({'success': False, 'error': f"Failed to update speakers name: {result.get('error')}"}), 500
-        settings_updated.append('speakers-group-name')
-
-        # Update location if provided
         location = data.get('location', '').strip()
         if location:
-            # Validate location value
-            valid_locations = ['naas', 'icci']
-            if location not in valid_locations:
-                return jsonify({'success': False, 'error': f'Invalid location. Must be one of: {", ".join(valid_locations)}'}), 400
-
-            result = config_manager.update_setting('Settings', 'location', location)
-            if not result['success']:
-                return jsonify({'success': False, 'error': f"Failed to update location: {result.get('error')}"}), 500
+            updates['prayer'] = {'location': location}
             settings_updated.append('location')
 
-        # Update pre-Fajr setting if provided
         if 'pre_fajr_enabled' in data:
-            pre_fajr = data['pre_fajr_enabled']
-            # Convert boolean to string for config file
-            pre_fajr_value = 'True' if pre_fajr else 'False'
-            result = config_manager.update_setting('Settings', 'pre_fajr_enabled', pre_fajr_value)
-            if not result['success']:
-                return jsonify({'success': False, 'error': f"Failed to update pre-Fajr setting: {result.get('error')}"}), 500
+            prayer_update = updates.get('prayer', settings.prayer.model_dump())
+            prayer_update['pre_fajr_enabled'] = bool(data['pre_fajr_enabled'])
+            updates['prayer'] = prayer_update
             settings_updated.append('pre_fajr_enabled')
 
-        # Save configuration to file
-        save_result = config_manager.save_config()
-        if not save_result['success']:
-            return jsonify({'success': False, 'error': f"Failed to save configuration: {save_result.get('error')}"}), 500
+        if 'friday_kahf_enabled' in data:
+            prayer_update = updates.get('prayer', settings.prayer.model_dump())
+            prayer_update['friday_kahf_enabled'] = bool(data['friday_kahf_enabled'])
+            updates['prayer'] = prayer_update
+            settings_updated.append('friday_kahf_enabled')
 
-        # Update global current_config for backward compatibility
+        # Validate via Pydantic before writing
+        settings.update(**updates)
+        settings.save()
+
         global current_config
         current_config = load_config()
-
-        # Emit real-time update
         socketio.emit('config_updated', {'config': current_config})
 
         return jsonify({
             'success': True,
-            'message': f'Configuration saved successfully ({len(settings_updated)} settings updated)',
+            'message': f'Configuration saved ({len(settings_updated)} settings updated)',
             'settings_updated': settings_updated,
-            'config': current_config
+            'config': current_config,
         })
 
+    except ValidationError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
         logging.error(f"Error saving config: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/get-config', methods=['GET'])
 def api_get_config():
-    """API endpoint to get all configuration settings"""
-    try:
-        config_manager = ConfigManager()
-
-        # Get all current settings
-        speakers_result = config_manager.get_speakers_group_name()
-        location_result = config_manager.get_location()
-        pre_fajr_result = config_manager.is_pre_fajr_enabled()
-
-        config_data = {
-            'speakers_group_name': speakers_result.get('speakers_group_name', ''),
-            'location': location_result.get('location', 'naas'),
-            'pre_fajr_enabled': pre_fajr_result.get('pre_fajr_enabled', True)
-        }
-
-        return jsonify({
-            'success': True,
-            'config': config_data,
-            'timestamp': datetime.now().isoformat()
-        })
-
-    except Exception as e:
-        logging.error(f"Error getting config: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+    """API endpoint to get all configuration settings."""
+    return jsonify({
+        'success': True,
+        'config': settings.as_web_dict(),
+        'timestamp': datetime.now().isoformat(),
+    })
 
 
 @app.route('/api/refresh-prayer-times', methods=['POST'])

@@ -6,7 +6,7 @@ import os
 from unittest.mock import patch, Mock
 
 # Import all modules for basic testing
-from config_manager import ConfigManager
+from settings import settings, Settings
 from logging_setup import setup_logging, get_logging_status
 from prayer_times_fetcher import PrayerTimesFetcher
 from chromecast_manager import ChromecastManager
@@ -20,17 +20,15 @@ class TestBasicModuleFunctionality:
     """Test basic functionality of all modules."""
 
     @pytest.mark.unit
-    def test_config_manager_basic(self, json_response_validator):
-        """Test basic ConfigManager functionality."""
-        config = ConfigManager()
+    def test_settings_basic(self):
+        """Test basic settings functionality."""
+        assert settings.speaker.group_name is not None
+        assert settings.prayer.location in ("naas", "icci")
+        assert isinstance(settings.prayer.pre_fajr_enabled, bool)
 
-        # Test get_all_settings
-        result = config.get_all_settings()
-        json_response_validator(result, success_expected=True)
-
-        # Test validate_config
-        result = config.validate_config()
-        json_response_validator(result, success_expected=True)
+        web_dict = settings.as_web_dict()
+        assert "speakers_group_name" in web_dict
+        assert "location" in web_dict
 
     @pytest.mark.unit
     def test_logging_setup_basic(self, json_response_validator, temp_log_file):
@@ -127,7 +125,6 @@ class TestBasicModuleFunctionality:
         """Test that all modules return consistent JSON format."""
         # Test basic methods from each module
         test_cases = [
-            (ConfigManager(), 'get_all_settings'),
             (PrayerTimesFetcher(), 'get_available_sources'),
             (ChromecastManager(), 'get_system_status'),
             (WebInterfaceAPI(), 'get_system_status'),
@@ -158,7 +155,7 @@ class TestBasicModuleFunctionality:
     def test_all_modules_importable(self):
         """Test that all main modules can be imported without errors."""
         modules = [
-            'config_manager',
+            'settings',
             'logging_setup',
             'prayer_times_fetcher',
             'chromecast_manager',
@@ -178,9 +175,7 @@ class TestBasicModuleFunctionality:
     def test_basic_workflow(self, json_response_validator):
         """Test basic workflow between modules."""
         # 1. Configuration
-        config = ConfigManager()
-        config_result = config.get_all_settings()
-        json_response_validator(config_result, success_expected=True)
+        assert settings.speaker.group_name is not None
 
         # 2. Prayer times
         fetcher = PrayerTimesFetcher()
@@ -201,7 +196,6 @@ class TestBasicModuleFunctionality:
         """Test that modules handle errors gracefully and return JSON."""
         # Test some operations that might fail but should return proper JSON
         test_cases = [
-            (ConfigManager('nonexistent.config'), 'get_all_settings'),
             (PrayerTimesFetcher(), 'get_file_status'),  # File might not exist
             (ChromecastManager(), 'get_system_status'),  # This method exists
             (WebInterfaceAPI(), 'get_system_status'),  # This method exists
@@ -226,15 +220,12 @@ class TestBasicModuleFunctionality:
     def test_module_instantiation(self):
         """Test that all modules can be instantiated without errors."""
         try:
-            config = ConfigManager()
             fetcher = PrayerTimesFetcher()
             manager = ChromecastManager()
             synchronizer = TimeSynchronizer()
             api = WebInterfaceAPI()
             scheduler = AthanScheduler()
 
-            # Basic verification they were created
-            assert config is not None
             assert fetcher is not None
             assert manager is not None
             assert synchronizer is not None

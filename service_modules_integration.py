@@ -11,8 +11,8 @@ import json
 import sys
 from datetime import datetime
 
-# Import all refactored service modules
-from config_manager import ConfigManager
+# Import all service modules
+from settings import settings
 from logging_setup import setup_logging
 from athan_scheduler import AthanScheduler
 from prayer_times_fetcher import PrayerTimesFetcher
@@ -36,20 +36,10 @@ def demonstrate_core_modules():
 
     # 1. Configuration Management
     print("\n1. Configuration Management:")
-    config = ConfigManager()
-
-    # Load and validate configuration
-    all_settings = config.get_all_settings()
-    validation = config.validate_config()
-
-    print(f"   ✓ Settings loaded: {all_settings['success']}")
-    print(f"   ✓ Configuration valid: {validation['success']}")
-
-    if validation['success']:
-        speakers = config.get_speakers_group_name()
-        location = config.get_location()
-        print(f"   ✓ Speakers: {speakers.get('speakers_group_name', 'Error')}")
-        print(f"   ✓ Location: {location.get('location', 'Error')}")
+    config_dict = settings.as_web_dict()
+    print(f"   ✓ Settings loaded: True")
+    print(f"   ✓ Speakers: {settings.speaker.group_name}")
+    print(f"   ✓ Location: {settings.prayer.location}")
 
     # 2. Logging Setup
     print("\n2. Logging Management:")
@@ -64,7 +54,7 @@ def demonstrate_core_modules():
     print(f"   ✓ Logging status: {status['success']}")
     print(f"   ✓ Handlers active: {len(status.get('handlers', []))}")
 
-    return config
+    return settings
 
 
 def demonstrate_service_modules():
@@ -156,40 +146,23 @@ def demonstrate_scheduler_integration():
     print("=" * 50)
 
     try:
-        # Initialize scheduler (this would normally be done by main.py)
-        config = ConfigManager()
-        validation = config.validate_config()
+        print("\n1. Scheduler Integration:")
+        scheduler = AthanScheduler(
+            location=settings.prayer.location,
+            google_device=settings.speaker.group_name,
+        )
 
-        if validation['success']:
-            location_result = config.get_location()
-            speakers_result = config.get_speakers_group_name()
+        prayer_times = scheduler.get_prayer_times()
+        print(f"   ✓ Prayer times loaded: {prayer_times['success']}")
 
-            if location_result['success'] and speakers_result['success']:
-                print("\n1. Scheduler Integration:")
-                scheduler = AthanScheduler(
-                    location=location_result['location'],
-                    google_device=speakers_result['speakers_group_name']
-                )
+        next_prayer = scheduler.get_next_prayer_time()
+        print(f"   ✓ Next prayer calculated: {next_prayer['success']}")
+        if next_prayer['success'] and next_prayer.get('prayer'):
+            print(f"   ✓ Next prayer: {next_prayer['prayer']} at {next_prayer.get('formatted_time')}")
 
-                # Get prayer times
-                prayer_times = scheduler.get_prayer_times()
-                print(f"   ✓ Prayer times loaded: {prayer_times['success']}")
-
-                # Get next prayer
-                next_prayer = scheduler.get_next_prayer_time()
-                print(f"   ✓ Next prayer calculated: {next_prayer['success']}")
-                if next_prayer['success'] and next_prayer.get('prayer'):
-                    print(f"   ✓ Next prayer: {next_prayer['prayer']} at {next_prayer.get('formatted_time')}")
-
-                # Get scheduler status
-                scheduler_status = scheduler.get_scheduler_status()
-                print(f"   ✓ Scheduler status: {scheduler_status['success']}")
-                print(f"   ✓ Jobs scheduled: {scheduler_status.get('total_jobs', 0)}")
-
-            else:
-                print("   ⚠ Configuration missing required values")
-        else:
-            print("   ⚠ Configuration validation failed")
+        scheduler_status = scheduler.get_scheduler_status()
+        print(f"   ✓ Scheduler status: {scheduler_status['success']}")
+        print(f"   ✓ Jobs scheduled: {scheduler_status.get('total_jobs', 0)}")
 
     except Exception as e:
         print(f"   ⚠ Scheduler integration error: {e}")
@@ -233,8 +206,7 @@ def demonstrate_api_endpoints():
 
     # Simulate common API endpoints using our modules
     endpoints = {
-        "/api/config": lambda: ConfigManager().get_all_settings(),
-        "/api/config/validate": lambda: ConfigManager().validate_config(),
+        "/api/config": lambda: {"success": True, "config": settings.as_web_dict(), "timestamp": datetime.now().isoformat()},
         "/api/prayer-times": lambda: PrayerTimesFetcher().get_available_sources(),
         "/api/prayer-times/naas": lambda: PrayerTimesFetcher().fetch_prayer_times("naas"),
         "/api/time/status": lambda: TimeSynchronizer().sync_status_summary(),

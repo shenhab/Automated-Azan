@@ -1,0 +1,17 @@
+[speaker]
+group_name = "athan"
+
+[prayer]
+location = "naas"
+pre_fajr_enabled = true
+pre_fajr_minutes = 30
+friday_kahf_enabled = false
+
+[web]
+host = "0.0.0.0"
+port = 5000
+secret_key = "automated-azan-secret-key"
+
+[log]
+level = "INFO"
+file_path = "logs/azan.log"

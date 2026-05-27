@@ -70,6 +70,23 @@
                             When enabled, Quran recitation will play 30 minutes before the Fajr prayer time.
                         </div>
                     </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">
+                            <i class="fas fa-book-open me-2"></i>
+                            Friday Surah Al-Kahf
+                        </label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="friday-kahf-enabled"
+                                   {{ 'checked' if config.friday_kahf_enabled else '' }}>
+                            <label class="form-check-label" for="friday-kahf-enabled">
+                                Enable Friday Surah Al-Kahf (2 hours before Dhuhr)
+                            </label>
+                        </div>
+                        <div class="form-text">
+                            When enabled, Surah Al-Kahf will play every Friday 2 hours before the Dhuhr prayer time.
+                        </div>
+                    </div>
                     
                     <div class="d-grid gap-2 d-md-flex justify-content-md-end">
                         <button type="button" class="btn btn-outline-secondary me-md-2" onclick="resetForm()">
@@ -83,6 +100,51 @@
             </div>
         </div>
         
+        <!-- Speaker Assignment -->
+        <div class="card islamic-card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-volume-up me-2"></i>
+                    Speaker Assignment
+                </h5>
+                <button class="btn btn-outline-secondary btn-sm" type="button" onclick="refreshDevices(this)">
+                    <i class="fas fa-sync-alt me-1"></i> Refresh Devices
+                </button>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Assign a specific speaker or group for each audio type.
+                    Leave as <em>Use global speaker</em> to use the default speaker set above.
+                </p>
+                <div class="row g-3 mb-3" id="speaker-assignment-rows">
+                    {% set speaker_types = [
+                        ('athan_speaker',        'Athan',            'fas fa-broadcast-tower'),
+                        ('pre_fajr_speaker',     'Pre-Fajr Quran',   'fas fa-moon'),
+                        ('friday_kahf_speaker',  'Friday Al-Kahf',   'fas fa-book-open'),
+                        ('quran_speaker',        'Manual Quran',     'fas fa-music'),
+                    ] %}
+                    {% for field, label, icon in speaker_types %}
+                    <div class="col-sm-6">
+                        <label class="form-label small fw-semibold">
+                            <i class="{{ icon }} me-1 text-muted"></i>{{ label }}
+                        </label>
+                        <select class="form-select form-select-sm speaker-select"
+                                id="select-{{ field }}"
+                                data-field="{{ field }}"
+                                data-saved="{{ config.get(field, '') }}">
+                            <option value="">Use global speaker</option>
+                        </select>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="d-flex justify-content-end">
+                    <button type="button" class="btn btn-success btn-sm" onclick="saveSpeakerAssignment()">
+                        <i class="fas fa-save me-1"></i> Save Speaker Assignment
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- Environment Variables -->
         <div class="card islamic-card mb-4">
             <div class="card-header">
@@ -189,6 +251,17 @@
                         {% endif %}
                     </span>
                 </div>
+
+                <div class="mb-2">
+                    <strong>Friday Surah Al-Kahf:</strong><br>
+                    <span class="text-muted" id="status-friday-kahf">
+                        {% if config.friday_kahf_enabled %}
+                            <span class="badge bg-success">Enabled</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Disabled</span>
+                        {% endif %}
+                    </span>
+                </div>
                 
                 <div class="mb-2">
                     <strong>Last Updated:</strong><br>
@@ -264,6 +337,7 @@
         document.getElementById('speakers-name').value = '{{ config.speakers_group_name }}';
         document.getElementById('location').value = '{{ config.location }}';
         document.getElementById('pre-fajr-enabled').checked = {{ 'true' if config.pre_fajr_enabled else 'false' }};
+        document.getElementById('friday-kahf-enabled').checked = {{ 'true' if config.friday_kahf_enabled else 'false' }};
         showAlert('Form reset to current values', 'info');
     }
     
@@ -373,6 +447,7 @@
         const speakersName = document.getElementById('speakers-name').value.trim();
         const location = document.getElementById('location').value;
         const preFajrEnabled = document.getElementById('pre-fajr-enabled').checked;
+        const fridayKahfEnabled = document.getElementById('friday-kahf-enabled').checked;
 
         // Client-side validation
         if (!speakersName) {
@@ -413,7 +488,8 @@
             body: JSON.stringify({
                 speakers_name: speakersName,
                 location: location,
-                pre_fajr_enabled: preFajrEnabled
+                pre_fajr_enabled: preFajrEnabled,
+                friday_kahf_enabled: fridayKahfEnabled
             })
         })
         .then(response => response.json())
@@ -454,6 +530,9 @@
         if (data.config.pre_fajr_enabled !== undefined) {
             document.getElementById('pre-fajr-enabled').checked = data.config.pre_fajr_enabled;
         }
+        if (data.config.friday_kahf_enabled !== undefined) {
+            document.getElementById('friday-kahf-enabled').checked = data.config.friday_kahf_enabled;
+        }
 
         // Update status display
         updateStatusDisplay(data.config);
@@ -475,6 +554,14 @@
         const sidebarSpeaker = document.getElementById('sidebar-speaker');
         if (sidebarSpeaker && config.speakers_group_name) {
             sidebarSpeaker.textContent = config.speakers_group_name;
+        }
+
+        // Update Friday Al-Kahf status badge
+        const kahfStatus = document.getElementById('status-friday-kahf');
+        if (kahfStatus && config.friday_kahf_enabled !== undefined) {
+            kahfStatus.innerHTML = config.friday_kahf_enabled
+                ? '<span class="badge bg-success">Enabled</span>'
+                : '<span class="badge bg-secondary">Disabled</span>';
         }
     }
     
@@ -533,6 +620,67 @@
         }
     }
 
+    // ---------- Speaker Assignment ----------
+    function refreshDevices(btn) {
+        const orig = btn ? btn.innerHTML : '';
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Refreshing…'; }
+        fetch('/api/chromecast/devices')
+            .then(r => r.json())
+            .then(data => populateSpeakerSelects(data.devices || []))
+            .catch(() => {})
+            .finally(() => { if (btn) { btn.disabled = false; btn.innerHTML = orig; } });
+    }
+
+    function populateSpeakerSelects(devices) {
+        document.querySelectorAll('.speaker-select').forEach(sel => {
+            const saved = sel.dataset.saved || '';
+            sel.innerHTML = '<option value="">Use global speaker</option>';
+            devices.forEach(name => {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name;
+                if (name === saved) opt.selected = true;
+                sel.appendChild(opt);
+            });
+            if (saved && !devices.includes(saved)) {
+                // Device was saved but not currently discovered — show it greyed out
+                const opt = document.createElement('option');
+                opt.value = saved;
+                opt.textContent = saved + ' (not found)';
+                opt.selected = true;
+                opt.style.color = '#999';
+                sel.appendChild(opt);
+            }
+        });
+    }
+
+    function saveSpeakerAssignment() {
+        const payload = {
+            speakers_name: document.getElementById('speakers-name').value.trim(),
+        };
+        document.querySelectorAll('.speaker-select').forEach(sel => {
+            payload[sel.dataset.field] = sel.value;
+        });
+        fetch('/api/save-config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Speaker assignment saved.', 'success');
+                // Update saved markers so refresh re-selects correctly
+                document.querySelectorAll('.speaker-select').forEach(sel => {
+                    sel.dataset.saved = sel.value;
+                });
+            } else {
+                showAlert('Save failed: ' + (data.error || 'unknown error'), 'danger');
+            }
+        })
+        .catch(err => showAlert('Error: ' + err, 'danger'));
+    }
+
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('last-update-time').textContent = new Date().toLocaleString();
@@ -542,6 +690,9 @@
 
         // Setup real-time validation
         setupValidation();
+
+        // Load devices for speaker assignment dropdowns
+        refreshDevices(null);
     });
 
     function loadCurrentConfig() {
@@ -560,6 +711,9 @@
                     }
                     if (config.pre_fajr_enabled !== undefined) {
                         document.getElementById('pre-fajr-enabled').checked = config.pre_fajr_enabled;
+                    }
+                    if (config.friday_kahf_enabled !== undefined) {
+                        document.getElementById('friday-kahf-enabled').checked = config.friday_kahf_enabled;
                     }
 
                     updateStatusDisplay(config);

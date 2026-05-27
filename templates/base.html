@@ -95,18 +95,23 @@
             display: none;
         }
 
-        /* Log Container */
+        /* Log Terminal */
         .log-container {
-            background-color: #1e1e1e;
-            color: #d4d4d4;
+            background-color: #0d1117;
+            color: #c9d1d9;
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-            font-size: 13px;
+            font-size: 12.5px;
             line-height: 1.5;
             max-height: 400px;
             overflow-y: auto;
             border-radius: 6px;
-            padding: 15px;
+            padding: 12px;
+            scrollbar-width: thin;
+            scrollbar-color: #30363d #0d1117;
         }
+        .log-container::-webkit-scrollbar { width: 8px; }
+        .log-container::-webkit-scrollbar-track { background: #0d1117; }
+        .log-container::-webkit-scrollbar-thumb { background-color: #30363d; border-radius: 4px; }
 
         /* Next Prayer Highlight */
         .next-prayer {
@@ -276,6 +281,52 @@
             }
         }
 
+        /* ---- Log line level styles (dark terminal) ---- */
+        .log-line {
+            padding: 1px 6px;
+            border-left: 3px solid #30363d;
+            border-radius: 2px;
+            margin-bottom: 1px;
+            line-height: 1.45;
+            word-break: break-all;
+        }
+        .log-line-error   { color: #ffa3a3; border-left-color: #e74c3c; background: rgba(231,76,60,0.08); }
+        .log-line-warning { color: #ffd166; border-left-color: #e67e22; }
+        .log-line-info    { color: #cdd5df; border-left-color: #4a9eff; }
+        .log-line-debug   { color: #6e7681; border-left-color: #30363d; }
+        .log-ts  { color: #6e7681; font-size: 0.88em; }
+        .log-lvl {
+            font-weight: 700; font-size: 0.78em; text-transform: uppercase;
+            margin: 0 6px 0 4px; letter-spacing: 0.5px;
+        }
+        .log-line-error   .log-lvl { color: #ff7b7b; }
+        .log-line-warning .log-lvl { color: #ffd166; }
+        .log-line-info    .log-lvl { color: #79c0ff; }
+        .log-line-debug   .log-lvl { color: #6e7681; }
+        .log-placeholder {
+            color: #6e7681; text-align: center;
+            padding: 20px; font-style: italic; font-size: 0.9em;
+        }
+
+        /* ---- Consistent green for outline-primary buttons ---- */
+        .btn-outline-primary {
+            --bs-btn-color: var(--islamic-green);
+            --bs-btn-border-color: var(--islamic-green);
+            --bs-btn-hover-bg: var(--islamic-green);
+            --bs-btn-hover-border-color: var(--islamic-green);
+            --bs-btn-hover-color: #fff;
+            --bs-btn-active-bg: #1b5e20;
+            --bs-btn-active-border-color: #1b5e20;
+            --bs-btn-active-color: #fff;
+            --bs-btn-focus-shadow-rgb: 46, 125, 50;
+        }
+
+        /* Fix Bootstrap cyan info badges to use the app's blue */
+        .badge.bg-info {
+            background-color: var(--islamic-blue) !important;
+            color: #fff !important;
+        }
+
         /* Test page specific styles */
         .device-card {
             transition: transform 0.2s, box-shadow 0.2s;
@@ -340,7 +391,13 @@
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'settings' %}active{% endif %}" href="/settings">
+                            <a class="nav-link {% if request.endpoint == 'scheduler_page' %}active{% endif %}" href="/scheduler">
+                                <i class="fas fa-calendar-alt me-2"></i>
+                                Scheduler
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'settings_page' %}active{% endif %}" href="/settings">
                                 <i class="fas fa-cog me-2"></i>
                                 Settings
                             </a>
@@ -646,6 +703,34 @@
         // Update prayer times every minute
         setInterval(updatePrayerTimes, 60000);
         
+        // ---- Log formatting (shared across pages) ----
+        function escapeHtml(s) {
+            return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        function formatLogLine(line) {
+            if (!line.trim()) return '';
+            const lvlMatch = line.match(/\b(ERROR|WARNING|WARN|INFO|DEBUG)\b/);
+            let cls = 'log-line-debug', lbl = 'DBG';
+            if (lvlMatch) {
+                const lv = lvlMatch[1].toUpperCase();
+                if (lv === 'ERROR')             { cls = 'log-line-error';   lbl = 'ERR'; }
+                else if (lv.startsWith('WARN')) { cls = 'log-line-warning'; lbl = 'WRN'; }
+                else if (lv === 'INFO')         { cls = 'log-line-info';    lbl = 'INF'; }
+            }
+            let safe = escapeHtml(line);
+            // Dim timestamp prefix
+            safe = safe.replace(
+                /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?)/,
+                '<span class="log-ts">$1</span>'
+            );
+            // Replace level keyword with compact styled label
+            if (lvlMatch) {
+                safe = safe.replace(escapeHtml(lvlMatch[1]), `<span class="log-lvl">${lbl}</span>`);
+            }
+            return `<div class="log-line ${cls}">${safe}</div>`;
+        }
+
         // Utility functions
         function showAlert(message, type = 'info') {
             const alertDiv = document.createElement('div');

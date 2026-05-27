@@ -1,0 +1,375 @@
+{% extends "base.html" %}
+
+{% block title %}Scheduler - Automated Azan{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pb-2 mb-3 border-bottom">
+    <h1 class="h2">
+        <i class="fas fa-calendar-alt islamic-icon me-2"></i>
+        Scheduler
+    </h1>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary btn-sm" id="btn-refresh-status" onclick="loadSchedulerStatus()">
+            <i class="fas fa-sync-alt me-1"></i> Refresh
+        </button>
+        <button class="btn btn-success btn-sm" id="btn-reschedule" onclick="rescheduleAll()">
+            <i class="fas fa-redo me-1"></i> Reschedule All
+        </button>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Left column: status + jobs table -->
+    <div class="col-md-8">
+
+        <!-- Status summary -->
+        <div class="row g-3 mb-4">
+            <div class="col-sm-4">
+                <div class="card islamic-card text-center h-100">
+                    <div class="card-body py-3">
+                        <div class="fs-1 fw-bold text-success" id="stat-total-jobs">—</div>
+                        <div class="text-muted small">Scheduled Jobs</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-4">
+                <div class="card islamic-card text-center h-100">
+                    <div class="card-body py-3">
+                        <div class="fs-4 fw-bold text-primary" id="stat-next-run-time">—</div>
+                        <div class="text-muted small" id="stat-next-run-label">Next Scheduled Run</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-4">
+                <div class="card islamic-card text-center h-100">
+                    <div class="card-body py-3">
+                        <div class="fs-2 fw-bold text-warning font-monospace" id="stat-countdown">—</div>
+                        <div class="text-muted small">Countdown</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scheduled jobs table -->
+        <div class="card islamic-card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-list me-2"></i>
+                    Today's Schedule
+                </h5>
+                <div class="d-flex gap-2 align-items-center">
+                    <span class="badge bg-secondary" id="done-count-badge">0 done</span>
+                    <span class="badge bg-primary" id="jobs-count-badge">0 upcoming</span>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0" id="jobs-table">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Prayer / Event</th>
+                                <th>Type</th>
+                                <th>Time</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="jobs-tbody">
+                            <tr>
+                                <td colspan="4" class="text-center text-muted py-4">
+                                    <i class="fas fa-spinner fa-spin me-2"></i>Loading…
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Right column: prayer times + next prayer -->
+    <div class="col-md-4">
+
+        <!-- Next prayer -->
+        <div class="card islamic-card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-bell me-2"></i>
+                    Next Prayer
+                </h5>
+            </div>
+            <div class="card-body text-center">
+                <div class="fs-3 fw-bold text-success mb-1" id="next-prayer-name">—</div>
+                <div class="fs-4 text-primary font-monospace mb-2" id="next-prayer-time">—</div>
+                <div class="text-muted small" id="next-prayer-countdown">—</div>
+            </div>
+        </div>
+
+        <!-- Today's prayer times -->
+        <div class="card islamic-card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-mosque me-2"></i>
+                    Today's Prayer Times
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <ul class="list-group list-group-flush" id="prayer-times-list">
+                    <li class="list-group-item text-center text-muted">
+                        <i class="fas fa-spinner fa-spin me-1"></i> Loading…
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="card islamic-card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-tools me-2"></i>
+                    Actions
+                </h5>
+            </div>
+            <div class="card-body d-grid gap-2">
+                <button class="btn btn-outline-primary" onclick="rescheduleAll()">
+                    <i class="fas fa-redo me-2"></i>Reload &amp; Reschedule
+                </button>
+                <a href="/settings" class="btn btn-outline-secondary">
+                    <i class="fas fa-cog me-2"></i>Open Settings
+                </a>
+                <a href="/logs" class="btn btn-outline-secondary">
+                    <i class="fas fa-file-alt me-2"></i>View Logs
+                </a>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // ---------- Type badge helpers ----------
+    const TYPE_CONFIG = {
+        fajr_athan:        { label: 'Fajr Athan',        cls: 'bg-success' },
+        regular_athan:     { label: 'Athan',              cls: 'bg-primary' },
+        quran_recitation:  { label: 'Pre-Fajr Quran',    cls: 'bg-info text-dark' },
+        friday_kahf:       { label: 'Friday Al-Kahf',    cls: 'bg-warning text-dark' },
+        unknown:           { label: 'Unknown',            cls: 'bg-secondary' },
+    };
+
+    function typeBadge(type) {
+        const cfg = TYPE_CONFIG[type] || TYPE_CONFIG.unknown;
+        return `<span class="badge ${cfg.cls}">${cfg.label}</span>`;
+    }
+
+    // ---------- Countdown helpers ----------
+    function secondsToHMS(sec) {
+        if (sec < 0) return '—';
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = Math.floor(sec % 60);
+        if (h > 0) return `${h}h ${m}m`;
+        if (m > 0) return `${m}m ${s}s`;
+        return `${s}s`;
+    }
+
+    // ---------- State ----------
+    let schedulerData = null;  // last fetch result
+    let countdownTimer = null;
+
+    // ---------- Fetch & render ----------
+    function loadSchedulerStatus() {
+        const btn = document.getElementById('btn-refresh-status');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Refreshing…';
+
+        fetch('/api/scheduler/status')
+            .then(r => r.json())
+            .then(data => {
+                schedulerData = data;
+                renderStatus(data);
+                renderJobs(data.jobs || []);
+                renderPrayerTimes(data.prayer_times || {}, data.next_prayer);
+                startCountdowns();
+            })
+            .catch(err => showAlert('Failed to load scheduler status: ' + err, 'danger'))
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-sync-alt me-1"></i> Refresh';
+            });
+    }
+
+    function renderStatus(data) {
+        const upcoming = data.total_jobs ?? 0;
+        document.getElementById('stat-total-jobs').textContent = upcoming;
+
+        if (data.next_run) {
+            const d = new Date(data.next_run);
+            document.getElementById('stat-next-run-time').textContent =
+                d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+            document.getElementById('stat-next-run-label').textContent = 'Next Scheduled Run';
+        } else {
+            document.getElementById('stat-next-run-time').textContent = 'None';
+            document.getElementById('stat-next-run-label').textContent = 'No jobs queued';
+        }
+
+        const done = (data.jobs || []).filter(j => j.status === 'done').length;
+        document.getElementById('done-count-badge').textContent = `${done} done`;
+        document.getElementById('jobs-count-badge').textContent =
+            `${upcoming} upcoming`;
+    }
+
+    function renderJobs(jobs) {
+        const tbody = document.getElementById('jobs-tbody');
+        if (!jobs.length) {
+            tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-4">
+                <i class="fas fa-calendar-times me-2"></i>No schedule data
+            </td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = jobs.map(job => {
+            const isDone = job.status === 'done';
+            const timeStr = job.scheduled_time || '—';
+
+            if (isDone) {
+                return `<tr style="opacity:0.55; background-color: var(--bs-secondary-bg);">
+                    <td class="text-muted">${job.label || '—'}</td>
+                    <td><span class="badge bg-secondary">${(TYPE_CONFIG[job.type] || TYPE_CONFIG.unknown).label}</span></td>
+                    <td class="font-monospace text-muted">${timeStr}</td>
+                    <td><span class="text-success fw-semibold">
+                        <i class="fas fa-check-circle me-1"></i>Done
+                    </span></td>
+                </tr>`;
+            }
+
+            const secUntil = job.next_run ? (new Date(job.next_run) - Date.now()) / 1000 : null;
+            const countdown = secUntil !== null ? secondsToHMS(secUntil) : '—';
+
+            return `<tr>
+                <td class="fw-semibold">${job.label || '—'}</td>
+                <td>${typeBadge(job.type)}</td>
+                <td class="font-monospace">${timeStr}</td>
+                <td class="font-monospace text-muted" data-next-run="${job.next_run || ''}">${countdown}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    function renderPrayerTimes(prayerTimes, nextPrayerInfo) {
+        const list = document.getElementById('prayer-times-list');
+        const prayers = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
+        const nextName = nextPrayerInfo?.prayer || null;
+
+        if (!Object.keys(prayerTimes).length) {
+            list.innerHTML = '<li class="list-group-item text-muted">No prayer times loaded</li>';
+        } else {
+            list.innerHTML = prayers.map(p => {
+                const t = prayerTimes[p] || '—';
+                const isNext = p === nextName;
+                return `<li class="list-group-item d-flex justify-content-between align-items-center ${isNext ? 'list-group-item-success' : ''}">
+                    <span>${isNext ? '<i class="fas fa-bell me-1 text-success"></i>' : '<i class="fas fa-clock me-1 text-muted"></i>'} ${p}</span>
+                    <span class="font-monospace fw-semibold">${t}</span>
+                </li>`;
+            }).join('');
+        }
+
+        // Next prayer card
+        if (nextPrayerInfo?.prayer) {
+            document.getElementById('next-prayer-name').textContent = nextPrayerInfo.prayer;
+            document.getElementById('next-prayer-time').textContent = nextPrayerInfo.formatted_time || '—';
+            const sec = nextPrayerInfo.seconds_until;
+            document.getElementById('next-prayer-countdown').textContent =
+                sec != null ? `in ${secondsToHMS(sec)}` : '—';
+        } else {
+            document.getElementById('next-prayer-name').textContent = 'No more prayers today';
+            document.getElementById('next-prayer-time').textContent = '—';
+            document.getElementById('next-prayer-countdown').textContent = 'Refreshes at 1:00 AM';
+        }
+    }
+
+    // ---------- Live countdown ticking ----------
+    function startCountdowns() {
+        if (countdownTimer) clearInterval(countdownTimer);
+
+        countdownTimer = setInterval(() => {
+            const cells = document.querySelectorAll('#jobs-tbody td[data-next-run]');
+            cells.forEach(cell => {
+                const nextRun = cell.dataset.nextRun;
+                if (!nextRun) return;
+                const sec = (new Date(nextRun) - Date.now()) / 1000;
+                const row = cell.closest('tr');
+                if (sec <= 0) {
+                    // Transition to done — reload data to get proper done state
+                    loadSchedulerStatus();
+                    return;
+                }
+                cell.textContent = secondsToHMS(sec);
+                if (sec < 60) {
+                    row.classList.add('table-warning');
+                } else {
+                    row.classList.remove('table-warning');
+                }
+            });
+
+            // Update global countdown (next run)
+            if (schedulerData?.next_run) {
+                const sec = (new Date(schedulerData.next_run) - Date.now()) / 1000;
+                document.getElementById('stat-countdown').textContent = sec > 0 ? secondsToHMS(sec) : '—';
+            }
+
+            // Update next prayer countdown
+            if (schedulerData?.next_prayer?.seconds_until != null) {
+                const elapsed = (Date.now() - loadedAt) / 1000;
+                const remaining = schedulerData.next_prayer.seconds_until - elapsed;
+                document.getElementById('next-prayer-countdown').textContent =
+                    remaining > 0 ? `in ${secondsToHMS(remaining)}` : 'Now';
+            }
+        }, 1000);
+    }
+
+    let loadedAt = Date.now();
+
+    // ---------- Actions ----------
+    function rescheduleAll() {
+        const btn = document.getElementById('btn-reschedule');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Rescheduling…';
+
+        fetch('/api/scheduler/refresh', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(`Schedule refreshed — ${data.scheduled_count} jobs queued`, 'success');
+                    loadedAt = Date.now();
+                    loadSchedulerStatus();
+                } else {
+                    showAlert('Reschedule failed: ' + (data.error || 'Unknown error'), 'danger');
+                }
+            })
+            .catch(err => showAlert('Error: ' + err, 'danger'))
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-redo me-1"></i> Reschedule All';
+            });
+    }
+
+    // ---------- Socket events ----------
+    socket.on('scheduler_refreshed', function(data) {
+        showAlert(`Scheduler refreshed — ${data.scheduled_count} jobs queued`, 'info');
+        loadedAt = Date.now();
+        loadSchedulerStatus();
+    });
+
+    // ---------- Auto-refresh every 60 s ----------
+    setInterval(() => {
+        loadedAt = Date.now();
+        loadSchedulerStatus();
+    }, 60000);
+
+    // ---------- Init ----------
+    document.addEventListener('DOMContentLoaded', () => {
+        loadSchedulerStatus();
+    });
+</script>
+{% endblock %}

@@ -11,7 +11,7 @@ import sys
 from datetime import datetime
 
 # Import the modular components
-from config_manager import ConfigManager
+from settings import settings
 from logging_setup import setup_logging, get_logging_status
 from athan_scheduler import AthanScheduler
 from main import get_application_status
@@ -25,29 +25,16 @@ def pretty_print_json(data, title=""):
 
 
 def example_configuration_management():
-    """Example of using ConfigManager in another application."""
+    """Example of using settings in another application."""
     print("🔧 Configuration Management Example")
 
-    config = ConfigManager()
+    pretty_print_json(settings.as_web_dict(), "All Configuration Settings")
 
-    # Get all settings
-    all_settings = config.get_all_settings()
-    pretty_print_json(all_settings, "All Configuration Settings")
+    print(f"\n✓ Speakers: {settings.speaker.group_name}")
+    print(f"✓ Location: {settings.prayer.location}")
+    print(f"✓ Pre-Fajr: {settings.prayer.pre_fajr_enabled}")
 
-    # Get specific settings
-    speakers = config.get_speakers_group_name()
-    location = config.get_location()
-    prayer_source = config.get_prayer_source()
-
-    print(f"\n✓ Speakers: {speakers.get('speakers_group_name') if speakers['success'] else 'Error'}")
-    print(f"✓ Location: {location.get('location') if location['success'] else 'Error'}")
-    print(f"✓ Prayer Source: {prayer_source.get('prayer_source')}")
-
-    # Validate configuration
-    validation = config.validate_config()
-    print(f"✓ Configuration Valid: {validation['success']}")
-
-    return config
+    return settings
 
 
 def example_logging_management():
@@ -114,12 +101,10 @@ def example_api_like_usage():
     # Simulate API endpoints
     api_responses = {}
 
-    # GET /config
-    config = ConfigManager()
-    api_responses['config'] = config.get_all_settings()
+    from datetime import datetime
 
-    # GET /config/validate
-    api_responses['config_validation'] = config.validate_config()
+    # GET /config
+    api_responses['config'] = {"success": True, "config": settings.as_web_dict(), "timestamp": datetime.now().isoformat()}
 
     # GET /prayer-times
     scheduler = AthanScheduler(location="naas")
