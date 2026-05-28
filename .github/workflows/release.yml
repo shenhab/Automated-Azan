@@ -84,6 +84,7 @@ jobs:
 
       - name: Build
         working-directory: go
+        shell: bash   # force bash on all runners (Git Bash on Windows) so the conditional works
         env:
           GOOS:        ${{ matrix.goos }}
           GOARCH:      ${{ matrix.goarch }}
