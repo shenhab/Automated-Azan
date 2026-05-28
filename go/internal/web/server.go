@@ -27,6 +27,9 @@ import (
 //go:embed templates
 var templateFS embed.FS
 
+//go:embed favicon.ico
+var faviconData []byte
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
@@ -74,6 +77,13 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/chromecasts", s.handleChromecasts)
 	mux.HandleFunc("/settings", s.handleSettings)
 	mux.HandleFunc("/logs", s.handleLogs)
+
+	// Favicon — same icon as the system tray
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/x-icon")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(faviconData)
+	})
 
 	// WebSocket
 	mux.HandleFunc("/ws", s.handleWS)
