@@ -12,8 +12,9 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-// PlayFunc is the signature for functions that trigger audio playback.
-type PlayFunc func(prayer string) error
+// PlayFunc is called when it's time to play Athan.
+// prayer is the prayer name (e.g. "Fajr"), filename is the MP3 to play.
+type PlayFunc func(prayer, filename string) error
 
 // JobStatus represents a scheduled or completed prayer job.
 type JobStatus struct {
@@ -175,6 +176,11 @@ func (s *Scheduler) scheduleTodayLocked() error {
 
 	var jobs []job
 	for _, p := range prayers {
+		// Skip muted prayers
+		if !s.cfg.Prayer.Enabled.IsEnabled(p.name) {
+			log.Printf("[scheduler] %s is muted — skipping", p.name)
+			continue
+		}
 		h, m, err := parseHHMM(p.t)
 		if err != nil {
 			log.Printf("[scheduler] bad time for %s: %v", p.name, err)
@@ -285,7 +291,8 @@ func (s *Scheduler) fire(prayer string) {
 		}
 	default:
 		if s.playAthan != nil {
-			if err := s.playAthan(prayer); err != nil {
+			filename := s.cfg.Prayer.Media.FileFor(prayer)
+			if err := s.playAthan(prayer, filename); err != nil {
 				log.Printf("[scheduler] athan error for %s: %v", prayer, err)
 			}
 		}

@@ -151,6 +151,66 @@
       </div>
     </div>
 
+    <!-- ── Prayer Notifications ──────────────────────────────────────── -->
+    <div class="card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-bell me-2"></i>Prayer Notifications</h5>
+        <button class="btn btn-outline-secondary btn-sm" onclick="refreshMediaFiles()">
+          <i class="fas fa-sync-alt me-1"></i>Refresh Files
+        </button>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-hover mb-0" style="font-size:13.5px">
+          <thead style="background:#F8FAFC">
+            <tr>
+              <th class="ps-3">Prayer</th>
+              <th>Enabled</th>
+              <th>Audio File</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range $p := (list "Fajr" "Dhuhr" "Asr" "Maghrib" "Isha")}}
+            {{$key := printf "%s_enabled" (lower $p)}}
+            {{$mkey := printf "%s_media" (lower $p)}}
+            <tr>
+              <td class="ps-3 fw-500" style="font-weight:500">{{$p}}</td>
+              <td>
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input prayer-enabled-toggle"
+                         type="checkbox"
+                         data-prayer="{{lower $p}}"
+                         id="enabled-{{lower $p}}"
+                         {{if index $.config $key}}checked{{end}}>
+                </div>
+              </td>
+              <td>
+                <select class="form-select form-select-sm prayer-media-select"
+                        data-prayer="{{lower $p}}"
+                        data-saved="{{index $.config $mkey}}"
+                        style="min-width:180px">
+                  <option value="">Loading...</option>
+                </select>
+              </td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-body pt-2 border-top d-flex justify-content-between align-items-center">
+        <div>
+          <label class="btn btn-outline-secondary btn-sm mb-0">
+            <i class="fas fa-upload me-1"></i>Upload MP3
+            <input type="file" accept=".mp3,.m4a" hidden onchange="uploadMedia(this)">
+          </label>
+          <span id="uploadMsg" class="ms-2" style="font-size:12px"></span>
+        </div>
+        <button class="btn btn-success btn-sm" onclick="savePrayerNotifications()">
+          <i class="fas fa-save me-1"></i>Save Notifications
+        </button>
+      </div>
+      <div id="notifMsg" class="px-3 pb-2 text-end" style="font-size:12px"></div>
+    </div>
+
   </div>
 
   <!-- ── Sidebar: status + tips ──────────────────────────────────────── -->
@@ -342,5 +402,76 @@ function saveSpeakerAssignment() {
 
 // Load on page open
 loadDevices(false);
+loadMediaFiles();
+
+// ── Media files ───────────────────────────────────────────────────────────
+function loadMediaFiles() {
+  fetch("/api/media/files")
+    .then(r => r.json())
+    .then(d => populateMediaSelects(d.files || []));
+}
+
+function refreshMediaFiles() {
+  loadMediaFiles();
+  showToast("Media files refreshed", "secondary");
+}
+
+function populateMediaSelects(files) {
+  document.querySelectorAll(".prayer-media-select").forEach(sel => {
+    const saved = sel.dataset.saved || "";
+    sel.innerHTML = '<option value="">Use default</option>';
+    files.forEach(f => {
+      const opt = document.createElement("option");
+      opt.value = f;
+      opt.textContent = f;
+      if (f === saved) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  });
+}
+
+function uploadMedia(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const msg = document.getElementById("uploadMsg");
+  msg.innerHTML = '<span class="text-muted"><i class="fas fa-spinner fa-spin me-1"></i>Uploading...</span>';
+
+  const fd = new FormData();
+  fd.append("file", file);
+
+  fetch("/api/media/upload", {method: "POST", body: fd})
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        msg.innerHTML = '<span class="text-success"><i class="fas fa-check me-1"></i>' + d.filename + ' uploaded</span>';
+        loadMediaFiles();
+      } else {
+        msg.innerHTML = '<span class="text-danger">' + d.error + '</span>';
+      }
+    });
+  input.value = "";
+}
+
+// ── Prayer notifications ──────────────────────────────────────────────────
+function savePrayerNotifications() {
+  const payload = {};
+  document.querySelectorAll(".prayer-enabled-toggle").forEach(el => {
+    payload[el.dataset.prayer + "_enabled"] = el.checked;
+  });
+  document.querySelectorAll(".prayer-media-select").forEach(sel => {
+    payload[sel.dataset.prayer + "_media"] = sel.value;
+  });
+
+  fetch("/api/config", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload)
+  }).then(r => r.json()).then(d => {
+    document.getElementById("notifMsg").innerHTML = d.success
+      ? '<span class="text-success"><i class="fas fa-check me-1"></i>Saved!</span>'
+      : '<span class="text-danger">' + d.error + '</span>';
+    if (d.success) showToast("Prayer notifications saved", "success");
+  });
+}
 </script>
 {{end}}

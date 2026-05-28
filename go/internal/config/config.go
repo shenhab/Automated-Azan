@@ -37,12 +37,66 @@ func (s SpeakerConfig) Resolve(audioType string) string {
 	return s.GroupName
 }
 
+// PrayerEnabledConfig controls which prayers trigger Athan playback.
+// All default to true; set false to mute a specific prayer.
+type PrayerEnabledConfig struct {
+	Fajr    bool `toml:"fajr"`
+	Dhuhr   bool `toml:"dhuhr"`
+	Asr     bool `toml:"asr"`
+	Maghrib bool `toml:"maghrib"`
+	Isha    bool `toml:"isha"`
+}
+
+// IsEnabled returns whether the named prayer should play Athan.
+func (e PrayerEnabledConfig) IsEnabled(prayer string) bool {
+	switch prayer {
+	case "Fajr":    return e.Fajr
+	case "Dhuhr":   return e.Dhuhr
+	case "Asr":     return e.Asr
+	case "Maghrib": return e.Maghrib
+	case "Isha":    return e.Isha
+	default:        return true
+	}
+}
+
+// PrayerMediaConfig holds per-prayer audio filenames.
+// Empty string means use the built-in default for that prayer.
+type PrayerMediaConfig struct {
+	Fajr    string `toml:"fajr"`
+	Dhuhr   string `toml:"dhuhr"`
+	Asr     string `toml:"asr"`
+	Maghrib string `toml:"maghrib"`
+	Isha    string `toml:"isha"`
+}
+
+// FileFor returns the configured media filename for the prayer,
+// falling back to the standard defaults when not set.
+func (m PrayerMediaConfig) FileFor(prayer string) string {
+	var f string
+	switch prayer {
+	case "Fajr":    f = m.Fajr
+	case "Dhuhr":   f = m.Dhuhr
+	case "Asr":     f = m.Asr
+	case "Maghrib": f = m.Maghrib
+	case "Isha":    f = m.Isha
+	}
+	if f != "" {
+		return f
+	}
+	if prayer == "Fajr" {
+		return "media_adhan_al_fajr.mp3"
+	}
+	return "media_Athan.mp3"
+}
+
 // PrayerConfig holds prayer scheduling settings.
 type PrayerConfig struct {
-	Location           string `toml:"location"`
-	PreFajrEnabled     bool   `toml:"pre_fajr_enabled"`
-	PreFajrMinutes     int    `toml:"pre_fajr_minutes"`
-	FridayKahfEnabled  bool   `toml:"friday_kahf_enabled"`
+	Location          string              `toml:"location"`
+	PreFajrEnabled    bool                `toml:"pre_fajr_enabled"`
+	PreFajrMinutes    int                 `toml:"pre_fajr_minutes"`
+	FridayKahfEnabled bool                `toml:"friday_kahf_enabled"`
+	Enabled           PrayerEnabledConfig `toml:"enabled"`
+	Media             PrayerMediaConfig   `toml:"media"`
 }
 
 // WebConfig holds web server settings.
@@ -91,6 +145,9 @@ func (c *Config) setDefaults() {
 	c.Prayer = PrayerConfig{
 		Location:       "naas",
 		PreFajrMinutes: 30,
+		Enabled: PrayerEnabledConfig{
+			Fajr: true, Dhuhr: true, Asr: true, Maghrib: true, Isha: true,
+		},
 	}
 	c.Web = WebConfig{Host: "0.0.0.0", Port: 28426, SecretKey: "automated-azan-secret-key"}
 	c.Log = LogConfig{
@@ -208,6 +265,18 @@ func (c *Config) AsWebDict() map[string]interface{} {
 		"friday_kahf_enabled":   c.Prayer.FridayKahfEnabled,
 		"web_port":              c.Web.Port,
 		"log_level":             c.Log.Level,
+		// Per-prayer enabled flags
+		"fajr_enabled":    c.Prayer.Enabled.Fajr,
+		"dhuhr_enabled":   c.Prayer.Enabled.Dhuhr,
+		"asr_enabled":     c.Prayer.Enabled.Asr,
+		"maghrib_enabled": c.Prayer.Enabled.Maghrib,
+		"isha_enabled":    c.Prayer.Enabled.Isha,
+		// Per-prayer media files
+		"fajr_media":    c.Prayer.Media.Fajr,
+		"dhuhr_media":   c.Prayer.Media.Dhuhr,
+		"asr_media":     c.Prayer.Media.Asr,
+		"maghrib_media": c.Prayer.Media.Maghrib,
+		"isha_media":    c.Prayer.Media.Isha,
 	}
 }
 

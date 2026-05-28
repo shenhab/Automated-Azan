@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -30,11 +32,12 @@ var upgrader = websocket.Upgrader{
 
 // Server is the web dashboard + REST API + WebSocket server.
 type Server struct {
-	cfg       *config.Config
-	fetcher   *prayer.Fetcher
+	cfg      *config.Config
+	fetcher  *prayer.Fetcher
 	scheduler *prayer.Scheduler
-	castMgr   *chromecast.Manager
-	port int
+	castMgr  *chromecast.Manager
+	mediaDir string // local directory for user media files
+	port     int
 
 	mu      sync.Mutex
 	clients map[*websocket.Conn]struct{}
@@ -48,12 +51,14 @@ func NewServer(
 	fetcher *prayer.Fetcher,
 	scheduler *prayer.Scheduler,
 	castMgr *chromecast.Manager,
+	mediaDir string,
 ) (*Server, error) {
 	return &Server{
 		cfg:       cfg,
 		fetcher:   fetcher,
 		scheduler: scheduler,
 		castMgr:   castMgr,
+		mediaDir:  mediaDir,
 		clients:   make(map[*websocket.Conn]struct{}),
 	}, nil
 }
@@ -83,6 +88,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/next-prayer", s.handleAPINextPrayer)
 	mux.HandleFunc("/api/quran/play", s.handleAPIQuranPlay)
 	mux.HandleFunc("/api/quran/stop", s.handleAPIQuranStop)
+	mux.HandleFunc("/api/media/files", s.handleAPIMediaFiles)
+	mux.HandleFunc("/api/media/upload", s.handleAPIMediaUpload)
 
 	// Static files served from ../static relative to binary
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
@@ -280,6 +287,28 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 		if v, ok := body["quran_speaker"].(string); ok {
 			s.cfg.Speaker.QuranSpeaker = v
 		}
+		// Per-prayer enabled flags
+		setBool := func(field *bool, key string) {
+			if v, ok := body[key].(bool); ok {
+				*field = v
+			}
+		}
+		setBool(&s.cfg.Prayer.Enabled.Fajr,    "fajr_enabled")
+		setBool(&s.cfg.Prayer.Enabled.Dhuhr,   "dhuhr_enabled")
+		setBool(&s.cfg.Prayer.Enabled.Asr,     "asr_enabled")
+		setBool(&s.cfg.Prayer.Enabled.Maghrib, "maghrib_enabled")
+		setBool(&s.cfg.Prayer.Enabled.Isha,    "isha_enabled")
+		// Per-prayer media files
+		setStr := func(field *string, key string) {
+			if v, ok := body[key].(string); ok {
+				*field = v
+			}
+		}
+		setStr(&s.cfg.Prayer.Media.Fajr,    "fajr_media")
+		setStr(&s.cfg.Prayer.Media.Dhuhr,   "dhuhr_media")
+		setStr(&s.cfg.Prayer.Media.Asr,     "asr_media")
+		setStr(&s.cfg.Prayer.Media.Maghrib, "maghrib_media")
+		setStr(&s.cfg.Prayer.Media.Isha,    "isha_media")
 		if err := s.cfg.Save(); err != nil {
 			writeJSON(w, errResp(err))
 			return
@@ -342,17 +371,22 @@ func (s *Server) handleAPIPlayAthan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Prayer string `json:"prayer"`
+		Prayer   string `json:"prayer"`
+		Filename string `json:"filename"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 	if body.Prayer == "" {
 		body.Prayer = "Dhuhr"
 	}
-	if err := s.castMgr.PlayAthan(body.Prayer); err != nil {
+	// Use configured media file if not explicitly overridden in request
+	if body.Filename == "" {
+		body.Filename = s.cfg.Prayer.Media.FileFor(body.Prayer)
+	}
+	if err := s.castMgr.PlayAthan(body.Prayer, body.Filename); err != nil {
 		writeJSON(w, errResp(err))
 		return
 	}
-	writeJSON(w, map[string]interface{}{"success": true, "prayer": body.Prayer})
+	writeJSON(w, map[string]interface{}{"success": true, "prayer": body.Prayer, "filename": body.Filename})
 }
 
 func (s *Server) handleAPIStopPlayback(w http.ResponseWriter, r *http.Request) {
@@ -395,6 +429,70 @@ func (s *Server) handleAPIQuranStop(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{"success": true})
 }
 
+func (s *Server) handleAPIMediaFiles(w http.ResponseWriter, r *http.Request) {
+	// Embedded defaults always available
+	files := []string{"media_Athan.mp3", "media_adhan_al_fajr.mp3"}
+	seen := map[string]bool{"media_Athan.mp3": true, "media_adhan_al_fajr.mp3": true}
+
+	// Add any MP3s found in the local media directory
+	if entries, err := os.ReadDir(s.mediaDir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if (strings.HasSuffix(name, ".mp3") || strings.HasSuffix(name, ".m4a")) && !seen[name] {
+				files = append(files, name)
+				seen[name] = true
+			}
+		}
+	}
+
+	writeJSON(w, map[string]interface{}{"success": true, "files": files})
+}
+
+func (s *Server) handleAPIMediaUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	r.ParseMultipartForm(50 << 20) // 50 MB limit
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeJSON(w, errResp(fmt.Errorf("no file in request: %w", err)))
+		return
+	}
+	defer file.Close()
+
+	name := filepath.Base(header.Filename)
+	if !strings.HasSuffix(name, ".mp3") && !strings.HasSuffix(name, ".m4a") {
+		writeJSON(w, errResp(fmt.Errorf("only .mp3 and .m4a files are allowed")))
+		return
+	}
+
+	if err := os.MkdirAll(s.mediaDir, 0o755); err != nil {
+		writeJSON(w, errResp(fmt.Errorf("could not create media dir: %w", err)))
+		return
+	}
+
+	dest, err := os.Create(filepath.Join(s.mediaDir, name))
+	if err != nil {
+		writeJSON(w, errResp(fmt.Errorf("could not save file: %w", err)))
+		return
+	}
+	defer dest.Close()
+
+	n, err := io.Copy(dest, file)
+	if err != nil {
+		writeJSON(w, errResp(fmt.Errorf("upload failed: %w", err)))
+		return
+	}
+
+	log.Printf("[web] media file uploaded: %s (%d bytes)", name, n)
+	writeJSON(w, map[string]interface{}{"success": true, "filename": name, "bytes": n})
+}
+
 func (s *Server) handleAPINextPrayer(w http.ResponseWriter, r *http.Request) {
 	name, at, ok := s.scheduler.NextPrayer()
 	writeJSON(w, map[string]interface{}{
@@ -413,8 +511,9 @@ func (s *Server) handleAPINextPrayer(w http.ResponseWriter, r *http.Request) {
 // so every route renders the same page. Parsing per-request keeps exactly
 // one "content" block in scope.
 var tmplFuncs = template.FuncMap{
-	// contains reports whether s contains substr (for template conditionals)
 	"contains": strings.Contains,
+	"lower":    strings.ToLower,
+	"list": func(items ...string) []string { return items },
 	// colorize wraps log lines in colour spans based on log level keywords
 	"colorize": func(raw string) template.HTML {
 		var sb strings.Builder

@@ -111,8 +111,10 @@ func (m *Manager) Devices() []Device {
 	return m.deviceList()
 }
 
-// PlayAthan plays the Fajr or regular Athan audio file on the configured device.
-func (m *Manager) PlayAthan(prayer string) error {
+// PlayAthan plays the specified audio file on the configured device.
+// filename is the MP3 filename (e.g. "media_Athan.mp3"); if empty the
+// default for that prayer is used.
+func (m *Manager) PlayAthan(prayer, filename string) error {
 	m.mu.Lock()
 	if m.athanPlaying {
 		m.mu.Unlock()
@@ -129,9 +131,12 @@ func (m *Manager) PlayAthan(prayer string) error {
 		m.mu.Unlock()
 	}()
 
-	filename := "media_Athan.mp3"
-	if prayer == "Fajr" {
-		filename = "media_adhan_al_fajr.mp3"
+	if filename == "" {
+		if prayer == "Fajr" {
+			filename = "media_adhan_al_fajr.mp3"
+		} else {
+			filename = "media_Athan.mp3"
+		}
 	}
 
 	if baseURL == "" {

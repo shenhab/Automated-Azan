@@ -143,8 +143,8 @@ func (p *program) run() {
 	// Quran stream state
 	quranStop := make(chan struct{}, 1)
 
-	playAthan := func(prayerName string) error {
-		return castMgr.PlayAthan(prayerName)
+	playAthan := func(prayerName, filename string) error {
+		return castMgr.PlayAthan(prayerName, filename)
 	}
 
 	playQuran := func(durationSec int) error {
@@ -187,7 +187,7 @@ func (p *program) run() {
 	p.scheduler = sched
 
 	// Web server
-	webSrv, err := web.NewServer(cfg, fetcher, sched, castMgr)
+	webSrv, err := web.NewServer(cfg, fetcher, sched, castMgr, resolvedMediaDir)
 	if err != nil {
 		log.Fatalf("[main] web server init: %v", err)
 	}
