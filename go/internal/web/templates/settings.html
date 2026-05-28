@@ -1,75 +1,343 @@
 {{template "base.html" .}}
 {{define "title"}}Settings - Automated Azan{{end}}
 {{define "content"}}
-<h2><i class="fas fa-cog islamic-icon me-2"></i>Settings</h2>
+<div class="d-flex justify-content-between align-items-center pb-2 mb-3 border-bottom">
+  <h2><i class="fas fa-cog islamic-icon me-2"></i>Settings</h2>
+</div>
 
-<div class="card">
-  <div class="card-body">
-    <form id="settingsForm">
-      <div class="mb-3">
-        <label class="form-label fw-bold">Speaker / Device Name</label>
-        <input type="text" class="form-control" name="speakers_group_name"
-               value="{{index .config "speakers_group_name"}}">
-        <small class="text-muted">Name of the Chromecast device or group to use</small>
-      </div>
+<div class="row">
+  <div class="col-md-8">
 
-      <div class="mb-3">
-        <label class="form-label fw-bold">Location</label>
-        <select class="form-select" name="location">
-          <option value="naas" {{if eq (index .config "location") "naas"}}selected{{end}}>Naas Mosque</option>
-          <option value="icci" {{if eq (index .config "location") "icci"}}selected{{end}}>ICCI Dublin</option>
-        </select>
+    <!-- ── Prayer Configuration ────────────────────────────────────────── -->
+    <div class="card mb-4">
+      <div class="card-header">
+        <h5 class="mb-0"><i class="fas fa-sliders-h me-2"></i>Prayer Configuration</h5>
       </div>
+      <div class="card-body">
+        <form id="settingsForm">
 
-      <hr>
-      <h5>Pre-Fajr Quran</h5>
-      <div class="mb-3 form-check">
-        <input type="checkbox" class="form-check-input" name="pre_fajr_enabled" id="preFajrEnabled"
-               {{if index .config "pre_fajr_enabled"}}checked{{end}}>
-        <label class="form-check-label" for="preFajrEnabled">Enable Pre-Fajr Quran recitation</label>
-      </div>
-      <div class="mb-3">
-        <label class="form-label">Minutes before Fajr</label>
-        <input type="number" class="form-control" name="pre_fajr_minutes" min="1" max="60"
-               value="{{index .config "pre_fajr_minutes"}}">
-      </div>
+          <!-- Default speaker -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">
+              <i class="fas fa-volume-up me-2"></i>Default Speaker / Group
+            </label>
+            <div class="input-group">
+              <select class="form-select" id="speakerSelect" name="speakers_group_name">
+                <option value="" disabled>Loading devices...</option>
+              </select>
+              <button class="btn btn-outline-secondary" type="button" onclick="refreshAll(this)" title="Rescan network">
+                <i class="fas fa-sync-alt" id="mainRefreshIcon"></i>
+              </button>
+            </div>
+            <small class="text-muted">Used for all audio types unless overridden below.</small>
+            <div id="deviceStatus" class="mt-1"></div>
+          </div>
 
-      <hr>
-      <h5>Friday Surah Al-Kahf</h5>
-      <div class="mb-3 form-check">
-        <input type="checkbox" class="form-check-input" name="friday_kahf_enabled" id="fridayKahf"
-               {{if index .config "friday_kahf_enabled"}}checked{{end}}>
-        <label class="form-check-label" for="fridayKahf">Enable Friday Surah Al-Kahf (2h before Dhuhr)</label>
-      </div>
+          <!-- Location -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">
+              <i class="fas fa-map-marker-alt me-2"></i>Prayer Times Location
+            </label>
+            <select class="form-select" name="location">
+              <option value="naas" {{if eq (index .config "location") "naas"}}selected{{end}}>Naas Mosque (Ireland)</option>
+              <option value="icci" {{if eq (index .config "location") "icci"}}selected{{end}}>ICCI Mosque (Ireland)</option>
+            </select>
+          </div>
 
-      <button type="button" class="btn btn-success" onclick="saveSettings()">
-        <i class="fas fa-save me-1"></i>Save Settings
-      </button>
-      <span id="saveMsg" class="ms-3"></span>
-    </form>
+          <!-- Pre-Fajr -->
+          <div class="mb-3">
+            <label class="form-label fw-bold"><i class="fas fa-moon me-2"></i>Pre-Fajr Quran</label>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="pre_fajr_enabled" id="preFajrEnabled"
+                     {{if index .config "pre_fajr_enabled"}}checked{{end}}>
+              <label class="form-check-label" for="preFajrEnabled">Enable Quran recitation before Fajr</label>
+            </div>
+            <div class="mt-2">
+              <label class="form-label small">Minutes before Fajr</label>
+              <input type="number" class="form-control form-control-sm w-25" name="pre_fajr_minutes"
+                     min="1" max="60" value="{{index .config "pre_fajr_minutes"}}">
+            </div>
+          </div>
+
+          <!-- Friday Kahf -->
+          <div class="mb-3">
+            <label class="form-label fw-bold"><i class="fas fa-book-open me-2"></i>Friday Surah Al-Kahf</label>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="friday_kahf_enabled" id="fridayKahf"
+                     {{if index .config "friday_kahf_enabled"}}checked{{end}}>
+              <label class="form-check-label" for="fridayKahf">Enable Friday Surah Al-Kahf (2h before Dhuhr)</label>
+            </div>
+          </div>
+
+          <div class="d-flex justify-content-end">
+            <button type="button" class="btn btn-success" onclick="saveSettings()">
+              <i class="fas fa-save me-1"></i>Save Configuration
+            </button>
+          </div>
+          <div id="saveMsg" class="mt-2 text-end"></div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ── Speaker Assignment ──────────────────────────────────────────── -->
+    <div class="card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-broadcast-tower me-2"></i>Speaker Assignment</h5>
+        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="refreshAll(this)">
+          <i class="fas fa-sync-alt me-1"></i>Refresh Devices
+        </button>
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          Assign a specific speaker for each audio type.
+          Leave as <em>Use default speaker</em> to fall back to the device configured above.
+        </p>
+
+        <div class="row g-3 mb-3">
+          <div class="col-sm-6">
+            <label class="form-label small fw-semibold">
+              <i class="fas fa-broadcast-tower me-1 text-muted"></i>Athan
+            </label>
+            <select class="form-select form-select-sm speaker-override"
+                    id="select-athan_speaker" data-field="athan_speaker"
+                    data-saved="{{index .config "athan_speaker"}}">
+              <option value="">Use default speaker</option>
+            </select>
+          </div>
+
+          <div class="col-sm-6">
+            <label class="form-label small fw-semibold">
+              <i class="fas fa-moon me-1 text-muted"></i>Pre-Fajr Quran
+            </label>
+            <select class="form-select form-select-sm speaker-override"
+                    id="select-pre_fajr_speaker" data-field="pre_fajr_speaker"
+                    data-saved="{{index .config "pre_fajr_speaker"}}">
+              <option value="">Use default speaker</option>
+            </select>
+          </div>
+
+          <div class="col-sm-6">
+            <label class="form-label small fw-semibold">
+              <i class="fas fa-book-open me-1 text-muted"></i>Friday Al-Kahf
+            </label>
+            <select class="form-select form-select-sm speaker-override"
+                    id="select-friday_kahf_speaker" data-field="friday_kahf_speaker"
+                    data-saved="{{index .config "friday_kahf_speaker"}}">
+              <option value="">Use default speaker</option>
+            </select>
+          </div>
+
+          <div class="col-sm-6">
+            <label class="form-label small fw-semibold">
+              <i class="fas fa-music me-1 text-muted"></i>Manual Quran
+            </label>
+            <select class="form-select form-select-sm speaker-override"
+                    id="select-quran_speaker" data-field="quran_speaker"
+                    data-saved="{{index .config "quran_speaker"}}">
+              <option value="">Use default speaker</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="d-flex justify-content-end">
+          <button class="btn btn-success btn-sm" onclick="saveSpeakerAssignment()">
+            <i class="fas fa-save me-1"></i>Save Speaker Assignment
+          </button>
+        </div>
+        <div id="assignMsg" class="mt-2 text-end"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Sidebar: status + tips ──────────────────────────────────────── -->
+  <div class="col-md-4">
+    <div class="card mb-4">
+      <div class="card-header"><h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Current Status</h5></div>
+      <div class="card-body">
+        <div class="mb-2">
+          <strong>Default Speaker:</strong><br>
+          <span class="text-muted">{{index .config "speakers_group_name" | html}}{{if not (index .config "speakers_group_name")}}<em>Not configured</em>{{end}}</span>
+        </div>
+        <div class="mb-2">
+          <strong>Location:</strong><br>
+          <span class="text-muted">{{index .config "location"}} Mosque</span>
+        </div>
+        <div class="mb-2">
+          <strong>Pre-Fajr Quran:</strong>
+          {{if index .config "pre_fajr_enabled"}}
+            <span class="badge bg-success">Enabled</span>
+          {{else}}
+            <span class="badge bg-secondary">Disabled</span>
+          {{end}}
+        </div>
+        <div class="mb-2">
+          <strong>Friday Al-Kahf:</strong>
+          {{if index .config "friday_kahf_enabled"}}
+            <span class="badge bg-success">Enabled</span>
+          {{else}}
+            <span class="badge bg-secondary">Disabled</span>
+          {{end}}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h5 class="mb-0"><i class="fas fa-lightbulb me-2"></i>Tips</h5></div>
+      <div class="card-body">
+        <ul class="list-unstyled small mb-0">
+          <li class="mb-2"><i class="fas fa-check-circle text-success me-2"></i>Device must be on the same network</li>
+          <li class="mb-2"><i class="fas fa-check-circle text-success me-2"></i>Use the refresh button if devices are missing</li>
+          <li class="mb-2"><i class="fas fa-check-circle text-success me-2"></i>Speaker groups play on all assigned devices at once</li>
+          <li><i class="fas fa-check-circle text-success me-2"></i>Check the Logs page if Athan isn't playing</li>
+        </ul>
+      </div>
+    </div>
   </div>
 </div>
 {{end}}
+
 {{define "scripts"}}
 <script>
+const currentSpeaker = "{{index .config "speakers_group_name"}}";
+
+// ── Device loading ────────────────────────────────────────────────────────
+function loadDevices(forceRefresh) {
+  const icon    = document.getElementById("mainRefreshIcon");
+  const status  = document.getElementById("deviceStatus");
+  const mainSel = document.getElementById("speakerSelect");
+
+  icon.classList.add("fa-spin");
+  status.innerHTML = '<small class="text-muted">Scanning...</small>';
+
+  const url    = forceRefresh ? "/api/discover-devices" : "/api/devices";
+  const method = forceRefresh ? "POST" : "GET";
+
+  fetch(url, { method })
+    .then(r => r.json())
+    .then(data => {
+      const devices = (data.devices || []).map(d => d.name);
+      populateMainSelect(mainSel, devices);
+      populateOverrideSelects(devices);
+
+      if (devices.length === 0) {
+        status.innerHTML = '<small class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>No devices found — click refresh</small>';
+      } else {
+        status.innerHTML = '<small class="text-success"><i class="fas fa-check me-1"></i>' + devices.length + ' device(s) found</small>';
+      }
+    })
+    .catch(err => {
+      status.innerHTML = '<small class="text-danger">Error: ' + err + '</small>';
+    })
+    .finally(() => icon.classList.remove("fa-spin"));
+}
+
+function populateMainSelect(sel, names) {
+  sel.innerHTML = "";
+  if (names.length === 0) {
+    sel.innerHTML = '<option value="" disabled>No devices found — click refresh</option>';
+    return;
+  }
+  names.forEach(name => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    if (name === currentSpeaker) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  // Add current value if not in list
+  if (currentSpeaker && !names.includes(currentSpeaker)) {
+    const opt = document.createElement("option");
+    opt.value = currentSpeaker;
+    opt.textContent = "⚠️ " + currentSpeaker + " (not found)";
+    opt.selected = true;
+    sel.insertBefore(opt, sel.firstChild);
+  }
+}
+
+function populateOverrideSelects(names) {
+  document.querySelectorAll(".speaker-override").forEach(sel => {
+    const saved = sel.dataset.saved || "";
+    sel.innerHTML = '<option value="">Use default speaker</option>';
+    names.forEach(name => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      if (name === saved) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    if (saved && !names.includes(saved)) {
+      const opt = document.createElement("option");
+      opt.value = saved;
+      opt.textContent = "⚠️ " + saved + " (not found)";
+      opt.selected = true;
+      opt.style.color = "#999";
+      sel.appendChild(opt);
+    }
+  });
+}
+
+function refreshAll(btn) {
+  if (btn) { btn.disabled = true; }
+  loadDevices(true);
+  if (btn) { setTimeout(() => btn.disabled = false, 3000); }
+}
+
+// ── Save settings ─────────────────────────────────────────────────────────
 function saveSettings() {
   const form = document.getElementById("settingsForm");
+  const speaker = document.getElementById("speakerSelect").value;
+
+  if (!speaker) {
+    document.getElementById("saveMsg").innerHTML =
+      '<span class="text-danger">Please select a speaker first</span>';
+    return;
+  }
+
   const data = {
-    speakers_group_name: form.speakers_group_name.value,
+    speakers_group_name: speaker,
     location:            form.location.value,
     pre_fajr_enabled:    form.pre_fajr_enabled.checked,
     pre_fajr_minutes:    parseInt(form.pre_fajr_minutes.value),
     friday_kahf_enabled: form.friday_kahf_enabled.checked,
   };
+
   fetch("/api/config", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify(data)
   }).then(r => r.json()).then(d => {
-    document.getElementById("saveMsg").innerHTML =
-      d.success ? '<span class="text-success"><i class="fas fa-check"></i> Saved!</span>'
-                : '<span class="text-danger">Error: ' + d.error + '</span>';
+    document.getElementById("saveMsg").innerHTML = d.success
+      ? '<span class="text-success"><i class="fas fa-check me-1"></i>Saved!</span>'
+      : '<span class="text-danger">Error: ' + d.error + '</span>';
   });
 }
+
+// ── Save speaker assignment ───────────────────────────────────────────────
+function saveSpeakerAssignment() {
+  const payload = {};
+  document.querySelectorAll(".speaker-override").forEach(sel => {
+    payload[sel.dataset.field] = sel.value;
+  });
+
+  fetch("/api/config", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload)
+  }).then(r => r.json()).then(d => {
+    document.getElementById("assignMsg").innerHTML = d.success
+      ? '<span class="text-success"><i class="fas fa-check me-1"></i>Speaker assignment saved!</span>'
+      : '<span class="text-danger">Error: ' + d.error + '</span>';
+    if (d.success) {
+      // Update saved markers so refresh re-selects correctly
+      document.querySelectorAll(".speaker-override").forEach(sel => {
+        sel.dataset.saved = sel.value;
+      });
+    }
+  });
+}
+
+// Load on page open
+loadDevices(false);
 </script>
 {{end}}

@@ -128,7 +128,12 @@ func (m *Manager) PlayAthan(prayer string) error {
 		filename = "media_adhan_al_fajr.mp3"
 	}
 
+	if baseURL == "" {
+		return fmt.Errorf("media base URL not set — call SetMediaBaseURL first")
+	}
+
 	url := baseURL + filename
+	log.Printf("[chromecast] PlayAthan: prayer=%s file=%s full_url=%s", prayer, filename, url)
 	return m.playURL(url, "audio/mpeg")
 }
 
@@ -173,11 +178,13 @@ func (m *Manager) playURL(url, contentType string) error {
 	m.app = app
 	m.mu.Unlock()
 
-	log.Printf("[chromecast] loading %s on %s", url, dev.Name)
+	log.Printf("[chromecast] sending Load to %s (%s:%d) url=%s", dev.Name, dev.Host, dev.Port, url)
 	// Load(filenameOrUrl, startTime, contentType, transcode, detach, forceDetach)
-	if err := app.Load(url, 0, contentType, false, false, false); err != nil {
-		return fmt.Errorf("load media: %w", err)
+	// detach=true so we return immediately without waiting for playback to finish
+	if err := app.Load(url, 0, contentType, false, true, false); err != nil {
+		return fmt.Errorf("load media on %s: %w", dev.Name, err)
 	}
+	log.Printf("[chromecast] Load command accepted by %s", dev.Name)
 	return nil
 }
 

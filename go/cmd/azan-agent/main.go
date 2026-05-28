@@ -21,11 +21,21 @@ import (
 	"github.com/kardianos/service"
 )
 
-const (
-	mediaServerPort = 8765 // separate from web UI to avoid conflict
-	dataDir         = "data"
-	mediaDir        = "Media"
-)
+// binDir returns the directory containing the running binary.
+// All relative paths (Media/, data/, azan.toml) are resolved from here
+// so the binary works correctly regardless of the working directory.
+func binDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "."
+	}
+	// Resolve symlinks (e.g. `go run` puts a temp binary in /tmp)
+	real, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		return filepath.Dir(exe)
+	}
+	return filepath.Dir(real)
+}
 
 // program implements the kardianos/service interface so the agent can run
 // as a Windows Service, macOS LaunchAgent, or systemd unit.
@@ -71,24 +81,43 @@ func (p *program) run() {
 		log.Printf("[main] time sync warning: %v", err)
 	}
 
+	base := binDir()
+	resolvedDataDir  := filepath.Join(base, "data")
+	resolvedMediaDir := filepath.Join(base, "Media")
+	log.Printf("[main] binary dir: %s", base)
+	log.Printf("[main] media dir:  %s", resolvedMediaDir)
+	log.Printf("[main] data dir:   %s", resolvedDataDir)
+
+	// Verify media directory exists and list files for debugging
+	if entries, err := os.ReadDir(resolvedMediaDir); err != nil {
+		log.Printf("[main] WARNING: media dir not found (%s): %v — Chromecast playback will fail", resolvedMediaDir, err)
+	} else {
+		log.Printf("[main] media dir contains %d file(s):", len(entries))
+		for _, e := range entries {
+			log.Printf("[main]   %s", e.Name())
+		}
+	}
+
 	// Prayer time fetcher
-	fetcher, err := prayer.NewFetcher(dataDir)
+	fetcher, err := prayer.NewFetcher(resolvedDataDir)
 	if err != nil {
 		log.Fatalf("[main] fetcher init: %v", err)
 	}
 
-	// Media HTTP server (separate port for Chromecast audio)
-	mediaSrv := media.NewServer(mediaDir, mediaServerPort)
+	// Media server — serves MP3s on a dedicated port so Chromecast can fetch them.
+	// Uses the same LAN IP as the web server; Chromecast must be able to reach this host.
+	mediaSrv := media.NewServer(resolvedMediaDir, cfg.Web.Port+1)
 	if err := mediaSrv.Start(); err != nil {
 		log.Fatalf("[main] media server: %v", err)
 	}
 	p.mediaSrv = mediaSrv
-	log.Printf("[main] media server at %s", mediaSrv.BaseURL())
+	log.Printf("[main] media server: %s", mediaSrv.BaseURL())
 
 	// Chromecast manager
 	castMgr := chromecast.NewManager(cfg.Speaker.GroupName)
 	castMgr.SetMediaBaseURL(mediaSrv.BaseURL())
 	p.castMgr = castMgr
+	log.Printf("[main] chromecast media base URL: %s", mediaSrv.BaseURL())
 
 	// Trigger background discovery (non-blocking)
 	go func() {

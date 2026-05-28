@@ -1,23 +1,48 @@
 {{template "base.html" .}}
-{{define "title"}}Logs - Automated Azan{{end}}
-{{define "content"}}
-<div class="d-flex justify-content-between align-items-center mb-4">
-  <h2><i class="fas fa-file-alt islamic-icon me-2"></i>Logs</h2>
-  <button class="btn btn-outline-secondary" onclick="location.reload()">
-    <i class="fas fa-sync-alt"></i> Refresh
+{{define "title"}}Logs — Automated Azan{{end}}
+{{define "page_title"}}Logs{{end}}
+{{define "page_sub"}}Live application output{{end}}
+{{define "topbar_actions"}}
+  <button class="btn btn-outline-secondary btn-sm btn-icon" onclick="location.reload()" title="Refresh">
+    <i class="fas fa-sync-alt"></i>
   </button>
-</div>
+{{end}}
 
+{{define "content"}}
 <div class="card">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span><i class="fas fa-terminal me-2"></i>Application Log</span>
+    <div class="d-flex gap-2">
+      <button class="btn btn-outline-secondary btn-sm" onclick="scrollToBottom()">
+        <i class="fas fa-arrow-down me-1"></i>Bottom
+      </button>
+      <button class="btn btn-outline-secondary btn-sm" id="wrapBtn" onclick="toggleWrap()">
+        <i class="fas fa-align-left me-1"></i>Wrap
+      </button>
+    </div>
+  </div>
   <div class="card-body p-0">
-    <pre class="bg-dark text-light p-3 mb-0 rounded" style="max-height:70vh;overflow-y:auto;font-size:.8rem;">{{.logs}}</pre>
+    <div class="log-viewer" id="logViewer">{{colorize .logs}}</div>
   </div>
 </div>
 {{end}}
+
 {{define "scripts"}}
 <script>
-// Auto-scroll to bottom
-const pre = document.querySelector("pre");
-if (pre) pre.scrollTop = pre.scrollHeight;
+  function scrollToBottom() {
+    const v = document.getElementById("logViewer");
+    v.scrollTop = v.scrollHeight;
+  }
+
+  let wrapped = false;
+  function toggleWrap() {
+    const v = document.getElementById("logViewer");
+    wrapped = !wrapped;
+    v.style.whiteSpace = wrapped ? "pre-wrap" : "pre";
+    document.getElementById("wrapBtn").classList.toggle("btn-success", wrapped);
+  }
+
+  // Auto-scroll on load
+  scrollToBottom();
 </script>
 {{end}}

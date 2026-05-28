@@ -153,6 +153,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	times, _ := s.fetcher.Fetch(s.cfg.Prayer.Location, now, false)
 	name, at, _ := s.scheduler.NextPrayer()
 	s.renderPage(w, "dashboard.html", map[string]interface{}{
+		"page":         "dashboard",
 		"config":       s.cfg.AsWebDict(),
 		"prayer_times": times,
 		"next_prayer":  map[string]interface{}{"name": name, "time": at.Format("15:04")},
@@ -162,6 +163,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleScheduler(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, "scheduler.html", map[string]interface{}{
+		"page":   "scheduler",
 		"config": s.cfg.AsWebDict(),
 		"jobs":   s.scheduler.Status(),
 	})
@@ -170,6 +172,7 @@ func (s *Server) handleScheduler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleChromecasts(w http.ResponseWriter, r *http.Request) {
 	devs := s.castMgr.Devices()
 	s.renderPage(w, "chromecasts.html", map[string]interface{}{
+		"page":    "devices",
 		"config":  s.cfg.AsWebDict(),
 		"devices": devs,
 	})
@@ -177,6 +180,7 @@ func (s *Server) handleChromecasts(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, "settings.html", map[string]interface{}{
+		"page":   "settings",
 		"config": s.cfg.AsWebDict(),
 	})
 }
@@ -184,6 +188,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	tail := readLogTail(s.cfg.Log.FilePath, 200)
 	s.renderPage(w, "logs.html", map[string]interface{}{
+		"page":   "logs",
 		"config": s.cfg.AsWebDict(),
 		"logs":   tail,
 	})
@@ -244,6 +249,7 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, errResp(err))
 			return
 		}
+		// Main config fields
 		if v, ok := body["speakers_group_name"].(string); ok {
 			s.cfg.Speaker.GroupName = v
 		}
@@ -258,6 +264,19 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		if v, ok := body["friday_kahf_enabled"].(bool); ok {
 			s.cfg.Prayer.FridayKahfEnabled = v
+		}
+		// Per-type speaker overrides (empty string = use default)
+		if v, ok := body["athan_speaker"].(string); ok {
+			s.cfg.Speaker.AthanSpeaker = v
+		}
+		if v, ok := body["pre_fajr_speaker"].(string); ok {
+			s.cfg.Speaker.PreFajrSpeaker = v
+		}
+		if v, ok := body["friday_kahf_speaker"].(string); ok {
+			s.cfg.Speaker.FridayKahfSpeaker = v
+		}
+		if v, ok := body["quran_speaker"].(string); ok {
+			s.cfg.Speaker.QuranSpeaker = v
 		}
 		if err := s.cfg.Save(); err != nil {
 			writeJSON(w, errResp(err))
@@ -363,6 +382,38 @@ func (s *Server) handleAPINextPrayer(w http.ResponseWriter, r *http.Request) {
 // into one template set, the last {{define "content"}} overwrites all others,
 // so every route renders the same page. Parsing per-request keeps exactly
 // one "content" block in scope.
+var tmplFuncs = template.FuncMap{
+	// contains reports whether s contains substr (for template conditionals)
+	"contains": strings.Contains,
+	// colorize wraps log lines in colour spans based on log level keywords
+	"colorize": func(raw string) template.HTML {
+		var sb strings.Builder
+		for _, line := range strings.Split(raw, "\n") {
+			lower := strings.ToLower(line)
+			class := ""
+			switch {
+			case strings.Contains(lower, "error") || strings.Contains(lower, "fatal"):
+				class = "log-error"
+			case strings.Contains(lower, "warn"):
+				class = "log-warn"
+			case strings.Contains(lower, "✓") || strings.Contains(lower, "success") ||
+				strings.Contains(lower, "started") || strings.Contains(lower, "saved"):
+				class = "log-success"
+			case strings.Contains(lower, "info") || strings.Contains(lower, "[main]") ||
+				strings.Contains(lower, "[web]") || strings.Contains(lower, "[scheduler]"):
+				class = "log-info"
+			}
+			escaped := template.HTMLEscapeString(line)
+			if class != "" {
+				sb.WriteString(`<span class="` + class + `">` + escaped + "</span>\n")
+			} else {
+				sb.WriteString(escaped + "\n")
+			}
+		}
+		return template.HTML(sb.String())
+	},
+}
+
 func (s *Server) renderPage(w http.ResponseWriter, name string, data interface{}) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
@@ -371,7 +422,7 @@ func (s *Server) renderPage(w http.ResponseWriter, name string, data interface{}
 		http.Error(w, "template FS error", http.StatusInternalServerError)
 		return
 	}
-	tmpl, err := template.New("").ParseFS(sub, "base.html", name)
+	tmpl, err := template.New("").Funcs(tmplFuncs).ParseFS(sub, "base.html", name)
 	if err != nil {
 		log.Printf("[web] template parse error (%s): %v", name, err)
 		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
