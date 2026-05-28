@@ -34,8 +34,7 @@ type Server struct {
 	fetcher   *prayer.Fetcher
 	scheduler *prayer.Scheduler
 	castMgr   *chromecast.Manager
-	tmpl      *template.Template
-	port      int
+	port int
 
 	mu      sync.Mutex
 	clients map[*websocket.Conn]struct{}
@@ -50,16 +49,11 @@ func NewServer(
 	scheduler *prayer.Scheduler,
 	castMgr *chromecast.Manager,
 ) (*Server, error) {
-	tmpl, err := loadTemplates()
-	if err != nil {
-		return nil, fmt.Errorf("load templates: %w", err)
-	}
 	return &Server{
 		cfg:       cfg,
 		fetcher:   fetcher,
 		scheduler: scheduler,
 		castMgr:   castMgr,
-		tmpl:      tmpl,
 		clients:   make(map[*websocket.Conn]struct{}),
 	}, nil
 }
@@ -364,10 +358,27 @@ func (s *Server) handleAPINextPrayer(w http.ResponseWriter, r *http.Request) {
 
 // --- helpers ---
 
+// renderPage parses base.html + the named page together each time.
+// This avoids Go's "last define wins" problem — when all pages are parsed
+// into one template set, the last {{define "content"}} overwrites all others,
+// so every route renders the same page. Parsing per-request keeps exactly
+// one "content" block in scope.
 func (s *Server) renderPage(w http.ResponseWriter, name string, data interface{}) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.tmpl.ExecuteTemplate(w, name, data); err != nil {
-		log.Printf("[web] template error (%s): %v", name, err)
+
+	sub, err := fs.Sub(templateFS, "templates")
+	if err != nil {
+		http.Error(w, "template FS error", http.StatusInternalServerError)
+		return
+	}
+	tmpl, err := template.New("").ParseFS(sub, "base.html", name)
+	if err != nil {
+		log.Printf("[web] template parse error (%s): %v", name, err)
+		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
+		log.Printf("[web] template execute error (%s): %v", name, err)
 		http.Error(w, "template error", http.StatusInternalServerError)
 	}
 }
@@ -393,10 +404,3 @@ func readLogTail(path string, lines int) string {
 	return strings.Join(all, "\n")
 }
 
-func loadTemplates() (*template.Template, error) {
-	sub, err := fs.Sub(templateFS, "templates")
-	if err != nil {
-		return nil, err
-	}
-	return template.New("").ParseFS(sub, "*.html")
-}
