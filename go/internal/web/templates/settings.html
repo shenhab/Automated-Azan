@@ -1,0 +1,75 @@
+{{template "base.html" .}}
+{{define "title"}}Settings - Automated Azan{{end}}
+{{define "content"}}
+<h2><i class="fas fa-cog islamic-icon me-2"></i>Settings</h2>
+
+<div class="card">
+  <div class="card-body">
+    <form id="settingsForm">
+      <div class="mb-3">
+        <label class="form-label fw-bold">Speaker / Device Name</label>
+        <input type="text" class="form-control" name="speakers_group_name"
+               value="{{index .config "speakers_group_name"}}">
+        <small class="text-muted">Name of the Chromecast device or group to use</small>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label fw-bold">Location</label>
+        <select class="form-select" name="location">
+          <option value="naas" {{if eq (index .config "location") "naas"}}selected{{end}}>Naas Mosque</option>
+          <option value="icci" {{if eq (index .config "location") "icci"}}selected{{end}}>ICCI Dublin</option>
+        </select>
+      </div>
+
+      <hr>
+      <h5>Pre-Fajr Quran</h5>
+      <div class="mb-3 form-check">
+        <input type="checkbox" class="form-check-input" name="pre_fajr_enabled" id="preFajrEnabled"
+               {{if index .config "pre_fajr_enabled"}}checked{{end}}>
+        <label class="form-check-label" for="preFajrEnabled">Enable Pre-Fajr Quran recitation</label>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Minutes before Fajr</label>
+        <input type="number" class="form-control" name="pre_fajr_minutes" min="1" max="60"
+               value="{{index .config "pre_fajr_minutes"}}">
+      </div>
+
+      <hr>
+      <h5>Friday Surah Al-Kahf</h5>
+      <div class="mb-3 form-check">
+        <input type="checkbox" class="form-check-input" name="friday_kahf_enabled" id="fridayKahf"
+               {{if index .config "friday_kahf_enabled"}}checked{{end}}>
+        <label class="form-check-label" for="fridayKahf">Enable Friday Surah Al-Kahf (2h before Dhuhr)</label>
+      </div>
+
+      <button type="button" class="btn btn-success" onclick="saveSettings()">
+        <i class="fas fa-save me-1"></i>Save Settings
+      </button>
+      <span id="saveMsg" class="ms-3"></span>
+    </form>
+  </div>
+</div>
+{{end}}
+{{define "scripts"}}
+<script>
+function saveSettings() {
+  const form = document.getElementById("settingsForm");
+  const data = {
+    speakers_group_name: form.speakers_group_name.value,
+    location:            form.location.value,
+    pre_fajr_enabled:    form.pre_fajr_enabled.checked,
+    pre_fajr_minutes:    parseInt(form.pre_fajr_minutes.value),
+    friday_kahf_enabled: form.friday_kahf_enabled.checked,
+  };
+  fetch("/api/config", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(data)
+  }).then(r => r.json()).then(d => {
+    document.getElementById("saveMsg").innerHTML =
+      d.success ? '<span class="text-success"><i class="fas fa-check"></i> Saved!</span>'
+                : '<span class="text-danger">Error: ' + d.error + '</span>';
+  });
+}
+</script>
+{{end}}

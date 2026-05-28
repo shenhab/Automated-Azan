@@ -1,0 +1,97 @@
+{{template "base.html" .}}
+
+{{define "title"}}Dashboard - Automated Azan{{end}}
+
+{{define "content"}}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2><i class="fas fa-tachometer-alt islamic-icon me-2"></i>Dashboard</h2>
+  <button class="btn btn-outline-success" onclick="location.reload()">
+    <i class="fas fa-sync-alt"></i> Refresh
+  </button>
+</div>
+
+<!-- Status row -->
+<div class="row mb-4">
+  <div class="col-md-4 mb-3">
+    <div class="card h-100 p-3">
+      <i class="fas fa-cog fa-2x islamic-icon mb-2"></i>
+      <h6>Speaker</h6>
+      <strong>{{index .config "speakers_group_name"}}</strong>
+      <small class="text-muted d-block">Location: {{index .config "location"}}</small>
+    </div>
+  </div>
+  <div class="col-md-4 mb-3">
+    <div class="next-prayer-card p-3">
+      <i class="fas fa-clock fa-2x mb-2"></i>
+      <h6>Next Prayer</h6>
+      {{if index .next_prayer "name"}}
+        <strong class="fs-5">{{index .next_prayer "name"}}</strong>
+        <span class="d-block">at {{index .next_prayer "time"}}</span>
+      {{else}}
+        <span>No remaining prayers today</span>
+      {{end}}
+    </div>
+  </div>
+  <div class="col-md-4 mb-3">
+    <div class="card h-100 p-3">
+      <i class="fas fa-broadcast-tower fa-2x islamic-icon mb-2"></i>
+      <h6>Scheduler</h6>
+      <span class="badge bg-success">Running</span>
+    </div>
+  </div>
+</div>
+
+<!-- Prayer times -->
+<div class="card mb-4">
+  <div class="card-header"><i class="fas fa-calendar islamic-icon me-2"></i>Today's Prayer Times</div>
+  <div class="card-body">
+    <div class="row text-center">
+      {{with .prayer_times}}
+      <div class="col"><span class="badge bg-primary badge-prayer">Fajr<br>{{.Fajr}}</span></div>
+      <div class="col"><span class="badge bg-success badge-prayer">Dhuhr<br>{{.Dhuhr}}</span></div>
+      <div class="col"><span class="badge bg-warning text-dark badge-prayer">Asr<br>{{.Asr}}</span></div>
+      <div class="col"><span class="badge bg-danger badge-prayer">Maghrib<br>{{.Maghrib}}</span></div>
+      <div class="col"><span class="badge bg-dark badge-prayer">Isha<br>{{.Isha}}</span></div>
+      {{end}}
+    </div>
+  </div>
+</div>
+
+<!-- Scheduled jobs -->
+<div class="card">
+  <div class="card-header"><i class="fas fa-list islamic-icon me-2"></i>Today's Schedule</div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>Prayer</th><th>Time</th><th>Type</th><th>Status</th></tr></thead>
+      <tbody>
+        {{range .jobs}}
+        <tr>
+          <td>{{.Label}}</td>
+          <td>{{.Time}}</td>
+          <td><span class="badge bg-secondary">{{.Type}}</span></td>
+          <td>
+            {{if eq .Status "upcoming"}}
+              <span class="badge bg-success">Upcoming</span>
+            {{else if eq .Status "done"}}
+              <span class="badge bg-secondary">Done</span>
+            {{else}}
+              <span class="badge bg-warning text-dark">Skipped</span>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+document.addEventListener("scheduler_update", function(e) {
+  // Live update would reload the jobs table here
+  // For simplicity, reload the page
+  location.reload();
+});
+</script>
+{{end}}

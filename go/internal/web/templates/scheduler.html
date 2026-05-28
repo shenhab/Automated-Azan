@@ -1,0 +1,97 @@
+{{template "base.html" .}}
+{{define "title"}}Scheduler - Automated Azan{{end}}
+{{define "content"}}
+<h2><i class="fas fa-clock islamic-icon me-2"></i>Scheduler</h2>
+
+<div class="row mb-4">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">Test Athan Playback</div>
+      <div class="card-body">
+        <select id="prayerSelect" class="form-select mb-2">
+          <option value="Fajr">Fajr</option>
+          <option value="Dhuhr" selected>Dhuhr</option>
+          <option value="Asr">Asr</option>
+          <option value="Maghrib">Maghrib</option>
+          <option value="Isha">Isha</option>
+        </select>
+        <button class="btn btn-success me-2" onclick="playAthan()">
+          <i class="fas fa-play me-1"></i>Play Athan
+        </button>
+        <button class="btn btn-outline-danger" onclick="stopPlayback()">
+          <i class="fas fa-stop me-1"></i>Stop
+        </button>
+        <div id="playMsg" class="mt-2"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">Features</div>
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span>Pre-Fajr Quran</span>
+          <span class="badge {{if index .config "pre_fajr_enabled"}}bg-success{{else}}bg-secondary{{end}}">
+            {{if index .config "pre_fajr_enabled"}}Enabled{{else}}Disabled{{end}}
+          </span>
+        </div>
+        <div class="d-flex justify-content-between align-items-center">
+          <span>Friday Surah Al-Kahf</span>
+          <span class="badge {{if index .config "friday_kahf_enabled"}}bg-success{{else}}bg-secondary{{end}}">
+            {{if index .config "friday_kahf_enabled"}}Enabled{{else}}Disabled{{end}}
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><i class="fas fa-list me-2"></i>Today's Jobs</div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>Job</th><th>Time</th><th>Type</th><th>Status</th></tr></thead>
+      <tbody>
+        {{range .jobs}}
+        <tr>
+          <td>{{.Label}}</td>
+          <td>{{.Time}}</td>
+          <td><code>{{.Type}}</code></td>
+          <td>
+            {{if eq .Status "upcoming"}}<span class="badge bg-success">Upcoming</span>
+            {{else if eq .Status "done"}}<span class="badge bg-secondary">Done</span>
+            {{else}}<span class="badge bg-warning text-dark">Skipped</span>{{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</div>
+{{end}}
+{{define "scripts"}}
+<script>
+function playAthan() {
+  const prayer = document.getElementById("prayerSelect").value;
+  fetch("/api/play-athan", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({prayer})
+  }).then(r => r.json()).then(d => {
+    document.getElementById("playMsg").innerHTML =
+      d.success ? '<span class="text-success">Playing ' + prayer + ' Athan...</span>'
+                : '<span class="text-danger">Error: ' + d.error + '</span>';
+  });
+}
+
+function stopPlayback() {
+  fetch("/api/stop-playback", {method: "POST"})
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById("playMsg").innerHTML =
+        d.success ? '<span class="text-secondary">Stopped.</span>'
+                  : '<span class="text-danger">' + d.error + '</span>';
+    });
+}
+</script>
+{{end}}

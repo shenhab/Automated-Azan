@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{template "title" .}}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background-color: #f8f9fa; }
+        .sidebar { min-height: 100vh; background: linear-gradient(135deg, #1a472a 0%, #2d5a27 100%); }
+        .sidebar .nav-link { color: rgba(255,255,255,.75); border-radius: 8px; margin: 2px 0; }
+        .sidebar .nav-link:hover, .sidebar .nav-link.active { color: #fff; background: rgba(255,255,255,.15); }
+        .islamic-icon { color: #2d8a4e; }
+        .card { border: none; box-shadow: 0 2px 8px rgba(0,0,0,.08); border-radius: 12px; }
+        .badge-prayer { font-size: .85rem; padding: .4em .8em; }
+        .next-prayer-card { background: linear-gradient(135deg, #1a472a, #2d8a4e); color: #fff; border-radius: 12px; }
+    </style>
+</head>
+<body>
+<div class="container-fluid">
+  <div class="row">
+    <!-- Sidebar -->
+    <nav class="col-md-2 sidebar d-flex flex-column p-3">
+      <a class="navbar-brand text-white mb-4 fw-bold fs-5" href="/">
+        <i class="fas fa-mosque me-2"></i>Azan Agent
+      </a>
+      <ul class="nav flex-column">
+        <li class="nav-item"><a class="nav-link" href="/"><i class="fas fa-tachometer-alt me-2"></i>Dashboard</a></li>
+        <li class="nav-item"><a class="nav-link" href="/scheduler"><i class="fas fa-clock me-2"></i>Scheduler</a></li>
+        <li class="nav-item"><a class="nav-link" href="/chromecasts"><i class="fas fa-broadcast-tower me-2"></i>Devices</a></li>
+        <li class="nav-item"><a class="nav-link" href="/settings"><i class="fas fa-cog me-2"></i>Settings</a></li>
+        <li class="nav-item"><a class="nav-link" href="/logs"><i class="fas fa-file-alt me-2"></i>Logs</a></li>
+      </ul>
+    </nav>
+
+    <!-- Main content -->
+    <main class="col-md-10 p-4">
+      {{template "content" .}}
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  // WebSocket for live updates
+  const ws = new WebSocket("ws://" + location.host + "/ws");
+  ws.onmessage = function(e) {
+    const msg = JSON.parse(e.data);
+    if (msg.event === "scheduler_update") {
+      document.dispatchEvent(new CustomEvent("scheduler_update", {detail: msg.data}));
+    }
+  };
+</script>
+{{template "scripts" .}}
+</body>
+</html>
