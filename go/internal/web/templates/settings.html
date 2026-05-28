@@ -169,30 +169,96 @@
             </tr>
           </thead>
           <tbody>
-            {{range $p := (list "Fajr" "Dhuhr" "Asr" "Maghrib" "Isha")}}
-            {{$key := printf "%s_enabled" (lower $p)}}
-            {{$mkey := printf "%s_media" (lower $p)}}
             <tr>
-              <td class="ps-3 fw-500" style="font-weight:500">{{$p}}</td>
+              <td class="ps-3" style="font-weight:500">Fajr</td>
               <td>
                 <div class="form-check form-switch mb-0">
-                  <input class="form-check-input prayer-enabled-toggle"
-                         type="checkbox"
-                         data-prayer="{{lower $p}}"
-                         id="enabled-{{lower $p}}"
-                         {{if index $.config $key}}checked{{end}}>
+                  <input class="form-check-input prayer-enabled-toggle" type="checkbox"
+                         data-prayer="fajr" id="enabled-fajr"
+                         {{if index .config "fajr_enabled"}}checked{{end}}>
                 </div>
               </td>
               <td>
                 <select class="form-select form-select-sm prayer-media-select"
-                        data-prayer="{{lower $p}}"
-                        data-saved="{{index $.config $mkey}}"
+                        data-prayer="fajr"
+                        data-saved="{{index .config "fajr_media"}}"
                         style="min-width:180px">
                   <option value="">Loading...</option>
                 </select>
               </td>
             </tr>
-            {{end}}
+            <tr>
+              <td class="ps-3" style="font-weight:500">Dhuhr</td>
+              <td>
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input prayer-enabled-toggle" type="checkbox"
+                         data-prayer="dhuhr" id="enabled-dhuhr"
+                         {{if index .config "dhuhr_enabled"}}checked{{end}}>
+                </div>
+              </td>
+              <td>
+                <select class="form-select form-select-sm prayer-media-select"
+                        data-prayer="dhuhr"
+                        data-saved="{{index .config "dhuhr_media"}}"
+                        style="min-width:180px">
+                  <option value="">Loading...</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td class="ps-3" style="font-weight:500">Asr</td>
+              <td>
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input prayer-enabled-toggle" type="checkbox"
+                         data-prayer="asr" id="enabled-asr"
+                         {{if index .config "asr_enabled"}}checked{{end}}>
+                </div>
+              </td>
+              <td>
+                <select class="form-select form-select-sm prayer-media-select"
+                        data-prayer="asr"
+                        data-saved="{{index .config "asr_media"}}"
+                        style="min-width:180px">
+                  <option value="">Loading...</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td class="ps-3" style="font-weight:500">Maghrib</td>
+              <td>
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input prayer-enabled-toggle" type="checkbox"
+                         data-prayer="maghrib" id="enabled-maghrib"
+                         {{if index .config "maghrib_enabled"}}checked{{end}}>
+                </div>
+              </td>
+              <td>
+                <select class="form-select form-select-sm prayer-media-select"
+                        data-prayer="maghrib"
+                        data-saved="{{index .config "maghrib_media"}}"
+                        style="min-width:180px">
+                  <option value="">Loading...</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td class="ps-3" style="font-weight:500">Isha</td>
+              <td>
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input prayer-enabled-toggle" type="checkbox"
+                         data-prayer="isha" id="enabled-isha"
+                         {{if index .config "isha_enabled"}}checked{{end}}>
+                </div>
+              </td>
+              <td>
+                <select class="form-select form-select-sm prayer-media-select"
+                        data-prayer="isha"
+                        data-saved="{{index .config "isha_media"}}"
+                        style="min-width:180px">
+                  <option value="">Loading...</option>
+                </select>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>

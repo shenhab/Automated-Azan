@@ -46,9 +46,7 @@
         <span style="width:8px;height:8px;border-radius:50%;background:#22C55E;
                      box-shadow:0 0 0 3px rgba(34,197,94,.2);display:inline-block"></span>
       </div>
-      <div class="stat-sub">
-        {{range .jobs}}{{if eq .Status "upcoming"}}{{.Label}} at {{.Time}}{{break}}{{end}}{{end}}
-      </div>
+      <div class="stat-sub" id="nextJobLabel">—</div>
     </div>
   </div>
 </div>
@@ -226,13 +224,20 @@
   document.getElementById("todayDate").textContent =
     new Date().toLocaleDateString('en-IE', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
 
+  // Set next job label from injected data
+  const nextPrayerName = "{{index .next_prayer "name"}}";
+  const nextPrayerTime = "{{index .next_prayer "time"}}";
+  if (nextPrayerName && nextPrayerTime) {
+    document.getElementById("nextJobLabel").textContent = nextPrayerName + " at " + nextPrayerTime;
+  } else {
+    document.getElementById("nextJobLabel").textContent = "No upcoming jobs";
+  }
+
   // Countdown to next prayer
-  const nextPrayer = "{{index .next_prayer "name"}}";
-  const nextTime   = "{{index .next_prayer "time"}}";
-  if (nextTime) {
+  if (nextPrayerTime) {
     function updateCountdown() {
       const now = new Date();
-      const [h, m] = nextTime.split(":").map(Number);
+      const [h, m] = nextPrayerTime.split(":").map(Number);
       const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
       const diff = target - now;
       if (diff <= 0) { document.getElementById("countdown").textContent = "Now"; return; }
@@ -250,8 +255,8 @@
       "Fajr": "pill-fajr", "Dhuhr": "pill-dhuhr", "Asr": "pill-asr",
       "Maghrib": "pill-maghrib", "Isha": "pill-isha"
     };
-    if (prayerPills[nextPrayer]) {
-      document.getElementById(prayerPills[nextPrayer])?.classList.add("active");
+    if (prayerPills[nextPrayerName]) {
+      document.getElementById(prayerPills[nextPrayerName])?.classList.add("active");
     }
   }
 </script>
