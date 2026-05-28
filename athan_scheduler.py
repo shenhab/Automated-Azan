@@ -848,12 +848,12 @@ class AthanScheduler:
                     logging.info(f"Next prayer: {prayer} at {next_prayer_result['formatted_time']}. Sleeping for {sleep_duration:.2f} seconds.")
 
                     if sleep_duration > 0:
-                        # Sleep in chunks to allow for graceful shutdown
-                        chunk_size = min(sleep_duration, 300)
+                        # Sleep in 30-second chunks so schedule.run_pending() fires sub-jobs
                         while sleep_duration > 0:
-                            sleep_time = min(chunk_size, sleep_duration)
+                            sleep_time = min(30, sleep_duration)
                             time.sleep(sleep_time)
                             sleep_duration -= sleep_time
+                            schedule.run_pending()
 
                             # Check if we've moved to a new day during sleep
                             if datetime.now(self.tz).date() != current_date:
@@ -891,11 +891,12 @@ class AthanScheduler:
             logging.info("Sleeping until 1:00 AM (%s). Sleep duration: %.2f seconds",
                         next_1am.strftime("%Y-%m-%d %H:%M:%S"), sleep_duration)
 
-            # Sleep in chunks to avoid very long sleep periods
+            # Sleep in 30-second chunks so schedule.run_pending() can fire any queued jobs
             while sleep_duration > 0:
-                sleep_time = min(sleep_duration, 1800)  # 30-minute chunks
+                sleep_time = min(30, sleep_duration)
                 time.sleep(sleep_time)
                 sleep_duration -= sleep_time
+                schedule.run_pending()
 
                 # Check if we're close to 1 AM
                 now = datetime.now(self.tz)
