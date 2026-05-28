@@ -47,15 +47,18 @@ jobs:
             cgo:     "1"          # Win32 tray is pure-Go but CGO=1 is safe on Windows
             asset:   azan-agent-windows-amd64.exe
 
-          # ── macOS Intel ───────────────────────────────────────────────────
-          - runner:  macos-13       # last Intel runner
+          # ── macOS Intel (cross-compiled from Apple Silicon runner) ──────────
+          # macos-13 Intel runners are scarce and slow to pick up jobs.
+          # macOS Xcode SDK supports both architectures, so CGO cross-compile
+          # works fine from an M-series runner.
+          - runner:  macos-latest
             goos:    darwin
             goarch:  amd64
             cgo:     "1"
             asset:   azan-agent-darwin-amd64
 
           # ── macOS Apple Silicon ───────────────────────────────────────────
-          - runner:  macos-latest   # arm64 runner (M1/M2/M3)
+          - runner:  macos-latest
             goos:    darwin
             goarch:  arm64
             cgo:     "1"
