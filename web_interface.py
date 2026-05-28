@@ -151,6 +151,35 @@ def _persist_config():
     settings.save()
     load_config()
 
+def _get_prayer_times_data() -> dict:
+    """Return today's prayer times from the scheduler, falling back to local cache."""
+    if web_scheduler:
+        try:
+            result = web_scheduler.get_prayer_times()
+            if result.get('success'):
+                return result['prayer_times']
+        except Exception as e:
+            logging.error("Error getting scheduler prayer times: %s", e)
+    load_prayer_times()
+    return prayer_times
+
+
+def _build_scheduler_status() -> dict:
+    """Return a scheduler status summary dict for UI/WebSocket consumption."""
+    status = {"running": False, "total_jobs": 0, "next_prayer": None, "last_update": None}
+    if web_scheduler:
+        try:
+            data = web_scheduler.get_scheduler_status()
+            if data.get('success'):
+                status["running"] = data.get("running", False)
+                status["total_jobs"] = data.get("total_jobs", 0)
+                status["next_prayer"] = data.get("next_run")
+                status["last_update"] = datetime.now().isoformat()
+        except Exception as e:
+            logging.error("Error getting scheduler status: %s", e)
+    return status
+
+
 def load_prayer_times(force_reload=False):
     """Load current prayer times with caching"""
     global prayer_times, prayer_times_last_updated
@@ -198,53 +227,9 @@ def index():
     """Main dashboard"""
     load_config()
 
-    # Get prayer times from scheduler if available, otherwise fallback
-    dashboard_prayer_times = {}
-    if web_scheduler:
-        try:
-            scheduler_result = web_scheduler.get_prayer_times()
-            if scheduler_result.get('success'):
-                dashboard_prayer_times = scheduler_result['prayer_times']
-                logging.info(f"[DEBUG] Dashboard using scheduler prayer times: {dashboard_prayer_times}")
-            else:
-                logging.warning(f"Scheduler prayer times failed, using fallback: {scheduler_result.get('error')}")
-                load_prayer_times()
-                dashboard_prayer_times = prayer_times
-        except Exception as e:
-            logging.error(f"Error getting scheduler prayer times: {e}")
-            load_prayer_times()
-            dashboard_prayer_times = prayer_times
-    else:
-        logging.warning("[DEBUG] web_scheduler not available, using fallback")
-        load_prayer_times()
-        dashboard_prayer_times = prayer_times
-
-    # Debug logging for scheduler status
-    logging.info(f"[DEBUG] Dashboard loading - scheduler_status: {scheduler_status}")
-
-    # Try to get actual scheduler status from the scheduler if available
-    actual_status = {"running": False, "next_prayer": None, "last_update": None}
-    if web_scheduler:
-        try:
-            status_data = web_scheduler.get_scheduler_status()
-            logging.info(f"[DEBUG] Raw scheduler status data: {status_data}")
-
-            # Check if scheduler has jobs and is successful
-            has_jobs = status_data.get("total_jobs", 0) > 0
-            is_successful = status_data.get("success", False)
-            actual_status["running"] = is_successful and has_jobs
-            actual_status["next_prayer"] = status_data.get("next_run")
-            actual_status["last_update"] = datetime.now().isoformat()
-
-            logging.info(f"[DEBUG] Processed scheduler status - running: {actual_status['running']}, jobs: {status_data.get('total_jobs', 0)}, success: {is_successful}")
-        except Exception as e:
-            logging.error(f"[DEBUG] Error getting scheduler status: {e}")
-    else:
-        logging.warning("[DEBUG] web_scheduler is not available")
-
-    # Get speaker status
+    dashboard_prayer_times = _get_prayer_times_data()
+    actual_status = _build_scheduler_status()
     speaker_status = get_speaker_status()
-    logging.info(f"[DEBUG] Speaker status: {speaker_status}")
 
     return render_template('dashboard.html',
                          config=current_config,
@@ -652,24 +637,14 @@ def toggle_pre_fajr():
         data = request.json
         enable = bool(data.get('enable', False))
 
-        if web_scheduler and hasattr(web_scheduler, 'toggle_pre_fajr_quran'):
-            result = web_scheduler.toggle_pre_fajr_quran(enable)
+        if not web_scheduler:
+            return jsonify({"success": False, "error": "Scheduler not available", "timestamp": datetime.now().isoformat()}), 503
 
-            settings.update(prayer={"pre_fajr_enabled": enable})
-            settings.save()
-
-            socketio.emit('pre_fajr_toggled', {
-                'enabled': enable,
-                'timestamp': datetime.now().isoformat()
-            })
-
-            return jsonify(result)
-        else:
-            return jsonify({
-                "success": False,
-                "error": "Scheduler not available or feature not supported",
-                "timestamp": datetime.now().isoformat()
-            }), 400
+        result = web_scheduler.toggle_pre_fajr_quran(enable)
+        settings.update(prayer={"pre_fajr_enabled": enable})
+        settings.save()
+        socketio.emit('pre_fajr_toggled', {'enabled': enable, 'timestamp': datetime.now().isoformat()})
+        return jsonify(result)
     except Exception as e:
         logging.error(f"Error toggling pre-Fajr: {e}")
         return jsonify({
@@ -685,24 +660,14 @@ def toggle_friday_kahf():
         data = request.json
         enable = bool(data.get('enable', False))
 
-        if web_scheduler and hasattr(web_scheduler, 'toggle_friday_kahf'):
-            result = web_scheduler.toggle_friday_kahf(enable)
+        if not web_scheduler:
+            return jsonify({"success": False, "error": "Scheduler not available", "timestamp": datetime.now().isoformat()}), 503
 
-            settings.update(prayer={"friday_kahf_enabled": enable})
-            settings.save()
-
-            socketio.emit('friday_kahf_toggled', {
-                'enabled': enable,
-                'timestamp': datetime.now().isoformat()
-            })
-
-            return jsonify(result)
-        else:
-            return jsonify({
-                "success": False,
-                "error": "Scheduler not available or feature not supported",
-                "timestamp": datetime.now().isoformat()
-            }), 400
+        result = web_scheduler.toggle_friday_kahf(enable)
+        settings.update(prayer={"friday_kahf_enabled": enable})
+        settings.save()
+        socketio.emit('friday_kahf_toggled', {'enabled': enable, 'timestamp': datetime.now().isoformat()})
+        return jsonify(result)
     except Exception as e:
         logging.error(f"Error toggling Friday Al-Kahf: {e}")
         return jsonify({
@@ -1184,48 +1149,9 @@ def handle_status_request():
     """Handle status request from client"""
     load_config()
 
-    # Get prayer times from scheduler if available, otherwise fallback
-    websocket_prayer_times = {}
-    if web_scheduler:
-        try:
-            scheduler_result = web_scheduler.get_prayer_times()
-            if scheduler_result.get('success'):
-                websocket_prayer_times = scheduler_result['prayer_times']
-                logging.info(f"[DEBUG] WebSocket using scheduler prayer times: {websocket_prayer_times}")
-            else:
-                logging.warning(f"WebSocket: Scheduler prayer times failed, using fallback: {scheduler_result.get('error')}")
-                load_prayer_times()
-                websocket_prayer_times = prayer_times
-        except Exception as e:
-            logging.error(f"WebSocket: Error getting scheduler prayer times: {e}")
-            load_prayer_times()
-            websocket_prayer_times = prayer_times
-    else:
-        logging.warning("[DEBUG] WebSocket: web_scheduler not available, using fallback")
-        load_prayer_times()
-        websocket_prayer_times = prayer_times
-
-    # Get actual scheduler status
-    actual_status = {"running": False, "next_prayer": None, "last_update": None}
-    if web_scheduler:
-        try:
-            status_data = web_scheduler.get_scheduler_status()
-            logging.info(f"[DEBUG] WebSocket raw scheduler status data: {status_data}")
-
-            # Check if scheduler has jobs and is successful
-            has_jobs = status_data.get("total_jobs", 0) > 0
-            is_successful = status_data.get("success", False)
-            actual_status["running"] = is_successful and has_jobs
-            actual_status["next_prayer"] = status_data.get("next_run")
-            actual_status["last_update"] = datetime.now().isoformat()
-
-            logging.info(f"[DEBUG] WebSocket processed scheduler status - running: {actual_status['running']}, jobs: {status_data.get('total_jobs', 0)}")
-        except Exception as e:
-            logging.error(f"[DEBUG] WebSocket error getting scheduler status: {e}")
-
-    # Get speaker status
+    websocket_prayer_times = _get_prayer_times_data()
+    actual_status = _build_scheduler_status()
     speaker_status = get_speaker_status()
-    logging.info(f"[DEBUG] WebSocket speaker status: {speaker_status}")
 
     emit('status_update', {
         'config': current_config,

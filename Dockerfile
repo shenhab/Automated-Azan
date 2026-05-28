@@ -1,8 +1,10 @@
 # Stage 1: install Python dependencies only (layer cached independently of source code)
 FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS deps
 WORKDIR /app
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml uv.lock ./
-RUN uv sync --no-dev --frozen --no-install-project
+RUN uv sync --no-dev --frozen --no-install-project && \
+    uv pip install --upgrade pip wheel
 
 # Stage 2: runtime image
 FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim
@@ -11,11 +13,14 @@ LABEL maintainer="Automated Azan Project"
 LABEL description="Automated Islamic Prayer Time announcements via Chromecast with Web Interface"
 LABEL version="2.0.0"
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     avahi-daemon \
     dbus \
     iputils-ping \
     && rm -rf /var/lib/apt/lists/*
+
+# Upgrade system Python pip/wheel/setuptools to clear scanner findings
+RUN python3 -m pip install --upgrade pip wheel setuptools --break-system-packages
 
 RUN mkdir -p /var/log /app/data /app/logs /app/config && \
     chmod 755 /var/log /app/data /app/logs /app/config
