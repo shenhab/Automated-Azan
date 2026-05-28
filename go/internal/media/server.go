@@ -1,7 +1,9 @@
 package media
 
 import (
+	"embed"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -11,12 +13,17 @@ import (
 	"time"
 )
 
+//go:embed embedded
+var embeddedMedia embed.FS
+
 // Server serves MP3 files from a directory over HTTP so Chromecast can fetch them.
+// When a requested file is not found in the local directory, it falls back to the
+// MP3 files embedded in the binary at build time.
 type Server struct {
-	dir      string
-	port     int
-	localIP  string
-	httpSrv  *http.Server
+	dir     string
+	port    int
+	localIP string
+	httpSrv *http.Server
 }
 
 // NewServer creates a media server that serves files from dir on the given port.
@@ -40,7 +47,7 @@ func (s *Server) Start() error {
 	}
 
 	go func() {
-		log.Printf("[media] serving %s on %s", s.dir, s.httpSrv.Addr)
+		log.Printf("[media] serving %s on %s (embedded fallback enabled)", s.dir, s.httpSrv.Addr)
 		if err := s.httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Printf("[media] server error: %v", err)
 		}
@@ -56,7 +63,6 @@ func (s *Server) Stop() {
 }
 
 // BaseURL returns the LAN-accessible URL prefix for media files.
-// e.g. http://192.168.1.50:8080/media/
 func (s *Server) BaseURL() string {
 	return fmt.Sprintf("http://%s:%d/media/", s.localIP, s.port)
 }
@@ -67,18 +73,32 @@ func (s *Server) LocalIP() string {
 }
 
 func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
-	// Strip /media/ prefix, prevent path traversal
 	name := strings.TrimPrefix(r.URL.Path, "/media/")
-	name = filepath.Base(name) // strip any directory components
+	name = filepath.Base(name) // prevent path traversal
 
-	path := filepath.Join(s.dir, name)
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		http.NotFound(w, r)
+	// Try local directory first
+	localPath := filepath.Join(s.dir, name)
+	if info, err := os.Stat(localPath); err == nil && !info.IsDir() {
+		log.Printf("[media] serving local file: %s", name)
+		w.Header().Set("Accept-Ranges", "bytes")
+		http.ServeFile(w, r, localPath)
 		return
 	}
 
+	// Fall back to embedded binary MP3
+	embeddedPath := "embedded/" + name
+	f, err := embeddedMedia.Open(embeddedPath)
+	if err != nil {
+		log.Printf("[media] not found locally or embedded: %s", name)
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+
+	log.Printf("[media] serving embedded file: %s", name)
+	w.Header().Set("Content-Type", "audio/mpeg")
 	w.Header().Set("Accept-Ranges", "bytes")
-	http.ServeFile(w, r, path)
+	io.Copy(w, f)
 }
 
 // detectLANIP finds the outbound LAN IP by probing Google DNS.
