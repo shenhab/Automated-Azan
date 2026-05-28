@@ -174,9 +174,9 @@ func (p *program) run() {
 	}
 
 	playKahf := func() error {
-		const kahfURL = "https://server13.mp3quran.net/husr/018.mp3"
 		log.Println("[main] playing Friday Surah Al-Kahf")
-		return castMgr.PlayURL(kahfURL, "audio/mpeg")
+		// kahf.mp3 is embedded in the binary and served by the media server
+		return castMgr.PlayURL(mediaSrv.BaseURL()+"kahf.mp3", "audio/mpeg")
 	}
 
 	// Prayer scheduler
@@ -195,17 +195,7 @@ func (p *program) run() {
 		log.Fatalf("[main] web server start: %v", err)
 	}
 	p.webSrv = webSrv
-	dashURL := fmt.Sprintf("http://localhost:%d", webSrv.Port())
-	log.Printf("[main] dashboard at %s", dashURL)
-
-	// When running interactively (terminal / double-click), open the dashboard
-	// in the default browser. Wait 1 second so the HTTP server is ready first.
-	if service.Interactive() {
-		go func() {
-			time.Sleep(time.Second)
-			openBrowser(dashURL)
-		}()
-	}
+	log.Printf("[main] dashboard at http://localhost:%d", webSrv.Port())
 
 	// Config hot-reload watcher
 	watcher := config.NewWatcher(cfg)
@@ -294,35 +284,14 @@ func main() {
 
 	// Running interactively (double-click or terminal)
 	if service.Interactive() {
-		// On headless systems (no DISPLAY / no Wayland), skip the tray and
-		// just run the agent directly — useful for servers and Raspberry Pi
-		// without a desktop environment.
-		if !hasDisplay() {
-			prg.run() // blocks forever
-			return
-		}
-
-		// Desktop environment detected → start agent + show system tray
 		go prg.run()
 
-		tray.Run(tray.Config{
-			Port: func() int {
-				if prg.webSrv != nil {
-					return prg.webSrv.Port()
-				}
-				return config.Get().Web.Port
-			}(),
-			NextPrayer: func() (string, time.Time, bool) {
-				if prg.scheduler == nil {
-					return "", time.Time{}, false
-				}
-				return prg.scheduler.NextPrayer()
-			},
-			OnQuit: func() {
-				prg.Stop(svc)
-				os.Exit(0)
-			},
-		})
+		if shouldShowTray() {
+			runTray(prg, svc)
+		} else {
+			// Confirmed headless (Linux server / Pi without display)
+			runHeadless(prg)
+		}
 		return
 	}
 
@@ -349,9 +318,60 @@ func openBrowser(url string) {
 	}
 }
 
-// hasDisplay returns true if a graphical display is available.
-func hasDisplay() bool {
-	return os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != ""
+// runTray attempts to start the system tray on the main goroutine (required by
+// macOS/Windows). If the tray panics or fails for any reason (missing GTK on
+// Linux, CGO stub, etc.) it recovers and falls back to headless mode so the
+// agent keeps running.
+func runTray(prg *program, svc service.Service) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[tray] failed to start: %v — falling back to headless", r)
+			runHeadless(prg)
+		}
+	}()
+
+	tray.Run(tray.Config{
+		Port: func() int {
+			if prg.webSrv != nil {
+				return prg.webSrv.Port()
+			}
+			return config.Get().Web.Port
+		}(),
+		NextPrayer: func() (string, time.Time, bool) {
+			if prg.scheduler == nil {
+				return "", time.Time{}, false
+			}
+			return prg.scheduler.NextPrayer()
+		},
+		OnQuit: func() {
+			prg.Stop(svc)
+			os.Exit(0)
+		},
+	})
+}
+
+// runHeadless opens the dashboard in the default browser and blocks forever.
+// Used when there is no graphical environment or the tray failed to start.
+func runHeadless(prg *program) {
+	go func() {
+		time.Sleep(time.Second) // wait for web server to be ready
+		if prg.webSrv != nil {
+			openBrowser(fmt.Sprintf("http://localhost:%d", prg.webSrv.Port()))
+		}
+	}()
+	select {} // block forever — the agent runs in goroutines
+}
+
+// shouldShowTray returns true when the system tray should be attempted.
+// macOS and Windows always have a GUI environment so we always show it.
+// On Linux we require DISPLAY or WAYLAND_DISPLAY (headless servers don't).
+func shouldShowTray() bool {
+	switch runtime.GOOS {
+	case "darwin", "windows":
+		return true
+	default: // linux
+		return os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != ""
+	}
 }
 
 func setupLogging(filePath, level string) {

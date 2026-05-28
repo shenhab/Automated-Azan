@@ -16,6 +16,9 @@ import (
 //go:embed embedded
 var embeddedMedia embed.FS
 
+// EmbeddedFS exposes the embedded media filesystem for use by other packages.
+var EmbeddedFS = &embeddedMedia
+
 // Server serves MP3 files from a directory over HTTP so Chromecast can fetch them.
 // When a requested file is not found in the local directory, it falls back to the
 // MP3 files embedded in the binary at build time.

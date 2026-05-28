@@ -3,6 +3,7 @@
 package tray
 
 import (
+	_ "embed"
 	"fmt"
 	"log"
 	"os/exec"
@@ -11,6 +12,9 @@ import (
 
 	"github.com/getlantern/systray"
 )
+
+//go:embed azan.ico
+var iconData []byte
 
 // Config holds what the tray needs to show status.
 type Config struct {
@@ -33,11 +37,12 @@ func Run(cfg Config) {
 }
 
 func onReady(cfg Config) {
-	systray.SetTitle("Azan")
 	systray.SetTooltip("Automated Azan Agent")
-
-	// Try to load icon — silently skip if not found
-	// systray.SetIcon(iconData)
+	if len(iconData) > 0 {
+		systray.SetIcon(iconData)
+	} else {
+		systray.SetTitle("Azan") // fallback text when icon fails
+	}
 
 	mStatus := systray.AddMenuItem("● Running", "Azan Agent is running")
 	mStatus.Disable()

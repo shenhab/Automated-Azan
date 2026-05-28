@@ -18,6 +18,7 @@ import (
 
 	"azan-agent/internal/chromecast"
 	"azan-agent/internal/config"
+	"azan-agent/internal/media"
 	"azan-agent/internal/prayer"
 
 	"github.com/gorilla/websocket"
@@ -429,21 +430,37 @@ func (s *Server) handleAPIQuranStop(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{"success": true})
 }
 
-func (s *Server) handleAPIMediaFiles(w http.ResponseWriter, r *http.Request) {
-	// Embedded defaults always available
-	files := []string{"media_Athan.mp3", "media_adhan_al_fajr.mp3"}
-	seen := map[string]bool{"media_Athan.mp3": true, "media_adhan_al_fajr.mp3": true}
+// athanExclusions lists embedded files that are NOT Athan audio and should
+// not appear in the per-prayer media selection dropdown.
+var athanExclusions = map[string]bool{
+	"kahf.mp3": true, // Friday Surah Al-Kahf — used internally, not for Athan
+}
 
-	// Add any MP3s found in the local media directory
-	if entries, err := os.ReadDir(s.mediaDir); err == nil {
-		for _, e := range entries {
-			if e.IsDir() {
-				continue
-			}
-			name := e.Name()
-			if (strings.HasSuffix(name, ".mp3") || strings.HasSuffix(name, ".m4a")) && !seen[name] {
-				files = append(files, name)
-				seen[name] = true
+func (s *Server) handleAPIMediaFiles(w http.ResponseWriter, r *http.Request) {
+	seen := map[string]bool{}
+	var files []string
+
+	addFile := func(name string) {
+		if athanExclusions[name] || seen[name] {
+			return
+		}
+		seen[name] = true
+		files = append(files, name)
+	}
+
+	// List all embedded MP3 files (excluding internal-only ones)
+	entries, _ := media.EmbeddedFS.ReadDir("embedded")
+	for _, e := range entries {
+		if !e.IsDir() && (strings.HasSuffix(e.Name(), ".mp3") || strings.HasSuffix(e.Name(), ".m4a")) {
+			addFile(e.Name())
+		}
+	}
+
+	// Add any MP3s from the local media directory (user-uploaded)
+	if dirEntries, err := os.ReadDir(s.mediaDir); err == nil {
+		for _, e := range dirEntries {
+			if !e.IsDir() && (strings.HasSuffix(e.Name(), ".mp3") || strings.HasSuffix(e.Name(), ".m4a")) {
+				addFile(e.Name())
 			}
 		}
 	}
