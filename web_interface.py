@@ -8,11 +8,9 @@ import os
 import json
 import time
 import logging
-import shutil
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from flask_socketio import SocketIO, emit
-import pychromecast
 from pydantic import ValidationError
 from prayer_times_fetcher import PrayerTimesFetcher
 from chromecast_manager import ChromecastManager
