@@ -113,8 +113,12 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Show artifacts
-        run: ls -lh dist/
+      - name: Restore executable permissions
+        # upload/download-artifact uses zip which strips Unix file mode.
+        # chmod every non-Windows binary so users can run them directly.
+        run: |
+          chmod +x dist/azan-agent-linux-* dist/azan-agent-darwin-* 2>/dev/null || true
+          ls -lh dist/
 
       - name: Create / update GitHub Release
         uses: softprops/action-gh-release@v3
@@ -148,10 +152,9 @@ jobs:
             ./azan-agent start
             ```
 
-            ### macOS — first run only
+            ### macOS — first run only (Gatekeeper)
             ```bash
             xattr -rd com.apple.quarantine azan-agent-darwin-arm64
-            chmod +x azan-agent-darwin-arm64
             ./azan-agent-darwin-arm64
             ```
           files: dist/*
