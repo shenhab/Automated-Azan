@@ -88,7 +88,12 @@ jobs:
           GOOS:        ${{ matrix.goos }}
           GOARCH:      ${{ matrix.goarch }}
           CGO_ENABLED: ${{ matrix.cgo }}
-        run: go build -ldflags="-s -w" -o ${{ matrix.asset }} ./cmd/azan-agent
+        # -H windowsgui suppresses the console window on Windows so only the
+        # system tray icon appears when the .exe is launched.
+        run: |
+          EXTRA=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then EXTRA="-H windowsgui"; fi
+          go build -ldflags="-s -w $EXTRA" -o ${{ matrix.asset }} ./cmd/azan-agent
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -130,6 +135,29 @@ jobs:
 
             Cross-platform Go agent. Single binary, no runtime required.
 
+            ### What's new in v1.1.0
+
+            **Background service on all platforms**
+            - On first launch the agent automatically installs itself as a native background service (systemd user service on Linux, LaunchAgent on macOS, Windows Service on Windows) and starts it — no manual `install` step required
+            - The tray icon now has an **Exit** option that fully stops the service
+            - Windows: launches without a console window (`-H windowsgui`); shows a clear message if admin rights are needed to register the service
+
+            **Three notification channels — per prayer**
+            - Each of the 5 prayers, Pre-Fajr Quran, and Friday Al-Kahf independently supports: **Google/Chromecast speaker**, **local desktop audio**, and **OS desktop notification** (toast)
+            - Mix and match per prayer — e.g. speaker + notification for Fajr, local audio only for Dhuhr
+            - Local audio: macOS uses `afplay` (built-in); Linux tries `mpg123` → `ffplay` → `cvlc`; Windows uses PowerShell WMF MediaPlayer (built-in)
+
+            **Quran streaming from the tray**
+            - Tray menu shows **▶ Quran on Speaker** and **▶ Quran on This PC**
+            - Click to start; title changes to **■ Stop Quran on …** while streaming
+            - Click again (or use any other stop path) to end the stream
+            - State syncs every 30 seconds so the label always reflects reality
+
+            **Scheduler sorted by time**
+            - The Scheduler page now lists all jobs in chronological order (Pre-Fajr Quran correctly appears before Fajr Athan)
+
+            ---
+
             ### Downloads
 
             | File | Platform | Tray |
@@ -143,20 +171,18 @@ jobs:
 
             ### Quick start
             1. Download the binary for your platform
-            2. Place `azan.toml` next to it ([example config](go/README.md))
-            3. Run it — dashboard opens automatically at `http://localhost:28426`
-
-            ### Install as background service (auto-start on boot)
-            ```bash
-            ./azan-agent install
-            ./azan-agent start
-            ```
+            2. Run it — it installs itself as a background service automatically
+            3. Dashboard: `http://localhost:28426`
 
             ### macOS — first run only (Gatekeeper)
             ```bash
             xattr -rd com.apple.quarantine azan-agent-darwin-arm64
             ./azan-agent-darwin-arm64
             ```
+
+            ### Windows — first run (service registration)
+            Right-click → **Run as administrator** once to register the Windows Service.
+            All subsequent launches work without elevation.
           files: dist/*
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}

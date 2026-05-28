@@ -79,10 +79,10 @@ mkdir -p "$DIST"
 
 # ── 5. build targets ─────────────────────────────────────────────────────────
 build() {
-  local GOOS="$1" GOARCH="$2" OUT="$3" CGO="${4:-0}"
+  local GOOS="$1" GOARCH="$2" OUT="$3" CGO="${4:-0}" EXTRA_LDFLAGS="${5:-}"
   printf "  %-40s" "${GOOS}/${GOARCH} → ${OUT}"
   if CGO_ENABLED="$CGO" GOOS="$GOOS" GOARCH="$GOARCH" \
-      go build -ldflags="-s -w" -o "${DIST}/${OUT}" "$CMD" 2>/tmp/build_err; then
+      go build -ldflags="-s -w ${EXTRA_LDFLAGS}" -o "${DIST}/${OUT}" "$CMD" 2>/tmp/build_err; then
     SIZE="$(du -sh "${DIST}/${OUT}" | cut -f1)"
     echo -e "  ${GREEN}✓${NC}  ${SIZE}"
   else
@@ -98,7 +98,8 @@ echo ""
 build linux   amd64  "${BINARY}-linux-amd64"
 build linux   arm64  "${BINARY}-linux-arm64"
 build linux   arm    "${BINARY}-linux-arm"
-build windows amd64  "${BINARY}-windows-amd64.exe"
+# -H windowsgui suppresses the console window on Windows (runs silently in tray)
+build windows amd64  "${BINARY}-windows-amd64.exe" 0 "-H windowsgui"
 build darwin  amd64  "${BINARY}-darwin-amd64"
 build darwin  arm64  "${BINARY}-darwin-arm64"
 

@@ -1,20 +1,26 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"azan-agent/internal/appdirs"
 	"azan-agent/internal/chromecast"
 	"azan-agent/internal/config"
 	"azan-agent/internal/media"
+	"azan-agent/internal/localplay"
+	"azan-agent/internal/notify"
 	"azan-agent/internal/prayer"
+	"azan-agent/internal/quran"
 	"azan-agent/internal/timesync"
 	"azan-agent/internal/tray"
 	"azan-agent/internal/web"
@@ -46,6 +52,7 @@ type program struct {
 	webSrv     *web.Server
 	scheduler  *prayer.Scheduler
 	castMgr    *chromecast.Manager
+	quranCtrl  *quran.Controller
 	cfgWatcher *config.Watcher
 }
 
@@ -140,43 +147,72 @@ func (p *program) run() {
 		log.Printf("[main] found %d chromecast device(s)", len(devs))
 	}()
 
-	// Quran stream state
-	quranStop := make(chan struct{}, 1)
+	// Quran controller — shared by scheduler (pre-Fajr) and tray/API (manual).
+	quranCtrl := quran.New(castMgr)
+	p.quranCtrl = quranCtrl
 
-	playAthan := func(prayerName, filename string) error {
-		return castMgr.PlayAthan(prayerName, filename)
-	}
-
-	playQuran := func(durationSec int) error {
-		const quranURL = "https://backup.qurango.net/radio/mahmoud_khalil_alhussary_warsh"
-		log.Printf("[main] starting pre-Fajr Quran stream (%d seconds)", durationSec)
-		go func() {
-			if err := castMgr.PlayURL(quranURL, "audio/mpeg"); err != nil {
-				log.Printf("[main] quran stream error: %v", err)
-				return
-			}
-			timer := time.NewTimer(time.Duration(durationSec) * time.Second)
-			defer timer.Stop()
-			select {
-			case <-timer.C:
-			case <-quranStop:
-			}
-			castMgr.StopPlayback()
-		}()
-		return nil
-	}
-
-	stopQuran := func() {
-		select {
-		case quranStop <- struct{}{}:
-		default:
+	fireNotify := func(title, message string) {
+		if err := notify.Send(title, message); err != nil {
+			log.Printf("[main] desktop notify: %v", err)
 		}
 	}
 
+	playAthan := func(prayerName, filename string) error {
+		ch := cfg.Prayer.Channels.ForPrayer(prayerName)
+		if ch.Notify {
+			go fireNotify("Automated Azan", prayerName+" prayer time")
+		}
+		if ch.Speaker {
+			if err := castMgr.PlayAthan(prayerName, filename); err != nil {
+				log.Printf("[main] speaker athan (%s): %v", prayerName, err)
+			}
+		}
+		if ch.Local {
+			go func() {
+				if err := localplay.Play(filepath.Join(resolvedMediaDir, filename)); err != nil {
+					log.Printf("[main] local athan (%s): %v", prayerName, err)
+				}
+			}()
+		}
+		return nil
+	}
+
+	playQuran := func(durationSec int) error {
+		ch := cfg.Prayer.Channels.PreFajr
+		if ch.Notify {
+			go fireNotify("Automated Azan", "Pre-Fajr Quran recitation starting")
+		}
+		dur := time.Duration(durationSec) * time.Second
+		if ch.Speaker {
+			quranCtrl.StartSpeaker(dur)
+		}
+		if ch.Local {
+			quranCtrl.StartLocal(dur)
+		}
+		return nil
+	}
+
+	stopQuran := quranCtrl.Stop
+
 	playKahf := func() error {
-		log.Println("[main] playing Friday Surah Al-Kahf")
-		// kahf.mp3 is embedded in the binary and served by the media server
-		return castMgr.PlayURL(mediaSrv.BaseURL()+"kahf.mp3", "audio/mpeg")
+		ch := cfg.Prayer.Channels.FridayKahf
+		if ch.Notify {
+			go fireNotify("Automated Azan", "Friday Surah Al-Kahf starting")
+		}
+		if ch.Speaker {
+			log.Println("[main] playing Friday Surah Al-Kahf on speaker")
+			if err := castMgr.PlayURL(mediaSrv.BaseURL()+"kahf.mp3", "audio/mpeg"); err != nil {
+				log.Printf("[main] kahf speaker: %v", err)
+			}
+		}
+		if ch.Local {
+			go func() {
+				if err := localplay.Play(filepath.Join(resolvedMediaDir, "kahf.mp3")); err != nil {
+					log.Printf("[main] kahf local: %v", err)
+				}
+			}()
+		}
+		return nil
 	}
 
 	// Prayer scheduler
@@ -187,7 +223,7 @@ func (p *program) run() {
 	p.scheduler = sched
 
 	// Web server
-	webSrv, err := web.NewServer(cfg, fetcher, sched, castMgr, resolvedMediaDir)
+	webSrv, err := web.NewServer(cfg, fetcher, sched, castMgr, quranCtrl, resolvedMediaDir)
 	if err != nil {
 		log.Fatalf("[main] web server init: %v", err)
 	}
@@ -242,6 +278,11 @@ func main() {
 		DisplayName: "Automated Azan Agent",
 		Description: "Plays Athan at prayer times on local Chromecast devices",
 	}
+	// On Linux, install as a systemd user service (~/.config/systemd/user/)
+	// so it starts on login without root and can be stopped by the tray.
+	if runtime.GOOS == "linux" {
+		svcCfg.Option = service.KeyValue{"UserService": true}
+	}
 
 	prg := &program{}
 	svc, err := service.New(prg, svcCfg)
@@ -249,7 +290,7 @@ func main() {
 		log.Fatalf("service init: %v", err)
 	}
 
-	// Handle service control commands: install, uninstall, start, stop
+	// Handle explicit service control commands: install, uninstall, start, stop
 	if len(os.Args) > 1 {
 		cmd := os.Args[1]
 		switch cmd {
@@ -282,23 +323,167 @@ func main() {
 		}
 	}
 
-	// Running interactively (double-click or terminal)
+	// Running interactively (double-click or terminal launch)
 	if service.Interactive() {
-		go prg.run()
-
-		if shouldShowTray() {
-			runTray(prg, svc)
-		} else {
-			// Confirmed headless (Linux server / Pi without display)
-			runHeadless(prg)
-		}
+		// All platforms: prefer running as a native service so the agent persists
+		// across terminal sessions and starts automatically on login/boot.
+		runAsService(prg, svc)
 		return
 	}
 
-	// Running as a system service → no tray
+	// Running as a system/user service — no tray
 	if err := svc.Run(); err != nil {
 		log.Fatalf("service run: %v", err)
 	}
+}
+
+// runAsService installs (if needed) and starts the native OS service, then
+// shows a tray (if a display is available) or exits cleanly (headless).
+// Falls back to inline mode if the service cannot be installed or started
+// (e.g. no systemd, insufficient privileges on Windows first run).
+//
+// Service type by platform:
+//   - Linux:   systemd user service  (~/.config/systemd/user/)
+//   - macOS:   LaunchAgent           (~/Library/LaunchAgents/)
+//   - Windows: Windows Service (SCM) — requires admin on first install
+func runAsService(prg *program, svc service.Service) {
+	port := config.Get().Web.Port
+
+	status, err := svc.Status()
+	if err != nil || status == service.StatusUnknown {
+		fmt.Println("[azan] Installing service...")
+		if installErr := svc.Install(); installErr != nil {
+			if runtime.GOOS == "windows" && !isElevated() {
+				// Show a clear explanation before falling back — the MessageBox
+				// blocks until the user dismisses it.
+				showServiceInstallMessage()
+			} else {
+				log.Printf("[main] service install failed (%v) — falling back to inline mode", installErr)
+			}
+			runInline(prg, svc)
+			return
+		}
+		fmt.Println("[azan] Service installed.")
+		status = service.StatusStopped
+	}
+
+	if status != service.StatusRunning {
+		fmt.Println("[azan] Starting service...")
+		if startErr := svc.Start(); startErr != nil {
+			log.Printf("[main] service start failed (%v) — falling back to inline mode", startErr)
+			runInline(prg, svc)
+			return
+		}
+		fmt.Printf("[azan] Service started. Dashboard: http://localhost:%d\n", port)
+	} else {
+		fmt.Printf("[azan] Service already running. Dashboard: http://localhost:%d\n", port)
+	}
+
+	if shouldShowTray() {
+		runTrayForService(port, svc)
+	}
+	// Headless: service is running in the background — exit cleanly.
+}
+
+// runInline is the fallback when the native service cannot be installed or
+// started: runs the agent in-process, shows a tray (if display) or blocks headlessly.
+func runInline(prg *program, svc service.Service) {
+	go prg.run()
+	if shouldShowTray() {
+		runTray(prg, svc)
+	} else {
+		runHeadless(prg)
+	}
+}
+
+// runTrayForService shows the system tray for a service-mode agent.
+// All data is fetched from the web API; Exit stops the service.
+func runTrayForService(port int, svc service.Service) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[tray] failed: %v — service continues running in background", r)
+		}
+	}()
+
+	tray.Run(tray.Config{
+		Port: port,
+		NextPrayer: func() (string, time.Time, bool) {
+			return nextPrayerFromAPI(port)
+		},
+		OnQuit: func() {
+			if err := svc.Stop(); err != nil {
+				log.Printf("[main] stop service: %v", err)
+			}
+			os.Exit(0)
+		},
+		QuranStatus: func() (bool, bool) {
+			return quranStatusFromAPI(port)
+		},
+		StreamQuranSpeaker: func() error { return quranActionFromAPI(port, "play", "speaker") },
+		StopQuranSpeaker:   func() { quranActionFromAPI(port, "stop", "speaker") },
+		StreamQuranLocal:   func() error { return quranActionFromAPI(port, "play", "local") },
+		StopQuranLocal:     func() { quranActionFromAPI(port, "stop", "local") },
+	})
+}
+
+// quranStatusFromAPI queries /api/quran/status on the running service.
+func quranStatusFromAPI(port int) (speakerActive, localActive bool) {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/quran/status", port))
+	if err != nil {
+		return false, false
+	}
+	defer resp.Body.Close()
+	var result struct {
+		SpeakerActive bool `json:"speaker_active"`
+		LocalActive   bool `json:"local_active"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+	return result.SpeakerActive, result.LocalActive
+}
+
+// quranActionFromAPI calls /api/quran/{action} on the running service.
+// action is "play" or "stop"; target is "speaker", "local", or "all".
+func quranActionFromAPI(port int, action, target string) error {
+	body := fmt.Sprintf(`{"target":%q}`, target)
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Post(
+		fmt.Sprintf("http://localhost:%d/api/quran/%s", port, action),
+		"application/json",
+		strings.NewReader(body),
+	)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
+// nextPrayerFromAPI queries /api/next-prayer on the running service.
+func nextPrayerFromAPI(port int) (string, time.Time, bool) {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/next-prayer", port))
+	if err != nil {
+		return "", time.Time{}, false
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Found  bool   `json:"found"`
+		Prayer string `json:"prayer"`
+		Time   string `json:"time"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || !result.Found {
+		return "", time.Time{}, false
+	}
+
+	now := time.Now()
+	t, err := time.ParseInLocation("15:04", result.Time, now.Location())
+	if err != nil {
+		return result.Prayer, time.Time{}, true
+	}
+	at := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, now.Location())
+	return result.Prayer, at, true
 }
 
 // openBrowser opens url in the default browser.
@@ -346,6 +531,34 @@ func runTray(prg *program, svc service.Service) {
 		OnQuit: func() {
 			prg.Stop(svc)
 			os.Exit(0)
+		},
+		QuranStatus: func() (bool, bool) {
+			if prg.quranCtrl == nil {
+				return false, false
+			}
+			return prg.quranCtrl.Status()
+		},
+		StreamQuranSpeaker: func() error {
+			if prg.quranCtrl == nil {
+				return nil
+			}
+			return prg.quranCtrl.StartSpeaker(0)
+		},
+		StopQuranSpeaker: func() {
+			if prg.quranCtrl != nil {
+				prg.quranCtrl.StopSpeaker()
+			}
+		},
+		StreamQuranLocal: func() error {
+			if prg.quranCtrl == nil {
+				return nil
+			}
+			return prg.quranCtrl.StartLocal(0)
+		},
+		StopQuranLocal: func() {
+			if prg.quranCtrl != nil {
+				prg.quranCtrl.StopLocal()
+			}
 		},
 	})
 }

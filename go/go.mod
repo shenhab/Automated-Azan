@@ -10,6 +10,7 @@ require (
 	github.com/kardianos/service v1.2.2
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/vishen/go-chromecast v0.3.3
+	golang.org/x/sys v0.31.0
 )
 
 require (
@@ -33,7 +34,6 @@ require (
 	golang.org/x/mod v0.22.0 // indirect
 	golang.org/x/net v0.37.0 // indirect
 	golang.org/x/sync v0.12.0 // indirect
-	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/tools v0.27.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 )

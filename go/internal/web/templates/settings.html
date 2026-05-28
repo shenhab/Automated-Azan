@@ -160,107 +160,70 @@
         </button>
       </div>
       <div class="card-body p-0">
-        <table class="table table-hover mb-0" style="font-size:13.5px">
+        <div class="table-responsive">
+        <table class="table table-hover mb-0 align-middle" style="font-size:13px">
           <thead style="background:#F8FAFC">
             <tr>
-              <th class="ps-3">Prayer</th>
-              <th>Enabled</th>
-              <th>Audio File</th>
+              <th class="ps-3" style="min-width:110px">Prayer / Job</th>
+              <th style="width:70px">Active</th>
+              <th style="width:80px" title="Play on Google/Chromecast speaker">
+                <i class="fas fa-broadcast-tower text-muted me-1"></i>Speaker
+              </th>
+              <th style="width:90px" title="Play audio on this device">
+                <i class="fas fa-laptop text-muted me-1"></i>Local Audio
+              </th>
+              <th style="width:80px" title="Show OS desktop notification">
+                <i class="fas fa-bell text-muted me-1"></i>Notify
+              </th>
+              <th style="min-width:160px">Audio File</th>
             </tr>
           </thead>
           <tbody>
+            {{range $row := .notifRows}}
             <tr>
-              <td class="ps-3" style="font-weight:500">Fajr</td>
+              <td class="ps-3 fw-medium">{{$row.Label}}</td>
               <td>
+                {{if $row.HasEnabled}}
                 <div class="form-check form-switch mb-0">
                   <input class="form-check-input prayer-enabled-toggle" type="checkbox"
-                         data-prayer="fajr" id="enabled-fajr"
-                         {{if index .config "fajr_enabled"}}checked{{end}}>
+                         data-prayer="{{$row.Key}}" id="enabled-{{$row.Key}}"
+                         {{if index $.config (print $row.Key "_enabled")}}checked{{end}}>
                 </div>
+                {{else}}
+                <span class="text-muted small">—</span>
+                {{end}}
+              </td>
+              <td class="text-center">
+                <input class="form-check-input channel-cb" type="checkbox"
+                       data-prayer="{{$row.Key}}" data-ch="speaker"
+                       {{if index $.config (print "ch_" $row.Key "_speaker")}}checked{{end}}>
+              </td>
+              <td class="text-center">
+                <input class="form-check-input channel-cb" type="checkbox"
+                       data-prayer="{{$row.Key}}" data-ch="local"
+                       {{if index $.config (print "ch_" $row.Key "_local")}}checked{{end}}>
+              </td>
+              <td class="text-center">
+                <input class="form-check-input channel-cb" type="checkbox"
+                       data-prayer="{{$row.Key}}" data-ch="notify"
+                       {{if index $.config (print "ch_" $row.Key "_notify")}}checked{{end}}>
               </td>
               <td>
+                {{if $row.HasMedia}}
                 <select class="form-select form-select-sm prayer-media-select"
-                        data-prayer="fajr"
-                        data-saved="{{index .config "fajr_media"}}"
-                        style="min-width:180px">
+                        data-prayer="{{$row.Key}}"
+                        data-saved="{{index $.config (print $row.Key "_media")}}">
                   <option value="">Loading...</option>
                 </select>
+                {{else}}
+                <span class="text-muted small">{{$row.AudioLabel}}</span>
+                {{end}}
               </td>
             </tr>
-            <tr>
-              <td class="ps-3" style="font-weight:500">Dhuhr</td>
-              <td>
-                <div class="form-check form-switch mb-0">
-                  <input class="form-check-input prayer-enabled-toggle" type="checkbox"
-                         data-prayer="dhuhr" id="enabled-dhuhr"
-                         {{if index .config "dhuhr_enabled"}}checked{{end}}>
-                </div>
-              </td>
-              <td>
-                <select class="form-select form-select-sm prayer-media-select"
-                        data-prayer="dhuhr"
-                        data-saved="{{index .config "dhuhr_media"}}"
-                        style="min-width:180px">
-                  <option value="">Loading...</option>
-                </select>
-              </td>
-            </tr>
-            <tr>
-              <td class="ps-3" style="font-weight:500">Asr</td>
-              <td>
-                <div class="form-check form-switch mb-0">
-                  <input class="form-check-input prayer-enabled-toggle" type="checkbox"
-                         data-prayer="asr" id="enabled-asr"
-                         {{if index .config "asr_enabled"}}checked{{end}}>
-                </div>
-              </td>
-              <td>
-                <select class="form-select form-select-sm prayer-media-select"
-                        data-prayer="asr"
-                        data-saved="{{index .config "asr_media"}}"
-                        style="min-width:180px">
-                  <option value="">Loading...</option>
-                </select>
-              </td>
-            </tr>
-            <tr>
-              <td class="ps-3" style="font-weight:500">Maghrib</td>
-              <td>
-                <div class="form-check form-switch mb-0">
-                  <input class="form-check-input prayer-enabled-toggle" type="checkbox"
-                         data-prayer="maghrib" id="enabled-maghrib"
-                         {{if index .config "maghrib_enabled"}}checked{{end}}>
-                </div>
-              </td>
-              <td>
-                <select class="form-select form-select-sm prayer-media-select"
-                        data-prayer="maghrib"
-                        data-saved="{{index .config "maghrib_media"}}"
-                        style="min-width:180px">
-                  <option value="">Loading...</option>
-                </select>
-              </td>
-            </tr>
-            <tr>
-              <td class="ps-3" style="font-weight:500">Isha</td>
-              <td>
-                <div class="form-check form-switch mb-0">
-                  <input class="form-check-input prayer-enabled-toggle" type="checkbox"
-                         data-prayer="isha" id="enabled-isha"
-                         {{if index .config "isha_enabled"}}checked{{end}}>
-                </div>
-              </td>
-              <td>
-                <select class="form-select form-select-sm prayer-media-select"
-                        data-prayer="isha"
-                        data-saved="{{index .config "isha_media"}}"
-                        style="min-width:180px">
-                  <option value="">Loading...</option>
-                </select>
-              </td>
-            </tr>
+            {{end}}
           </tbody>
         </table>
+        </div>
       </div>
       <div class="card-body pt-2 border-top d-flex justify-content-between align-items-center">
         <div>
@@ -438,7 +401,7 @@ function saveSettings() {
   }).then(r => r.json()).then(d => {
     document.getElementById("saveMsg").innerHTML = d.success
       ? '<span class="text-success"><i class="fas fa-check me-1"></i>Saved!</span>'
-      : '<span class="text-danger">Error: ' + d.error + '</span>';
+      : '<span class="text-danger">Error: ' + (d.error || "unknown") + '</span>';
   });
 }
 
@@ -524,6 +487,9 @@ function savePrayerNotifications() {
   document.querySelectorAll(".prayer-enabled-toggle").forEach(el => {
     payload[el.dataset.prayer + "_enabled"] = el.checked;
   });
+  document.querySelectorAll(".channel-cb").forEach(el => {
+    payload["ch_" + el.dataset.prayer + "_" + el.dataset.ch] = el.checked;
+  });
   document.querySelectorAll(".prayer-media-select").forEach(sel => {
     payload[sel.dataset.prayer + "_media"] = sel.value;
   });
@@ -535,7 +501,7 @@ function savePrayerNotifications() {
   }).then(r => r.json()).then(d => {
     document.getElementById("notifMsg").innerHTML = d.success
       ? '<span class="text-success"><i class="fas fa-check me-1"></i>Saved!</span>'
-      : '<span class="text-danger">' + d.error + '</span>';
+      : '<span class="text-danger">' + (d.error || "error") + '</span>';
     if (d.success) showToast("Prayer notifications saved", "success");
   });
 }

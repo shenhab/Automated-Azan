@@ -34,14 +34,26 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
+// QuranController controls Quran streaming from the web API layer.
+// The concrete implementation lives in internal/quran to avoid import cycles.
+type QuranController interface {
+	StartSpeaker(dur time.Duration) error
+	StopSpeaker()
+	StartLocal(dur time.Duration) error
+	StopLocal()
+	Stop()
+	Status() (speakerActive, localActive bool)
+}
+
 // Server is the web dashboard + REST API + WebSocket server.
 type Server struct {
-	cfg      *config.Config
-	fetcher  *prayer.Fetcher
+	cfg       *config.Config
+	fetcher   *prayer.Fetcher
 	scheduler *prayer.Scheduler
-	castMgr  *chromecast.Manager
-	mediaDir string // local directory for user media files
-	port     int
+	castMgr   *chromecast.Manager
+	quranCtrl QuranController
+	mediaDir  string // local directory for user media files
+	port      int
 
 	mu      sync.Mutex
 	clients map[*websocket.Conn]struct{}
@@ -55,6 +67,7 @@ func NewServer(
 	fetcher *prayer.Fetcher,
 	scheduler *prayer.Scheduler,
 	castMgr *chromecast.Manager,
+	quranCtrl QuranController,
 	mediaDir string,
 ) (*Server, error) {
 	return &Server{
@@ -62,6 +75,7 @@ func NewServer(
 		fetcher:   fetcher,
 		scheduler: scheduler,
 		castMgr:   castMgr,
+		quranCtrl: quranCtrl,
 		mediaDir:  mediaDir,
 		clients:   make(map[*websocket.Conn]struct{}),
 	}, nil
@@ -97,6 +111,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/play-athan", s.handleAPIPlayAthan)
 	mux.HandleFunc("/api/stop-playback", s.handleAPIStopPlayback)
 	mux.HandleFunc("/api/next-prayer", s.handleAPINextPrayer)
+	mux.HandleFunc("/api/quran/status", s.handleAPIQuranStatus)
 	mux.HandleFunc("/api/quran/play", s.handleAPIQuranPlay)
 	mux.HandleFunc("/api/quran/stop", s.handleAPIQuranStop)
 	mux.HandleFunc("/api/media/files", s.handleAPIMediaFiles)
@@ -198,10 +213,29 @@ func (s *Server) handleChromecasts(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// notifRow describes one row in the Prayer Notifications table.
+type notifRow struct {
+	Key        string // config key prefix (e.g. "fajr", "pre_fajr")
+	Label      string // display name
+	HasEnabled bool   // show the Active toggle
+	HasMedia   bool   // show the audio file select
+	AudioLabel string // static label when HasMedia is false
+}
+
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	rows := []notifRow{
+		{Key: "fajr",        Label: "Fajr",               HasEnabled: true,  HasMedia: true},
+		{Key: "dhuhr",       Label: "Dhuhr",              HasEnabled: true,  HasMedia: true},
+		{Key: "asr",         Label: "Asr",                HasEnabled: true,  HasMedia: true},
+		{Key: "maghrib",     Label: "Maghrib",            HasEnabled: true,  HasMedia: true},
+		{Key: "isha",        Label: "Isha",               HasEnabled: true,  HasMedia: true},
+		{Key: "pre_fajr",    Label: "Pre-Fajr Quran",     HasEnabled: false, HasMedia: false, AudioLabel: "Quran stream"},
+		{Key: "friday_kahf", Label: "Friday Surah Al-Kahf", HasEnabled: false, HasMedia: false, AudioLabel: "Kahf (built-in)"},
+	}
 	s.renderPage(w, "settings.html", map[string]interface{}{
-		"page":   "settings",
-		"config": s.cfg.AsWebDict(),
+		"page":       "settings",
+		"config":     s.cfg.AsWebDict(),
+		"notifRows":  rows,
 	})
 }
 
@@ -320,6 +354,28 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 		setStr(&s.cfg.Prayer.Media.Asr,     "asr_media")
 		setStr(&s.cfg.Prayer.Media.Maghrib, "maghrib_media")
 		setStr(&s.cfg.Prayer.Media.Isha,    "isha_media")
+		// Per-job notification channels (ch_ prefix avoids collision with speaker-device overrides)
+		setBool(&s.cfg.Prayer.Channels.Fajr.Speaker,       "ch_fajr_speaker")
+		setBool(&s.cfg.Prayer.Channels.Fajr.Local,         "ch_fajr_local")
+		setBool(&s.cfg.Prayer.Channels.Fajr.Notify,        "ch_fajr_notify")
+		setBool(&s.cfg.Prayer.Channels.Dhuhr.Speaker,      "ch_dhuhr_speaker")
+		setBool(&s.cfg.Prayer.Channels.Dhuhr.Local,        "ch_dhuhr_local")
+		setBool(&s.cfg.Prayer.Channels.Dhuhr.Notify,       "ch_dhuhr_notify")
+		setBool(&s.cfg.Prayer.Channels.Asr.Speaker,        "ch_asr_speaker")
+		setBool(&s.cfg.Prayer.Channels.Asr.Local,          "ch_asr_local")
+		setBool(&s.cfg.Prayer.Channels.Asr.Notify,         "ch_asr_notify")
+		setBool(&s.cfg.Prayer.Channels.Maghrib.Speaker,    "ch_maghrib_speaker")
+		setBool(&s.cfg.Prayer.Channels.Maghrib.Local,      "ch_maghrib_local")
+		setBool(&s.cfg.Prayer.Channels.Maghrib.Notify,     "ch_maghrib_notify")
+		setBool(&s.cfg.Prayer.Channels.Isha.Speaker,       "ch_isha_speaker")
+		setBool(&s.cfg.Prayer.Channels.Isha.Local,         "ch_isha_local")
+		setBool(&s.cfg.Prayer.Channels.Isha.Notify,        "ch_isha_notify")
+		setBool(&s.cfg.Prayer.Channels.PreFajr.Speaker,    "ch_pre_fajr_speaker")
+		setBool(&s.cfg.Prayer.Channels.PreFajr.Local,      "ch_pre_fajr_local")
+		setBool(&s.cfg.Prayer.Channels.PreFajr.Notify,     "ch_pre_fajr_notify")
+		setBool(&s.cfg.Prayer.Channels.FridayKahf.Speaker, "ch_friday_kahf_speaker")
+		setBool(&s.cfg.Prayer.Channels.FridayKahf.Local,   "ch_friday_kahf_local")
+		setBool(&s.cfg.Prayer.Channels.FridayKahf.Notify,  "ch_friday_kahf_notify")
 		if err := s.cfg.Save(); err != nil {
 			writeJSON(w, errResp(err))
 			return
@@ -412,20 +468,57 @@ func (s *Server) handleAPIStopPlayback(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{"success": true})
 }
 
+func (s *Server) handleAPIQuranStatus(w http.ResponseWriter, r *http.Request) {
+	if s.quranCtrl == nil {
+		writeJSON(w, map[string]interface{}{"success": true, "speaker_active": false, "local_active": false})
+		return
+	}
+	spk, loc := s.quranCtrl.Status()
+	writeJSON(w, map[string]interface{}{"success": true, "speaker_active": spk, "local_active": loc})
+}
+
 func (s *Server) handleAPIQuranPlay(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if err := s.castMgr.PlayQuranStream(); err != nil {
-		writeJSON(w, errResp(err))
+	var body struct {
+		Target string `json:"target"` // "speaker", "local", or "both" (default "speaker")
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if body.Target == "" {
+		body.Target = "speaker"
+	}
+
+	if s.quranCtrl == nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": "quran controller not available"})
 		return
 	}
-	writeJSON(w, map[string]interface{}{
-		"success": true,
-		"station": chromecast.QuranStation,
-		"message": "Now playing: " + chromecast.QuranStation["name"],
-	})
+	switch body.Target {
+	case "speaker":
+		if err := s.quranCtrl.StartSpeaker(0); err != nil {
+			writeJSON(w, errResp(err))
+			return
+		}
+	case "local":
+		if err := s.quranCtrl.StartLocal(0); err != nil {
+			writeJSON(w, errResp(err))
+			return
+		}
+	case "both":
+		if err := s.quranCtrl.StartSpeaker(0); err != nil {
+			writeJSON(w, errResp(err))
+			return
+		}
+		if err := s.quranCtrl.StartLocal(0); err != nil {
+			writeJSON(w, errResp(err))
+			return
+		}
+	default:
+		writeJSON(w, map[string]interface{}{"success": false, "error": "target must be speaker, local, or both"})
+		return
+	}
+	writeJSON(w, map[string]interface{}{"success": true, "target": body.Target})
 }
 
 func (s *Server) handleAPIQuranStop(w http.ResponseWriter, r *http.Request) {
@@ -433,11 +526,29 @@ func (s *Server) handleAPIQuranStop(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if err := s.castMgr.StopPlayback(); err != nil {
-		writeJSON(w, errResp(err))
+	var body struct {
+		Target string `json:"target"` // "speaker", "local", or "all" (default "all")
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if body.Target == "" {
+		body.Target = "all"
+	}
+
+	if s.quranCtrl == nil {
+		// Fallback: just stop all Chromecast playback
+		s.castMgr.StopPlayback()
+		writeJSON(w, map[string]interface{}{"success": true})
 		return
 	}
-	writeJSON(w, map[string]interface{}{"success": true})
+	switch body.Target {
+	case "speaker":
+		s.quranCtrl.StopSpeaker()
+	case "local":
+		s.quranCtrl.StopLocal()
+	default:
+		s.quranCtrl.Stop()
+	}
+	writeJSON(w, map[string]interface{}{"success": true, "target": body.Target})
 }
 
 // athanExclusions lists embedded files that are NOT Athan audio and should

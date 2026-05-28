@@ -16,11 +16,19 @@ import (
 //go:embed azan.ico
 var iconData []byte
 
-// Config holds what the tray needs to show status.
+// Config holds what the tray needs to show status and control streams.
 type Config struct {
-	Port         int
-	NextPrayer   func() (name string, at time.Time, ok bool)
-	OnQuit       func()
+	Port       int
+	NextPrayer func() (name string, at time.Time, ok bool)
+	OnQuit     func()
+
+	// Quran streaming controls. When QuranStatus is nil the Quran menu items
+	// are hidden entirely (e.g. in stub / no-CGO builds).
+	QuranStatus        func() (speakerActive, localActive bool)
+	StreamQuranSpeaker func() error
+	StopQuranSpeaker   func()
+	StreamQuranLocal   func() error
+	StopQuranLocal     func()
 }
 
 // Run starts the system tray. This call blocks — it must be the last call
@@ -52,27 +60,102 @@ func onReady(cfg Config) {
 	mNext := systray.AddMenuItem("Next prayer: loading...", "")
 	mNext.Disable()
 
-	systray.AddSeparator()
+	// Quran streaming items — only added when Quran controls are wired up.
+	// A nil channel in a select case is never chosen, so these are safe to
+	// declare even when the menu items aren't created.
+	var quranSpeakerCh, quranLocalCh <-chan struct{}
+	var mQuranSpeaker, mQuranLocal *systray.MenuItem
 
+	if cfg.QuranStatus != nil {
+		systray.AddSeparator()
+		mQuranSpeaker = systray.AddMenuItem("▶  Quran on Speaker", "Stream Quran on Google speaker")
+		mQuranLocal   = systray.AddMenuItem("▶  Quran on This PC", "Stream Quran on this machine's audio")
+		quranSpeakerCh = mQuranSpeaker.ClickedCh
+		quranLocalCh   = mQuranLocal.ClickedCh
+
+		// Prime the labels with current state immediately
+		refreshQuranItems(mQuranSpeaker, mQuranLocal, cfg.QuranStatus)
+	}
+
+	systray.AddSeparator()
 	mDashboard := systray.AddMenuItem("Open Dashboard", fmt.Sprintf("http://localhost:%d", cfg.Port))
 	systray.AddSeparator()
-	mQuit := systray.AddMenuItem("Quit", "Stop Azan Agent")
+	mQuit := systray.AddMenuItem("Exit", "Stop Azan Agent and exit")
 
-	// Update next prayer display every minute
+	// Background refresh loop
 	go func() {
+		pollInterval := time.Minute
+		if cfg.QuranStatus != nil {
+			pollInterval = 30 * time.Second // faster when Quran state can change
+		}
 		for {
+			time.Sleep(pollInterval)
 			updateNextPrayer(mNext, cfg.NextPrayer)
-			time.Sleep(time.Minute)
+			if cfg.QuranStatus != nil {
+				refreshQuranItems(mQuranSpeaker, mQuranLocal, cfg.QuranStatus)
+			}
 		}
 	}()
 
 	for {
 		select {
+		case <-quranSpeakerCh:
+			handleQuranClick(mQuranSpeaker, true, cfg)
+		case <-quranLocalCh:
+			handleQuranClick(mQuranLocal, false, cfg)
 		case <-mDashboard.ClickedCh:
 			openBrowser(fmt.Sprintf("http://localhost:%d", cfg.Port))
 		case <-mQuit.ClickedCh:
 			systray.Quit()
 			return
+		}
+	}
+}
+
+func refreshQuranItems(speaker, local *systray.MenuItem, status func() (bool, bool)) {
+	spkActive, locActive := status()
+	if spkActive {
+		speaker.SetTitle("■  Stop Quran on Speaker")
+	} else {
+		speaker.SetTitle("▶  Quran on Speaker")
+	}
+	if locActive {
+		local.SetTitle("■  Stop Quran on This PC")
+	} else {
+		local.SetTitle("▶  Quran on This PC")
+	}
+}
+
+func handleQuranClick(item *systray.MenuItem, isSpeaker bool, cfg Config) {
+	if cfg.QuranStatus == nil {
+		return
+	}
+	spkActive, locActive := cfg.QuranStatus()
+	active := isSpeaker && spkActive || !isSpeaker && locActive
+
+	if active {
+		if isSpeaker {
+			cfg.StopQuranSpeaker()
+			item.SetTitle("▶  Quran on Speaker")
+		} else {
+			cfg.StopQuranLocal()
+			item.SetTitle("▶  Quran on This PC")
+		}
+	} else {
+		var err error
+		if isSpeaker {
+			err = cfg.StreamQuranSpeaker()
+			if err == nil {
+				item.SetTitle("■  Stop Quran on Speaker")
+			}
+		} else {
+			err = cfg.StreamQuranLocal()
+			if err == nil {
+				item.SetTitle("■  Stop Quran on This PC")
+			}
+		}
+		if err != nil {
+			log.Printf("[tray] quran start error: %v", err)
 		}
 	}
 }

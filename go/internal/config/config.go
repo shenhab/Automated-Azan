@@ -89,14 +89,46 @@ func (m PrayerMediaConfig) FileFor(prayer string) string {
 	return "media_Athan.mp3"
 }
 
+// ChannelConfig holds the three notification channels for a single prayer job.
+// Any combination is valid; all false means the job fires silently.
+type ChannelConfig struct {
+	Speaker bool `toml:"speaker"` // play on Google/Chromecast speaker
+	Local   bool `toml:"local"`   // play audio on this machine's speakers
+	Notify  bool `toml:"notify"`  // show an OS desktop notification
+}
+
+// JobChannelsConfig holds per-job channel settings for every schedulable job.
+type JobChannelsConfig struct {
+	Fajr       ChannelConfig `toml:"fajr"`
+	Dhuhr      ChannelConfig `toml:"dhuhr"`
+	Asr        ChannelConfig `toml:"asr"`
+	Maghrib    ChannelConfig `toml:"maghrib"`
+	Isha       ChannelConfig `toml:"isha"`
+	PreFajr    ChannelConfig `toml:"pre_fajr"`
+	FridayKahf ChannelConfig `toml:"friday_kahf"`
+}
+
+// ForPrayer returns the ChannelConfig for the named Athan prayer.
+func (j JobChannelsConfig) ForPrayer(name string) ChannelConfig {
+	switch name {
+	case "Fajr":    return j.Fajr
+	case "Dhuhr":   return j.Dhuhr
+	case "Asr":     return j.Asr
+	case "Maghrib": return j.Maghrib
+	case "Isha":    return j.Isha
+	default:        return ChannelConfig{Speaker: true}
+	}
+}
+
 // PrayerConfig holds prayer scheduling settings.
 type PrayerConfig struct {
-	Location          string              `toml:"location"`
-	PreFajrEnabled    bool                `toml:"pre_fajr_enabled"`
-	PreFajrMinutes    int                 `toml:"pre_fajr_minutes"`
-	FridayKahfEnabled bool                `toml:"friday_kahf_enabled"`
+	Location          string             `toml:"location"`
+	PreFajrEnabled    bool               `toml:"pre_fajr_enabled"`
+	PreFajrMinutes    int                `toml:"pre_fajr_minutes"`
+	FridayKahfEnabled bool               `toml:"friday_kahf_enabled"`
 	Enabled           PrayerEnabledConfig `toml:"enabled"`
 	Media             PrayerMediaConfig   `toml:"media"`
+	Channels          JobChannelsConfig   `toml:"channels"`
 }
 
 // WebConfig holds web server settings.
@@ -142,11 +174,17 @@ func Get() *Config {
 
 func (c *Config) setDefaults() {
 	c.Speaker = SpeakerConfig{GroupName: "athan"}
+	defaultCh := ChannelConfig{Speaker: true, Local: false, Notify: false}
 	c.Prayer = PrayerConfig{
 		Location:       "naas",
 		PreFajrMinutes: 30,
 		Enabled: PrayerEnabledConfig{
 			Fajr: true, Dhuhr: true, Asr: true, Maghrib: true, Isha: true,
+		},
+		Channels: JobChannelsConfig{
+			Fajr: defaultCh, Dhuhr: defaultCh, Asr: defaultCh,
+			Maghrib: defaultCh, Isha: defaultCh,
+			PreFajr: defaultCh, FridayKahf: defaultCh,
 		},
 	}
 	c.Web = WebConfig{Host: "0.0.0.0", Port: 28426, SecretKey: "automated-azan-secret-key"}
@@ -277,6 +315,14 @@ func (c *Config) AsWebDict() map[string]interface{} {
 		"asr_media":     c.Prayer.Media.Asr,
 		"maghrib_media": c.Prayer.Media.Maghrib,
 		"isha_media":    c.Prayer.Media.Isha,
+		// Per-job notification channels  (ch_ prefix avoids collision with speaker-device overrides)
+		"ch_fajr_speaker": c.Prayer.Channels.Fajr.Speaker, "ch_fajr_local": c.Prayer.Channels.Fajr.Local, "ch_fajr_notify": c.Prayer.Channels.Fajr.Notify,
+		"ch_dhuhr_speaker": c.Prayer.Channels.Dhuhr.Speaker, "ch_dhuhr_local": c.Prayer.Channels.Dhuhr.Local, "ch_dhuhr_notify": c.Prayer.Channels.Dhuhr.Notify,
+		"ch_asr_speaker": c.Prayer.Channels.Asr.Speaker, "ch_asr_local": c.Prayer.Channels.Asr.Local, "ch_asr_notify": c.Prayer.Channels.Asr.Notify,
+		"ch_maghrib_speaker": c.Prayer.Channels.Maghrib.Speaker, "ch_maghrib_local": c.Prayer.Channels.Maghrib.Local, "ch_maghrib_notify": c.Prayer.Channels.Maghrib.Notify,
+		"ch_isha_speaker": c.Prayer.Channels.Isha.Speaker, "ch_isha_local": c.Prayer.Channels.Isha.Local, "ch_isha_notify": c.Prayer.Channels.Isha.Notify,
+		"ch_pre_fajr_speaker": c.Prayer.Channels.PreFajr.Speaker, "ch_pre_fajr_local": c.Prayer.Channels.PreFajr.Local, "ch_pre_fajr_notify": c.Prayer.Channels.PreFajr.Notify,
+		"ch_friday_kahf_speaker": c.Prayer.Channels.FridayKahf.Speaker, "ch_friday_kahf_local": c.Prayer.Channels.FridayKahf.Local, "ch_friday_kahf_notify": c.Prayer.Channels.FridayKahf.Notify,
 	}
 }
 

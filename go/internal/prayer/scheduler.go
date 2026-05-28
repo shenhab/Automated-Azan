@@ -3,6 +3,7 @@ package prayer
 import (
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"time"
 
@@ -225,6 +226,8 @@ func (s *Scheduler) scheduleTodayLocked() error {
 			})
 		}
 	}
+
+	sort.Slice(jobs, func(i, k int) bool { return jobs[i].at.Before(jobs[k].at) })
 
 	s.todayJobs = nil
 	s.timers = nil
