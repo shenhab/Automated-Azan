@@ -71,7 +71,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.22"
+          go-version-file: go/go.mod   # always matches what go.mod requires
           cache: true
           cache-dependency-path: go/go.sum
 
