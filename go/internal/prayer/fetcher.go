@@ -1,6 +1,7 @@
 package prayer
 
 import (
+	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,9 @@ import (
 	"sync"
 	"time"
 )
+
+//go:embed embedded
+var embeddedTimetables embed.FS
 
 const (
 	icciBuildURL = "https://islamireland.ie/api/timetable/"
@@ -211,11 +215,17 @@ func (f *Fetcher) downloadNaas() error {
 }
 
 // loadFromFile reads the local JSON timetable and extracts prayer times for date.
+// Falls back to the embedded timetable bundled in the binary if the local file
+// is missing (e.g. first run before a download has completed).
 func (f *Fetcher) loadFromFile(location string, date time.Time) (Times, error) {
 	path := f.timetablePath(location)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Times{}, fmt.Errorf("read %s: %w", path, err)
+		log.Printf("[prayer/fetcher] local file not found (%s), using embedded fallback", path)
+		data, err = f.embeddedTimetable(location)
+		if err != nil {
+			return Times{}, fmt.Errorf("no timetable available for %s: %w", location, err)
+		}
 	}
 
 	switch location {
@@ -226,6 +236,19 @@ func (f *Fetcher) loadFromFile(location string, date time.Time) (Times, error) {
 	default:
 		return Times{}, fmt.Errorf("unknown location: %s", location)
 	}
+}
+
+// embeddedTimetable returns the bundled timetable JSON for the given location.
+func (f *Fetcher) embeddedTimetable(location string) ([]byte, error) {
+	names := map[string]string{
+		"naas": "embedded/naas_prayers_timetable.json",
+		"icci": "embedded/icci_timetable.json",
+	}
+	name, ok := names[location]
+	if !ok {
+		return nil, fmt.Errorf("no embedded timetable for %s", location)
+	}
+	return embeddedTimetables.ReadFile(name)
 }
 
 // extractICCI parses ICCI JSON and extracts times for date.

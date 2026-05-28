@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sync"
 
+	"azan-agent/internal/appdirs"
+
 	"github.com/BurntSushi/toml"
 )
 
@@ -91,13 +93,24 @@ func (c *Config) setDefaults() {
 		PreFajrMinutes: 30,
 	}
 	c.Web = WebConfig{Host: "0.0.0.0", Port: 28426, SecretKey: "automated-azan-secret-key"}
-	c.Log = LogConfig{Level: "INFO", FilePath: "logs/azan.log"}
+	c.Log = LogConfig{
+		Level:    "INFO",
+		FilePath: filepath.Join(appdirs.Logs(), "azan.log"),
+	}
 }
 
 func (c *Config) load() error {
 	path := c.resolvePath()
 	if path == "" {
-		return fmt.Errorf("no config file found")
+		// First run — write default config to OS standard location
+		path = c.writablePath()
+		if err := c.writeDefaults(path); err != nil {
+			log.Printf("[config] could not write default config: %v", err)
+		} else {
+			log.Printf("[config] created default config at %s", path)
+		}
+		c.filePath = path
+		return nil
 	}
 	c.filePath = path
 
@@ -109,6 +122,18 @@ func (c *Config) load() error {
 	}
 	log.Printf("[config] loaded from %s", path)
 	return nil
+}
+
+func (c *Config) writeDefaults(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return toml.NewEncoder(f).Encode(c)
 }
 
 // Reload re-reads the config file from disk.
@@ -187,16 +212,24 @@ func (c *Config) AsWebDict() map[string]interface{} {
 }
 
 func (c *Config) resolvePath() string {
+	// 1. Explicit env override (Docker / CI)
 	if env := os.Getenv("AZAN_CONFIG_FILE"); env != "" {
 		if _, err := os.Stat(env); err == nil {
 			return env
 		}
 	}
-	candidates := []string{"/app/config/azan.toml", "azan.toml"}
-	for _, p := range candidates {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
+	// 2. Docker path
+	if _, err := os.Stat("/app/config/azan.toml"); err == nil {
+		return "/app/config/azan.toml"
+	}
+	// 3. OS-standard user config dir
+	osCfg := filepath.Join(appdirs.Config(), "azan.toml")
+	if _, err := os.Stat(osCfg); err == nil {
+		return osCfg
+	}
+	// 4. Local directory (development / legacy)
+	if _, err := os.Stat("azan.toml"); err == nil {
+		return "azan.toml"
 	}
 	return ""
 }
@@ -205,5 +238,5 @@ func (c *Config) writablePath() string {
 	if env := os.Getenv("AZAN_CONFIG_FILE"); env != "" {
 		return env
 	}
-	return "azan.toml"
+	return filepath.Join(appdirs.Config(), "azan.toml")
 }

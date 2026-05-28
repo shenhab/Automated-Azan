@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"time"
 
+	"azan-agent/internal/appdirs"
 	"azan-agent/internal/chromecast"
 	"azan-agent/internal/config"
 	"azan-agent/internal/media"
@@ -73,7 +74,12 @@ func (p *program) run() {
 	cfg := config.Get()
 	p.cfg = cfg
 
-	setupLogging(cfg.Log.FilePath, cfg.Log.Level)
+	// Use OS-standard log path unless config explicitly overrides it
+	logPath := cfg.Log.FilePath
+	if logPath == "" {
+		logPath = filepath.Join(appdirs.Logs(), "azan.log")
+	}
+	setupLogging(logPath, cfg.Log.Level)
 	log.Println("=== Automated Azan Agent starting ===")
 
 	// Initial NTP sync
@@ -81,12 +87,17 @@ func (p *program) run() {
 		log.Printf("[main] time sync warning: %v", err)
 	}
 
-	base := binDir()
-	resolvedDataDir  := filepath.Join(base, "data")
-	resolvedMediaDir := filepath.Join(base, "Media")
-	log.Printf("[main] binary dir: %s", base)
-	log.Printf("[main] media dir:  %s", resolvedMediaDir)
+	// Ensure all OS-standard directories exist
+	if err := appdirs.EnsureAll(); err != nil {
+		log.Printf("[main] warning: could not create app dirs: %v", err)
+	}
+
+	resolvedDataDir  := appdirs.Data()
+	resolvedMediaDir := filepath.Join(binDir(), "Media")
+	log.Printf("[main] config dir: %s", appdirs.Config())
 	log.Printf("[main] data dir:   %s", resolvedDataDir)
+	log.Printf("[main] log dir:    %s", appdirs.Logs())
+	log.Printf("[main] media dir:  %s", resolvedMediaDir)
 
 	// Verify media directory exists and list files for debugging
 	if entries, err := os.ReadDir(resolvedMediaDir); err != nil {
