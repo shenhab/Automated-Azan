@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write   # needed to create/upload releases
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # opt into Node.js 24 now, removes deprecation warnings
+
 jobs:
   # ── Build matrix: each OS builds its own native binary (CGO = real tray) ──
   build:
