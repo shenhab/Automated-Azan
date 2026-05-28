@@ -145,9 +145,8 @@ class AthanScheduler:
     # ------------------------------------------------------------------ #
 
     def schedule_prayers(self):
-        """Remove today's prayer jobs and reschedule from self.prayer_times."""
+        """Build today's full job list and apply uniform past/future scheduling."""
         try:
-            # Remove only prayer-type jobs; keep 'daily_refresh'
             for job_id in _PRAYER_JOB_IDS:
                 try:
                     self._scheduler.remove_job(job_id)
@@ -155,131 +154,94 @@ class AthanScheduler:
                     pass
 
             now = datetime.now(self.tz)
-            scheduled_prayers = []
-            skipped_prayers = []
-            today_jobs = []
-
             logging.info("Scheduling today's prayers. Current time: %s", now.strftime("%Y-%m-%d %H:%M:%S"))
-            logging.info(f"[DEBUG] Available prayer times: {self.prayer_times}")
 
             from settings import settings
             pre_fajr_enabled = settings.prayer.pre_fajr_enabled
             friday_kahf_enabled = settings.prayer.friday_kahf_enabled
             cm = self.chromecast_manager
 
-            for prayer, time_tuple in self.prayer_times.items():
-                logging.debug("Processing prayer: %s, scheduled time: %s", prayer, time_tuple)
+            # --- Build flat job list ---
+            all_jobs = []
+            for prayer, time_str in self.prayer_times.items():
                 try:
-                    hour, minute = map(int, time_tuple.split(":"))
-                    prayer_time = datetime(now.year, now.month, now.day, hour, minute, tzinfo=self.tz)
-
-                    if prayer_time > now:
-                        formatted_time = prayer_time.strftime("%H:%M")
-                        logging.info("Scheduling %s at %s", prayer, formatted_time)
-
-                        if prayer == "Fajr":
-                            self._scheduler.add_job(
-                                cm.start_adahn_alfajr,
-                                trigger=DateTrigger(run_date=prayer_time),
-                                id='fajr',
-                                replace_existing=True,
-                                misfire_grace_time=120,
-                            )
-                            scheduled_prayers.append({"prayer": prayer, "time": formatted_time, "type": "fajr_athan"})
-                            today_jobs.append({
-                                "label": "Fajr Athan", "type": "fajr_athan",
-                                "tags": ["fajr"], "scheduled_time": formatted_time,
-                                "run_date": prayer_time,
-                            })
-
-                            if pre_fajr_enabled:
-                                pre_fajr_result = self.schedule_pre_fajr_quran_for_time(prayer_time)
-                                if pre_fajr_result.get('success'):
-                                    scheduled_prayers.append({
-                                        "prayer": "Pre-Fajr Quran",
-                                        "time": pre_fajr_result['scheduled_time'],
-                                        "type": "quran_recitation",
-                                    })
-                                    today_jobs.append({
-                                        "label": "Pre-Fajr Quran", "type": "quran_recitation",
-                                        "tags": ["pre_fajr"],
-                                        "scheduled_time": pre_fajr_result['scheduled_time'],
-                                        "run_date": pre_fajr_result['run_date'],
-                                    })
-                                else:
-                                    logging.warning(f"Failed to schedule pre-Fajr Quran: {pre_fajr_result.get('error')}")
-
-                        elif prayer == "Dhuhr":
-                            self._scheduler.add_job(
-                                cm.start_adahn,
-                                trigger=DateTrigger(run_date=prayer_time),
-                                id='dhuhr',
-                                replace_existing=True,
-                                misfire_grace_time=120,
-                            )
-                            scheduled_prayers.append({"prayer": prayer, "time": formatted_time, "type": "regular_athan"})
-                            today_jobs.append({
-                                "label": "Dhuhr Athan", "type": "regular_athan",
-                                "tags": ["dhuhr"], "scheduled_time": formatted_time,
-                                "run_date": prayer_time,
-                            })
-
-                            if friday_kahf_enabled and now.weekday() == 4:
-                                kahf_result = self.schedule_friday_kahf_for_time(prayer_time)
-                                if kahf_result.get('success'):
-                                    scheduled_prayers.append({
-                                        "prayer": "Friday Surah Al-Kahf",
-                                        "time": kahf_result['scheduled_time'],
-                                        "type": "friday_kahf",
-                                    })
-                                    today_jobs.append({
-                                        "label": "Friday Surah Al-Kahf", "type": "friday_kahf",
-                                        "tags": ["friday_kahf"],
-                                        "scheduled_time": kahf_result['scheduled_time'],
-                                        "run_date": kahf_result['run_date'],
-                                    })
-                                else:
-                                    logging.warning(f"Failed to schedule Friday Surah Al-Kahf: {kahf_result.get('error')}")
-
-                        else:
-                            prayer_id = prayer.lower()
-                            self._scheduler.add_job(
-                                cm.start_adahn,
-                                trigger=DateTrigger(run_date=prayer_time),
-                                id=prayer_id,
-                                replace_existing=True,
-                                misfire_grace_time=120,
-                            )
-                            label = _LABEL_MAP.get(prayer_id, (f"{prayer} Athan", "regular_athan"))[0]
-                            type_ = _LABEL_MAP.get(prayer_id, (f"{prayer} Athan", "regular_athan"))[1]
-                            scheduled_prayers.append({"prayer": prayer, "time": formatted_time, "type": type_})
-                            today_jobs.append({
-                                "label": label, "type": type_,
-                                "tags": [prayer_id], "scheduled_time": formatted_time,
-                                "run_date": prayer_time,
-                            })
-
-                        logging.debug("%s scheduled successfully at %s", prayer, formatted_time)
-                    else:
-                        skipped_prayers.append({"prayer": prayer, "time": time_tuple, "reason": "Past time"})
-                        logging.info("Skipping %s at %s as it's in the past.", prayer, time_tuple)
-
+                    hour, minute = map(int, time_str.split(":"))
                 except ValueError as e:
                     logging.error("Error parsing time for prayer %s: %s", prayer, e)
-                    skipped_prayers.append({"prayer": prayer, "time": time_tuple, "reason": f"Parse error: {str(e)}"})
+                    continue
+
+                prayer_dt = datetime(now.year, now.month, now.day, hour, minute, tzinfo=self.tz)
+
+                if prayer == "Fajr":
+                    all_jobs.append({
+                        "id": "fajr", "label": "Fajr Athan", "type": "fajr_athan",
+                        "func": cm.start_adahn_alfajr, "run_date": prayer_dt,
+                    })
+                    if pre_fajr_enabled:
+                        all_jobs.append({
+                            "id": "pre_fajr", "label": "Pre-Fajr Quran", "type": "quran_recitation",
+                            "func": self.play_pre_fajr_quran,
+                            "run_date": prayer_dt - timedelta(minutes=settings.prayer.pre_fajr_minutes),
+                        })
+                elif prayer == "Dhuhr":
+                    all_jobs.append({
+                        "id": "dhuhr", "label": "Dhuhr Athan", "type": "regular_athan",
+                        "func": cm.start_adahn, "run_date": prayer_dt,
+                    })
+                    if friday_kahf_enabled and now.weekday() == 4:
+                        all_jobs.append({
+                            "id": "friday_kahf", "label": "Friday Surah Al-Kahf", "type": "friday_kahf",
+                            "func": self.play_friday_kahf,
+                            "run_date": prayer_dt - timedelta(hours=2),
+                        })
+                else:
+                    prayer_id = prayer.lower()
+                    label, type_ = _LABEL_MAP.get(prayer_id, (f"{prayer} Athan", "regular_athan"))
+                    all_jobs.append({
+                        "id": prayer_id, "label": label, "type": type_,
+                        "func": cm.start_adahn, "run_date": prayer_dt,
+                    })
+
+            all_jobs.sort(key=lambda j: j["run_date"])
+
+            # --- Uniform past / future split ---
+            scheduled = []
+            skipped_prayers = []
+            today_jobs = []
+
+            for job in all_jobs:
+                run_date = job["run_date"]
+                time_str = run_date.strftime("%H:%M")
+
+                if run_date > now:
+                    self._scheduler.add_job(
+                        job["func"],
+                        trigger=DateTrigger(run_date=run_date),
+                        id=job["id"],
+                        replace_existing=True,
+                        misfire_grace_time=120,
+                    )
+                    scheduled.append({"prayer": job["label"], "time": time_str, "type": job["type"]})
+                    today_jobs.append({
+                        "label": job["label"], "type": job["type"],
+                        "tags": [job["id"]], "scheduled_time": time_str, "run_date": run_date,
+                    })
+                    logging.info("Scheduled %s at %s", job["label"], time_str)
+                else:
+                    skipped_prayers.append({"prayer": job["id"], "time": time_str, "reason": "Past time"})
+                    logging.info("Skipping %s at %s as it's in the past.", job["label"], time_str)
 
             self.skipped_prayers = skipped_prayers
             self._today_jobs = today_jobs
-            logging.info("Scheduling complete — %d upcoming, %d already past",
-                         len(scheduled_prayers), len(skipped_prayers))
+            logging.info("Scheduling complete — %d upcoming, %d already past", len(scheduled), len(skipped_prayers))
 
             return {
                 "success": True,
-                "scheduled_count": len(scheduled_prayers),
-                "scheduled_prayers": scheduled_prayers,
+                "scheduled_count": len(scheduled),
+                "scheduled_prayers": scheduled,
                 "skipped_prayers": skipped_prayers,
                 "current_time": now.isoformat(),
-                "message": f"Successfully scheduled {len(scheduled_prayers)} prayers"
+                "message": f"Successfully scheduled {len(scheduled)} prayers",
             }
 
         except Exception as e:
