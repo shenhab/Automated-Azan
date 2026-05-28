@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -34,6 +35,7 @@ type Server struct {
 	scheduler *prayer.Scheduler
 	castMgr   *chromecast.Manager
 	tmpl      *template.Template
+	port      int
 
 	mu      sync.Mutex
 	clients map[*websocket.Conn]struct{}
@@ -89,12 +91,29 @@ func (s *Server) Start() error {
 	// Static files served from ../static relative to binary
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
-	addr := fmt.Sprintf("%s:%d", s.cfg.Web.Host, s.cfg.Web.Port)
-	s.httpSrv = &http.Server{Addr: addr, Handler: mux}
+	// Try configured port, then fall back to the next 10 ports if occupied
+	port := s.cfg.Web.Port
+	var ln net.Listener
+	for i := 0; i < 10; i++ {
+		addr := fmt.Sprintf("%s:%d", s.cfg.Web.Host, port+i)
+		var err error
+		ln, err = net.Listen("tcp", addr)
+		if err == nil {
+			port = port + i
+			break
+		}
+		log.Printf("[web] port %d in use, trying %d...", port+i, port+i+1)
+	}
+	if ln == nil {
+		return fmt.Errorf("could not bind to any port in range %d-%d", s.cfg.Web.Port, s.cfg.Web.Port+9)
+	}
+
+	s.port = port
+	s.httpSrv = &http.Server{Handler: mux}
 
 	go func() {
-		log.Printf("[web] serving dashboard on http://localhost:%d", s.cfg.Web.Port)
-		if err := s.httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("[web] dashboard at http://localhost:%d", port)
+		if err := s.httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Printf("[web] server error: %v", err)
 		}
 	}()
@@ -102,6 +121,11 @@ func (s *Server) Start() error {
 	// Background goroutine: push updates to WebSocket clients every 30 seconds
 	go s.broadcastLoop()
 	return nil
+}
+
+// Port returns the actual port the server bound to (may differ from cfg if there was a conflict).
+func (s *Server) Port() int {
+	return s.port
 }
 
 // Stop shuts down the HTTP server.

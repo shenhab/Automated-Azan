@@ -9,7 +9,7 @@ friday_kahf_enabled = false
 
 [web]
 host = "0.0.0.0"
-port = 5000
+port = 28426
 secret_key = "automated-azan-secret-key"
 
 [log]

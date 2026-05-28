@@ -90,7 +90,7 @@ func (c *Config) setDefaults() {
 		Location:       "naas",
 		PreFajrMinutes: 30,
 	}
-	c.Web = WebConfig{Host: "0.0.0.0", Port: 5000, SecretKey: "automated-azan-secret-key"}
+	c.Web = WebConfig{Host: "0.0.0.0", Port: 28426, SecretKey: "automated-azan-secret-key"}
 	c.Log = LogConfig{Level: "INFO", FilePath: "logs/azan.log"}
 }
 

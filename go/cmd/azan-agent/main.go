@@ -5,7 +5,9 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"azan-agent/internal/chromecast"
@@ -153,7 +155,17 @@ func (p *program) run() {
 		log.Fatalf("[main] web server start: %v", err)
 	}
 	p.webSrv = webSrv
-	log.Printf("[main] dashboard at http://localhost:%d", cfg.Web.Port)
+	dashURL := fmt.Sprintf("http://localhost:%d", webSrv.Port())
+	log.Printf("[main] dashboard at %s", dashURL)
+
+	// When running interactively (terminal / double-click), open the dashboard
+	// in the default browser. Wait 1 second so the HTTP server is ready first.
+	if service.Interactive() {
+		go func() {
+			time.Sleep(time.Second)
+			openBrowser(dashURL)
+		}()
+	}
 
 	// Config hot-reload watcher
 	watcher := config.NewWatcher(cfg)
@@ -254,7 +266,12 @@ func main() {
 		go prg.run()
 
 		tray.Run(tray.Config{
-			Port: config.Get().Web.Port,
+			Port: func() int {
+				if prg.webSrv != nil {
+					return prg.webSrv.Port()
+				}
+				return config.Get().Web.Port
+			}(),
 			NextPrayer: func() (string, time.Time, bool) {
 				if prg.scheduler == nil {
 					return "", time.Time{}, false
@@ -272,6 +289,23 @@ func main() {
 	// Running as a system service → no tray
 	if err := svc.Run(); err != nil {
 		log.Fatalf("service run: %v", err)
+	}
+}
+
+// openBrowser opens url in the default browser.
+func openBrowser(url string) {
+	var cmd string
+	var args []string
+	switch runtime.GOOS {
+	case "windows":
+		cmd, args = "cmd", []string{"/c", "start", url}
+	case "darwin":
+		cmd, args = "open", []string{url}
+	default:
+		cmd, args = "xdg-open", []string{url}
+	}
+	if err := exec.Command(cmd, args...).Start(); err != nil {
+		log.Printf("[main] could not open browser: %v", err)
 	}
 }
 
