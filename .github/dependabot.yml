@@ -1,0 +1,28 @@
+version: 2
+updates:
+
+  # ── GitHub Actions ────────────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly      # check every Monday
+      day: monday
+      time: "09:00"
+      timezone: Europe/Dublin
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "ci"
+
+  # ── Go modules ────────────────────────────────────────────────────────────
+  - package-ecosystem: gomod
+    directory: /go
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/Dublin
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "deps"
