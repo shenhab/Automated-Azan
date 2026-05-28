@@ -13,7 +13,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-import schedule
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
@@ -131,7 +130,6 @@ class ConfigWatcher:
 
     def _apply_location_change(self, old: str, new: str):
         logger.info("Location changed: %s → %s", old, new)
-        schedule.clear()
         self.scheduler.location = new
         if hasattr(self.scheduler.fetcher, "_cache"):
             self.scheduler.fetcher._cache.clear()
@@ -158,20 +156,15 @@ class ConfigWatcher:
 
     def _apply_pre_fajr_change(self, enabled: bool):
         logger.info("Pre-Fajr Quran %s", "enabled" if enabled else "disabled")
-        if hasattr(self.scheduler, "toggle_pre_fajr_quran"):
-            result = self.scheduler.toggle_pre_fajr_quran(enabled)
-            if not result.get("success"):
-                logger.error("Failed to toggle pre-Fajr: %s", result.get("error"))
-        else:
-            schedule.clear()
-            self.scheduler.schedule_prayers()
+        result = self.scheduler.toggle_pre_fajr_quran(enabled)
+        if not result.get("success"):
+            logger.error("Failed to toggle pre-Fajr: %s", result.get("error"))
 
     def _apply_friday_kahf_change(self, enabled: bool):
         logger.info("Friday Surah Al-Kahf %s", "enabled" if enabled else "disabled")
-        if hasattr(self.scheduler, "toggle_friday_kahf"):
-            result = self.scheduler.toggle_friday_kahf(enabled)
-            if not result.get("success"):
-                logger.error("Failed to toggle Friday Al-Kahf: %s", result.get("error"))
+        result = self.scheduler.toggle_friday_kahf(enabled)
+        if not result.get("success"):
+            logger.error("Failed to toggle Friday Al-Kahf: %s", result.get("error"))
 
     def get_status(self) -> Dict[str, Any]:
         is_running = bool(self.observer and self.observer.is_alive())
