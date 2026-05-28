@@ -18,6 +18,12 @@ const (
 	maxRetries        = 3
 )
 
+// QuranStation is the default live Quran recitation stream.
+var QuranStation = map[string]string{
+	"name": "Mahmoud Khalil Al-Hussary (Warsh)",
+	"url":  "https://backup.qurango.net/radio/mahmoud_khalil_alhussary_warsh",
+}
+
 // Device holds discovered Chromecast device information.
 type Device struct {
 	UUID      string `json:"uuid"`
@@ -140,6 +146,12 @@ func (m *Manager) PlayAthan(prayer string) error {
 // PlayURL plays any URL on the configured Chromecast device.
 func (m *Manager) PlayURL(url, contentType string) error {
 	return m.playURL(url, contentType)
+}
+
+// PlayQuranStream plays the default live Quran recitation stream.
+func (m *Manager) PlayQuranStream() error {
+	log.Printf("[chromecast] starting Quran stream: %s", QuranStation["url"])
+	return m.playURL(QuranStation["url"], "audio/mpeg")
 }
 
 // StopPlayback stops currently playing media.

@@ -81,6 +81,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/play-athan", s.handleAPIPlayAthan)
 	mux.HandleFunc("/api/stop-playback", s.handleAPIStopPlayback)
 	mux.HandleFunc("/api/next-prayer", s.handleAPINextPrayer)
+	mux.HandleFunc("/api/quran/play", s.handleAPIQuranPlay)
+	mux.HandleFunc("/api/quran/stop", s.handleAPIQuranStop)
 
 	// Static files served from ../static relative to binary
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
@@ -354,6 +356,34 @@ func (s *Server) handleAPIPlayAthan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPIStopPlayback(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := s.castMgr.StopPlayback(); err != nil {
+		writeJSON(w, errResp(err))
+		return
+	}
+	writeJSON(w, map[string]interface{}{"success": true})
+}
+
+func (s *Server) handleAPIQuranPlay(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := s.castMgr.PlayQuranStream(); err != nil {
+		writeJSON(w, errResp(err))
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"station": chromecast.QuranStation,
+		"message": "Now playing: " + chromecast.QuranStation["name"],
+	})
+}
+
+func (s *Server) handleAPIQuranStop(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return

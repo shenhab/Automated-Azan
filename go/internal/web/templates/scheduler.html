@@ -1,45 +1,20 @@
 {{template "base.html" .}}
 {{define "title"}}Scheduler — Automated Azan{{end}}
 {{define "page_title"}}Scheduler{{end}}
-{{define "page_sub"}}Prayer jobs and manual playback controls{{end}}
+{{define "page_sub"}}Today's prayer jobs and feature status{{end}}
 {{define "topbar_actions"}}{{end}}
 
 {{define "content"}}
 <div class="row g-4">
 
-  <!-- Left: test playback -->
+  <!-- Left: feature status -->
   <div class="col-md-4">
-    <div class="card mb-4">
-      <div class="card-header"><i class="fas fa-play-circle me-2" style="color:#22C55E"></i>Test Athan</div>
-      <div class="card-body">
-        <div class="mb-3">
-          <label class="form-label">Prayer</label>
-          <select id="prayerSelect" class="form-select">
-            <option value="Fajr">Fajr</option>
-            <option value="Dhuhr" selected>Dhuhr</option>
-            <option value="Asr">Asr</option>
-            <option value="Maghrib">Maghrib</option>
-            <option value="Isha">Isha</option>
-          </select>
-        </div>
-        <div class="d-flex gap-2">
-          <button class="btn btn-success flex-fill" onclick="playAthan()">
-            <i class="fas fa-play me-2"></i>Play
-          </button>
-          <button class="btn btn-outline-secondary" onclick="stopPlayback()" title="Stop">
-            <i class="fas fa-stop"></i>
-          </button>
-        </div>
-        <div id="playMsg" class="mt-2"></div>
-      </div>
-    </div>
-
     <div class="card">
       <div class="card-header"><i class="fas fa-toggle-on me-2" style="color:#8B5CF6"></i>Features</div>
       <div class="card-body py-2">
         <div class="d-flex justify-content-between align-items-center py-2">
           <div>
-            <div class="fw-500" style="font-weight:500">Pre-Fajr Quran</div>
+            <div style="font-weight:500">Pre-Fajr Quran</div>
             <div class="text-muted" style="font-size:12px">Recitation before Fajr</div>
           </div>
           <span class="badge-status {{if index .config "pre_fajr_enabled"}}badge-upcoming{{else}}badge-done{{end}}">
@@ -95,34 +70,4 @@
 </div>
 {{end}}
 
-{{define "scripts"}}
-<script>
-function playAthan() {
-  const prayer = document.getElementById("prayerSelect").value;
-  const btn = event.target;
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Loading...';
-
-  fetch("/api/play-athan", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({prayer})
-  })
-  .then(r => r.json())
-  .then(d => {
-    showToast(d.success ? "Playing " + prayer + " Athan" : "Error: " + d.error,
-              d.success ? "success" : "danger");
-  })
-  .finally(() => {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fas fa-play me-2"></i>Play';
-  });
-}
-
-function stopPlayback() {
-  fetch("/api/stop-playback", {method:"POST"})
-    .then(r => r.json())
-    .then(d => showToast(d.success ? "Playback stopped" : d.error, d.success ? "secondary" : "danger"));
-}
-</script>
-{{end}}
+{{define "scripts"}}{{end}}

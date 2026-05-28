@@ -87,6 +87,57 @@
   </div>
 </div>
 
+<!-- Quran & controls row -->
+<div class="row g-3 mb-4">
+  <!-- Quran playback -->
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header"><i class="fas fa-quran me-2" style="color:#40916C"></i>Quran Recitation</div>
+      <div class="card-body">
+        <p class="text-muted mb-3" style="font-size:13px">
+          Live stream — Mahmoud Khalil Al-Hussary (Warsh)
+        </p>
+        <div class="d-flex gap-2">
+          <button class="btn btn-success flex-fill" id="quranPlayBtn" onclick="playQuran()">
+            <i class="fas fa-play me-2"></i>Play Quran
+          </button>
+          <button class="btn btn-outline-secondary" id="quranStopBtn" onclick="stopQuran()" title="Stop">
+            <i class="fas fa-stop"></i>
+          </button>
+        </div>
+        <div id="quranMsg" class="mt-2" style="font-size:12px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Test Athan -->
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header"><i class="fas fa-play-circle me-2" style="color:#22C55E"></i>Test Athan</div>
+      <div class="card-body">
+        <div class="mb-3">
+          <select id="testPrayerSelect" class="form-select">
+            <option value="Fajr">Fajr</option>
+            <option value="Dhuhr" selected>Dhuhr</option>
+            <option value="Asr">Asr</option>
+            <option value="Maghrib">Maghrib</option>
+            <option value="Isha">Isha</option>
+          </select>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-success flex-fill" id="athanPlayBtn" onclick="playAthan()">
+            <i class="fas fa-play me-2"></i>Play Athan
+          </button>
+          <button class="btn btn-outline-secondary" onclick="stopAll()" title="Stop">
+            <i class="fas fa-stop"></i>
+          </button>
+        </div>
+        <div id="athanMsg" class="mt-2" style="font-size:12px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Today's schedule -->
 <div class="card">
   <div class="card-header"><i class="fas fa-list-ul me-2" style="color:#8A97A8"></i>Today's Schedule</div>
@@ -117,6 +168,60 @@
 
 {{define "scripts"}}
 <script>
+  function playQuran() {
+    const btn = document.getElementById("quranPlayBtn");
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Starting...';
+    fetch("/api/quran/play", {method:"POST"})
+      .then(r => r.json())
+      .then(d => {
+        showToast(d.success ? d.message : "Error: " + d.error, d.success ? "success" : "danger");
+        document.getElementById("quranMsg").innerHTML = d.success
+          ? '<span style="color:#40916C"><i class="fas fa-broadcast-tower me-1"></i>Streaming live</span>'
+          : '<span class="text-danger">' + d.error + '</span>';
+      })
+      .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-play me-2"></i>Play Quran';
+      });
+  }
+
+  function stopQuran() {
+    fetch("/api/quran/stop", {method:"POST"})
+      .then(r => r.json())
+      .then(d => {
+        showToast(d.success ? "Quran stopped" : d.error, d.success ? "secondary" : "danger");
+        document.getElementById("quranMsg").innerHTML = "";
+      });
+  }
+
+  function playAthan() {
+    const prayer = document.getElementById("testPrayerSelect").value;
+    const btn = document.getElementById("athanPlayBtn");
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Loading...';
+    fetch("/api/play-athan", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({prayer})
+    })
+    .then(r => r.json())
+    .then(d => {
+      showToast(d.success ? "Playing " + prayer + " Athan" : "Error: " + d.error, d.success ? "success" : "danger");
+      document.getElementById("athanMsg").innerHTML = d.success ? "" : '<span class="text-danger">' + d.error + '</span>';
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-play me-2"></i>Play Athan';
+    });
+  }
+
+  function stopAll() {
+    fetch("/api/stop-playback", {method:"POST"})
+      .then(r => r.json())
+      .then(d => showToast(d.success ? "Playback stopped" : d.error, "secondary"));
+  }
+
   // Show today's date
   document.getElementById("todayDate").textContent =
     new Date().toLocaleDateString('en-IE', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
