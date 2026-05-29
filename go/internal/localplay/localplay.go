@@ -1,8 +1,16 @@
-// Package localplay plays audio files and streams on the local machine using
-// OS-native tools. No additional libraries are required:
-//   - macOS:   afplay (built-in)
-//   - Linux:   mpg123 → ffplay → cvlc  (first found wins)
-//   - Windows: PowerShell WMF MediaPlayer (built-in on Windows 7+)
+// Package localplay plays audio files and streams on the local machine.
+//
+// File playback uses OS-native tools (afplay on macOS, mpg123/ffplay on Linux,
+// PowerShell WMF on Windows).
+//
+// HTTP stream playback uses the bundled pure-Go oto/go-mp3 stack with automatic
+// fallback to external tools (mpg123, ffplay, cvlc) when no audio device is
+// present (e.g. headless Docker container).
+//
+// macOS/Linux stream fallback — install one if needed:
+//
+//	macOS: brew install mpg123  |  brew install ffmpeg
+//	Linux: apt  install mpg123  |  apt  install ffmpeg
 package localplay
 
 import (
@@ -31,32 +39,43 @@ func Play(filePath string) error {
 	return nil
 }
 
-// StartStream begins streaming audio from url and returns a stop function.
-// The caller is responsible for calling stop() when the stream should end.
-func StartStream(url string) (stop func(), err error) {
+// runFirst tries each command in order and runs the first one whose binary exists.
+func runFirst(target string, cmds ...[]string) error {
+	for _, args := range cmds {
+		if _, err := exec.LookPath(args[0]); err == nil {
+			return exec.Command(args[0], args[1:]...).Run()
+		}
+	}
+	return fmt.Errorf("no audio player found for %q — %s", target, installHint())
+}
+
+// startStreamExternal is the fallback when oto has no audio device available.
+// It tries external CLI players in order: mpg123 → ffplay → cvlc.
+func startStreamExternal(url string) (func(), error) {
 	var cmd *exec.Cmd
+	var err error
 	switch runtime.GOOS {
-	case "darwin":
-		// afplay doesn't support HTTP; prefer mpg123/ffplay
-		cmd, err = firstAvailableCmd(url,
-			[]string{"mpg123", "-q", url},
-			[]string{"ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", url},
-		)
-	case "linux":
-		cmd, err = firstAvailableCmd(url,
-			[]string{"mpg123", "-q", url},
-			[]string{"ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", url},
-			[]string{"cvlc", "--intf", "dummy", url},
-		)
 	case "windows":
-		// WMF MediaPlayer also handles HTTP streams
 		ps := buildWindowsScript(url)
 		cmd = exec.Command("powershell",
 			"-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
 			"-Command", ps)
 		err = cmd.Start()
-	default:
-		return func() {}, nil
+	default: // darwin + linux
+		for _, args := range [][]string{
+			{"mpg123", "-q", url},
+			{"ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", url},
+			{"cvlc", "--intf", "dummy", url},
+		} {
+			if _, lookErr := exec.LookPath(args[0]); lookErr == nil {
+				cmd = exec.Command(args[0], args[1:]...)
+				err = cmd.Start()
+				break
+			}
+		}
+		if cmd == nil {
+			return func() {}, fmt.Errorf("no streaming player found — %s", installHint())
+		}
 	}
 	if err != nil {
 		return func() {}, err
@@ -68,25 +87,15 @@ func StartStream(url string) (stop func(), err error) {
 	}, nil
 }
 
-// runFirst tries each command in order and runs the first one whose binary exists.
-func runFirst(target string, cmds ...[]string) error {
-	for _, args := range cmds {
-		if _, err := exec.LookPath(args[0]); err == nil {
-			return exec.Command(args[0], args[1:]...).Run()
-		}
+func installHint() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "brew install mpg123  or  brew install ffmpeg"
+	case "linux":
+		return "apt install mpg123  or  apt install ffmpeg"
+	default:
+		return "install mpg123 or ffmpeg"
 	}
-	return fmt.Errorf("no audio player found for %q; install mpg123 or ffmpeg", target)
-}
-
-// firstAvailableCmd builds and starts the first command whose binary exists.
-func firstAvailableCmd(target string, cmds ...[]string) (*exec.Cmd, error) {
-	for _, args := range cmds {
-		if _, err := exec.LookPath(args[0]); err == nil {
-			cmd := exec.Command(args[0], args[1:]...)
-			return cmd, cmd.Start()
-		}
-	}
-	return nil, fmt.Errorf("no streaming player found for %q; install mpg123 or ffmpeg", target)
 }
 
 // windowsPlay runs audio via PowerShell's WMF MediaPlayer (Windows 7+).
