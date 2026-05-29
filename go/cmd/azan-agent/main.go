@@ -282,7 +282,18 @@ func main() {
 	// needed: systemd user service on Linux (~/.config/systemd/user/), and a
 	// LaunchAgent on macOS (~/Library/LaunchAgents/) instead of LaunchDaemon.
 	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
-		svcCfg.Option = service.KeyValue{"UserService": true}
+		opts := service.KeyValue{"UserService": true}
+		if runtime.GOOS == "darwin" {
+			// Direct LaunchAgent stdout/stderr to ~/Library/Logs/AzanAgent/
+			// instead of the kardianos/service default (~/AzanAgent.*.log).
+			if home, err := os.UserHomeDir(); err == nil {
+				logDir := filepath.Join(home, "Library", "Logs", "AzanAgent")
+				_ = os.MkdirAll(logDir, 0o755)
+				opts["StandardOutPath"] = filepath.Join(logDir, "service.log")
+				opts["StandardErrPath"] = filepath.Join(logDir, "service.err.log")
+			}
+		}
+		svcCfg.Option = opts
 	}
 
 	// On macOS, point the LaunchAgent at a copy of the binary that lives outside
