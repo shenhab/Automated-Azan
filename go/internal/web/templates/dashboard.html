@@ -9,6 +9,16 @@
 {{end}}
 
 {{define "content"}}
+
+{{if .hijri}}
+  {{with .hijri.SpecialDay}}
+  <div class="alert alert-special mb-4" role="alert">
+    <i class="fas fa-star me-2"></i><strong>{{.}}</strong>
+    <span class="ms-2 text-muted" style="font-size:13px">{{$.hijri.String}}</span>
+  </div>
+  {{end}}
+{{end}}
+
 <div class="row g-3 mb-4">
 
   <!-- Next prayer hero -->
@@ -55,7 +65,10 @@
 <div class="card mb-4">
   <div class="card-header d-flex align-items-center justify-content-between">
     <span><i class="fas fa-sun me-2" style="color:#F59E0B"></i>Today's Prayer Times</span>
-    <small class="text-muted" id="todayDate"></small>
+    <div class="d-flex flex-column align-items-end gap-0">
+      <small class="text-muted" id="todayDate"></small>
+      {{if .hijri}}<small class="hijri-date">{{.hijri.String}}</small>{{end}}
+    </div>
   </div>
   <div class="card-body">
     {{with .prayer_times}}

@@ -18,6 +18,7 @@ import (
 
 	"azan-agent/internal/chromecast"
 	"azan-agent/internal/config"
+	"azan-agent/internal/hijri"
 	"azan-agent/internal/media"
 	"azan-agent/internal/prayer"
 
@@ -116,6 +117,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/quran/stop", s.handleAPIQuranStop)
 	mux.HandleFunc("/api/media/files", s.handleAPIMediaFiles)
 	mux.HandleFunc("/api/media/upload", s.handleAPIMediaUpload)
+	mux.HandleFunc("/api/hijri", s.handleAPIHijri)
 
 	// Static files served from ../static relative to binary
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
@@ -187,12 +189,16 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().In(s.fetcher.Timezone())
 	times, _ := s.fetcher.Fetch(s.cfg.Prayer.Location, now, false)
 	name, at, _ := s.scheduler.NextPrayer()
+
+	hd, _ := hijri.Today() // nil on first-ever network failure; template handles nil
+
 	s.renderPage(w, "dashboard.html", map[string]interface{}{
 		"page":         "dashboard",
 		"config":       s.cfg.AsWebDict(),
 		"prayer_times": times,
 		"next_prayer":  map[string]interface{}{"name": name, "time": at.Format("15:04")},
 		"jobs":         s.scheduler.Status(),
+		"hijri":        hd,
 	})
 }
 
@@ -629,6 +635,27 @@ func (s *Server) handleAPIMediaUpload(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[web] media file uploaded: %s (%d bytes)", name, n)
 	writeJSON(w, map[string]interface{}{"success": true, "filename": name, "bytes": n})
+}
+
+func (s *Server) handleAPIHijri(w http.ResponseWriter, r *http.Request) {
+	hd, err := hijri.Today()
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success":     true,
+		"date":        hd.String(),
+		"day":         hd.Day,
+		"month":       hd.Month,
+		"month_en":    hd.MonthEN,
+		"month_ar":    hd.MonthAR,
+		"year":        hd.Year,
+		"weekday":     hd.Weekday,
+		"is_ramadan":  hd.IsRamadan(),
+		"ramadan_day": hd.RamadanDay(),
+		"special_day": hd.SpecialDay(),
+	})
 }
 
 func (s *Server) handleAPINextPrayer(w http.ResponseWriter, r *http.Request) {
