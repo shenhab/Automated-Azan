@@ -1,0 +1,28 @@
+# Minimal image for the headless (CGO_ENABLED=0) Go binary.
+# The binary is compiled BEFORE this build step and copied in from the host,
+# so this stage is just packaging — no Go toolchain needed here.
+#
+# Build via go/scripts/deploy.sh, which compiles the binary first.
+
+FROM alpine:3.20
+
+# ca-certificates — HTTPS requests to prayer-time APIs
+# tzdata          — timezone database (AZAN_CONFIG_FILE picks up TZ at runtime)
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /app
+
+# The statically-linked binary produced by deploy.sh
+COPY azan-agent .
+
+# Config is mounted at /config/azan.toml via a Docker volume.
+# The binary creates a default azan.toml on first run if none exists.
+ENV AZAN_CONFIG_FILE=/config/azan.toml
+ENV TZ=Europe/Dublin
+
+EXPOSE 28426
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD wget -qO- http://localhost:28426/ >/dev/null 2>&1 || exit 1
+
+ENTRYPOINT ["/app/azan-agent"]
