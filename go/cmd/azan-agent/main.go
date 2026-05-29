@@ -285,6 +285,17 @@ func main() {
 		svcCfg.Option = service.KeyValue{"UserService": true}
 	}
 
+	// On macOS, point the LaunchAgent at a copy of the binary that lives outside
+	// the .app bundle.  Without this, launchd associates the service process with
+	// AzanAgent.app; a subsequent double-click in Finder activates the service
+	// process (which has no NSApplication loop) and shows "not responding."
+	if helperBin, err := ensureHelperBinary(); helperBin != "" {
+		svcCfg.Executable = helperBin
+		if err != nil {
+			log.Printf("[main] helper binary copy: %v", err)
+		}
+	}
+
 	prg := &program{}
 	svc, err := service.New(prg, svcCfg)
 	if err != nil {
