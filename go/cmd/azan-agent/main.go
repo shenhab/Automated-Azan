@@ -278,9 +278,10 @@ func main() {
 		DisplayName: "Automated Azan Agent",
 		Description: "Plays Athan at prayer times on local Chromecast devices",
 	}
-	// On Linux, install as a systemd user service (~/.config/systemd/user/)
-	// so it starts on login without root and can be stopped by the tray.
-	if runtime.GOOS == "linux" {
+	// Install as a user-level service on Linux and macOS so no root/admin is
+	// needed: systemd user service on Linux (~/.config/systemd/user/), and a
+	// LaunchAgent on macOS (~/Library/LaunchAgents/) instead of LaunchDaemon.
+	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
 		svcCfg.Option = service.KeyValue{"UserService": true}
 	}
 
