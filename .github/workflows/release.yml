@@ -133,10 +133,23 @@ jobs:
           iconutil -c icns AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
           rm -rf AppIcon.iconset
 
-          # DMG: staging dir with .app + /Applications symlink for drag-install
+          # Ad-hoc sign: changes Gatekeeper error from "damaged" (no bypass)
+          # to "unverified developer" (Open Anyway in System Settings).
+          codesign --sign - --force --deep "$APP" 2>/dev/null || true
+
+          # DMG staging: app + Applications symlink + Install script
           mkdir dmg_staging
           cp -r "$APP" dmg_staging/
           ln -s /Applications dmg_staging/Applications
+
+          # Install.command — double-click from the DMG to install without
+          # needing any terminal commands. Removes quarantine, copies to
+          # /Applications, and launches the app.
+          cat packaging/macos/Install.command \
+            | sed "s/__VERSION__/${VERSION}/g" \
+            > dmg_staging/"Install Automated Azan.command"
+          chmod +x dmg_staging/"Install Automated Azan.command"
+
           hdiutil create \
             -volname "Automated Azan ${VERSION}" \
             -srcfolder dmg_staging \
@@ -225,14 +238,16 @@ jobs:
             3. Dashboard: `http://localhost:28426`
 
             ### macOS — install
-            1. Download the `.dmg`, open it, drag **AzanAgent** → **Applications**
-            2. Remove the Gatekeeper quarantine flag (one-time, unsigned binary):
-            ```bash
-            xattr -rd com.apple.quarantine /Applications/AzanAgent.app
-            ```
-            3. Double-click `AzanAgent` in Applications — it installs as a LaunchAgent and starts automatically on every login
-            4. **Upgrade**: download new `.dmg`, drag to Applications (overwrites), double-click — the app detects the new binary and restarts the service automatically
-            5. **Uninstall**: tray icon → **Uninstall…** — removes the service and helper binary; config and data are kept
+            1. Download and open the `.dmg`
+            2. Double-click **"Install Automated Azan"** inside the DMG — it removes the quarantine flag, copies to `/Applications`, and launches the app automatically
+            3. Look for the icon in your **menu bar** (top-right). The app installs itself as a LaunchAgent and starts on every login.
+
+            > **Alternative (manual drag):** Drag `AzanAgent` → `Applications`, then run once in Terminal:
+            > `xattr -rd com.apple.quarantine /Applications/AzanAgent.app`
+            > Or: right-click the app → Open → Open Anyway in System Settings → Privacy & Security.
+
+            **Upgrade**: download new `.dmg`, run **Install** again — detects new binary and restarts service automatically.
+            **Uninstall**: tray icon → **Uninstall…** — removes service and helper binary; config and data are kept.
 
             ### Windows — first run (service registration)
             Right-click → **Run as administrator** once to register the Windows Service.
