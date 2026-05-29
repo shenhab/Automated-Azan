@@ -435,6 +435,7 @@ func runAsService(prg *program, svc service.Service, helperUpdated bool) {
 	}
 
 	if shouldShowTray() {
+		startBackgroundUpdateCheck(svc, nil)
 		runTrayForService(port, svc)
 	}
 	// Headless: service is running in the background — exit cleanly.
@@ -445,6 +446,7 @@ func runAsService(prg *program, svc service.Service, helperUpdated bool) {
 func runInline(prg *program, svc service.Service) {
 	go prg.run()
 	if shouldShowTray() {
+		startBackgroundUpdateCheck(svc, func() { prg.Stop(svc) })
 		runTray(prg, svc)
 	} else {
 		runHeadless(prg)
@@ -633,51 +635,77 @@ func runTray(prg *program, svc service.Service) {
 // stopFn is called before restarting the service (nil is fine for service-mode tray).
 func makeCheckUpdateFn(svc service.Service, stopFn func()) func() {
 	return func() {
-		info, err := checkForUpdate(version)
-		if err != nil {
+		runUpdateFlow(svc, stopFn, true)
+	}
+}
+
+// startBackgroundUpdateCheck runs the update check 30 s after startup and then
+// every 24 h. When an update is available it shows the same confirm/download/
+// restart dialog as the manual "Check for Update" menu item. When already on
+// the latest version it stays silent.
+func startBackgroundUpdateCheck(svc service.Service, stopFn func()) {
+	go func() {
+		time.Sleep(30 * time.Second)
+		for {
+			runUpdateFlow(svc, stopFn, false)
+			time.Sleep(24 * time.Hour)
+		}
+	}()
+}
+
+// runUpdateFlow is the shared core: checks GitHub, shows appropriate dialogs,
+// and applies the update if the user confirms.
+// showUpToDate controls whether a dialog is shown when already on the latest version.
+func runUpdateFlow(svc service.Service, stopFn func(), showUpToDate bool) {
+	info, err := checkForUpdate(version)
+	if err != nil {
+		if showUpToDate {
 			showInfoDialog("Update Check Failed",
 				fmt.Sprintf("Could not reach GitHub:\n%v", err))
-			return
+		} else {
+			log.Printf("[update] background check failed: %v", err)
 		}
-		if info == nil {
+		return
+	}
+	if info == nil {
+		if showUpToDate {
 			showInfoDialog("Automated Azan — Up to Date",
 				fmt.Sprintf("You're running the latest version (%s).", version))
-			return
 		}
-
-		msg := fmt.Sprintf("Version %s is available (you have %s).",
-			info.NewVersion, version)
-		if !info.HasBinary {
-			// No downloadable binary — send user to the release page.
-			showInfoDialog("Update Available", msg+"\n\nOpening the download page in your browser.")
-			openBrowser(info.DownloadURL)
-			return
-		}
-
-		if !confirmDialog("Update Available",
-			msg+"\n\nDownload and install now? The app will restart automatically.") {
-			return
-		}
-
-		log.Printf("[update] downloading %s from %s", info.NewVersion, info.DownloadURL)
-		restartSvc := func() {
-			if stopFn != nil {
-				stopFn()
-			}
-			_ = svc.Stop()
-			time.Sleep(500 * time.Millisecond)
-			_ = svc.Start()
-		}
-		if err := applySelfUpdate(info.DownloadURL, restartSvc); err != nil {
-			showInfoDialog("Update Failed",
-				fmt.Sprintf("Could not apply update:\n%v", err))
-			return
-		}
-
-		showInfoDialog("Update Complete",
-			fmt.Sprintf("Updated to %s. Restarting now…", info.NewVersion))
-		relaunch()
+		return
 	}
+
+	msg := fmt.Sprintf("Version %s is available (you have %s).",
+		info.NewVersion, version)
+	if !info.HasBinary {
+		showInfoDialog("Update Available", msg+"\n\nOpening the download page in your browser.")
+		openBrowser(info.DownloadURL)
+		return
+	}
+
+	if !confirmDialog("Update Available",
+		msg+"\n\nDownload and install now? The app will restart automatically.") {
+		return
+	}
+
+	log.Printf("[update] downloading %s from %s", info.NewVersion, info.DownloadURL)
+	restartSvc := func() {
+		if stopFn != nil {
+			stopFn()
+		}
+		_ = svc.Stop()
+		time.Sleep(500 * time.Millisecond)
+		_ = svc.Start()
+	}
+	if err := applySelfUpdate(info.DownloadURL, restartSvc); err != nil {
+		showInfoDialog("Update Failed",
+			fmt.Sprintf("Could not apply update:\n%v", err))
+		return
+	}
+
+	showInfoDialog("Update Complete",
+		fmt.Sprintf("Updated to %s. Restarting now…", info.NewVersion))
+	relaunch()
 }
 
 // doUninstall shows a confirmation dialog, then stops and uninstalls the
