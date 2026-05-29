@@ -1,0 +1,4 @@
+# compiled output — CI builds these, don't track locally
+azan-agent
+azan-agent-*
+*.exe
