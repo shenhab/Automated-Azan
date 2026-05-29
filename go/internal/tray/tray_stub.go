@@ -14,6 +14,7 @@ import (
 // Config is the tray configuration (same shape as the desktop version).
 type Config struct {
 	Port       int
+	Version    string
 	NextPrayer func() (name string, at time.Time, ok bool)
 	OnQuit     func()
 
@@ -22,6 +23,9 @@ type Config struct {
 	StopQuranSpeaker   func()
 	StreamQuranLocal   func() error
 	StopQuranLocal     func()
+
+	CheckUpdate func() (newVersion, url string, hasUpdate bool, err error)
+	Uninstall   func()
 }
 
 // Run is a no-op in CGO_ENABLED=0 builds. The agent still runs fully —

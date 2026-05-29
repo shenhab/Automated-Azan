@@ -21,17 +21,20 @@ import (
 //
 // Running the LaunchAgent from outside the bundle breaks the association so
 // Finder always starts a new interactive process.
-func ensureHelperBinary() (string, error) {
+//
+// updated is true when the helper binary was freshly written (first install or
+// upgrade).  Callers should restart the running service in that case.
+func ensureHelperBinary() (path string, updated bool, err error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	helperDir := filepath.Join(home, "Library", "Application Support", "AzanAgent")
 	helperBin := filepath.Join(helperDir, "azan-agent")
 
 	self, err := os.Executable()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if resolved, err := filepath.EvalSymlinks(self); err == nil {
 		self = resolved
@@ -39,16 +42,27 @@ func ensureHelperBinary() (string, error) {
 
 	// Already running as the helper (i.e. we are the service process) — nothing to do.
 	if self == helperBin {
-		return helperBin, nil
+		return helperBin, false, nil
+	}
+
+	// Check if a copy already exists and matches the source.
+	srcInfo, err := os.Stat(self)
+	if err != nil {
+		return "", false, err
+	}
+	if dstInfo, err := os.Stat(helperBin); err == nil {
+		if dstInfo.Size() == srcInfo.Size() && !srcInfo.ModTime().After(dstInfo.ModTime()) {
+			return helperBin, false, nil // already up to date
+		}
 	}
 
 	if err := os.MkdirAll(helperDir, 0o755); err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	src, err := os.Open(self)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	defer src.Close()
 
@@ -56,19 +70,19 @@ func ensureHelperBinary() (string, error) {
 	tmp := helperBin + ".tmp"
 	dst, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if _, err := io.Copy(dst, src); err != nil {
 		dst.Close()
 		os.Remove(tmp)
-		return "", err
+		return "", false, err
 	}
 	dst.Close()
 
 	if err := os.Rename(tmp, helperBin); err != nil {
 		os.Remove(tmp)
-		return "", err
+		return "", false, err
 	}
 
-	return helperBin, nil
+	return helperBin, true, nil
 }

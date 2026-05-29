@@ -300,11 +300,12 @@ func main() {
 	// the .app bundle.  Without this, launchd associates the service process with
 	// AzanAgent.app; a subsequent double-click in Finder activates the service
 	// process (which has no NSApplication loop) and shows "not responding."
-	if helperBin, err := ensureHelperBinary(); helperBin != "" {
+	helperBin, helperUpdated, helperErr := ensureHelperBinary()
+	if helperBin != "" {
 		svcCfg.Executable = helperBin
-		if err != nil {
-			log.Printf("[main] helper binary copy: %v", err)
-		}
+	}
+	if helperErr != nil {
+		log.Printf("[main] helper binary: %v", helperErr)
 	}
 
 	prg := &program{}
@@ -350,7 +351,7 @@ func main() {
 	if service.Interactive() {
 		// All platforms: prefer running as a native service so the agent persists
 		// across terminal sessions and starts automatically on login/boot.
-		runAsService(prg, svc)
+		runAsService(prg, svc, helperUpdated)
 		return
 	}
 
@@ -369,7 +370,7 @@ func main() {
 //   - Linux:   systemd user service  (~/.config/systemd/user/)
 //   - macOS:   LaunchAgent           (~/Library/LaunchAgents/)
 //   - Windows: Windows Service (SCM) — requires admin on first install
-func runAsService(prg *program, svc service.Service) {
+func runAsService(prg *program, svc service.Service, helperUpdated bool) {
 	port := config.Get().Web.Port
 
 	status, err := svc.Status()
@@ -377,8 +378,6 @@ func runAsService(prg *program, svc service.Service) {
 		fmt.Println("[azan] Installing service...")
 		if installErr := svc.Install(); installErr != nil {
 			if runtime.GOOS == "windows" && !isElevated() {
-				// Show a clear explanation before falling back — the MessageBox
-				// blocks until the user dismisses it.
 				showServiceInstallMessage()
 			} else {
 				log.Printf("[main] service install failed (%v) — falling back to inline mode", installErr)
@@ -398,6 +397,16 @@ func runAsService(prg *program, svc service.Service) {
 			return
 		}
 		fmt.Printf("[azan] Service started. Dashboard: http://localhost:%d\n", port)
+	} else if helperUpdated {
+		// New binary was copied — restart service so it picks up the upgrade.
+		log.Printf("[main] binary updated, restarting service...")
+		_ = svc.Stop()
+		time.Sleep(500 * time.Millisecond)
+		if startErr := svc.Start(); startErr != nil {
+			log.Printf("[main] restart failed (%v) — service may still be on old binary", startErr)
+		} else {
+			fmt.Printf("[azan] Service restarted (upgraded). Dashboard: http://localhost:%d\n", port)
+		}
 	} else {
 		fmt.Printf("[azan] Service already running. Dashboard: http://localhost:%d\n", port)
 	}
@@ -429,7 +438,8 @@ func runTrayForService(port int, svc service.Service) {
 	}()
 
 	tray.Run(tray.Config{
-		Port: port,
+		Port:    port,
+		Version: version,
 		NextPrayer: func() (string, time.Time, bool) {
 			return nextPrayerFromAPI(port)
 		},
@@ -446,6 +456,12 @@ func runTrayForService(port int, svc service.Service) {
 		StopQuranSpeaker:   func() { quranActionFromAPI(port, "stop", "speaker") },
 		StreamQuranLocal:   func() error { return quranActionFromAPI(port, "play", "local") },
 		StopQuranLocal:     func() { quranActionFromAPI(port, "stop", "local") },
+		CheckUpdate: func() (string, string, bool, error) {
+			return checkForUpdate(version)
+		},
+		Uninstall: func() {
+			doUninstall(svc, nil)
+		},
 	})
 }
 
@@ -545,6 +561,7 @@ func runTray(prg *program, svc service.Service) {
 			}
 			return config.Get().Web.Port
 		}(),
+		Version: version,
 		NextPrayer: func() (string, time.Time, bool) {
 			if prg.scheduler == nil {
 				return "", time.Time{}, false
@@ -583,7 +600,39 @@ func runTray(prg *program, svc service.Service) {
 				prg.quranCtrl.StopLocal()
 			}
 		},
+		CheckUpdate: func() (string, string, bool, error) {
+			return checkForUpdate(version)
+		},
+		Uninstall: func() {
+			doUninstall(svc, func() { prg.Stop(svc) })
+		},
 	})
+}
+
+// doUninstall shows a confirmation dialog, then stops and uninstalls the
+// service, removes platform-specific helper files, and exits the process.
+// stopFn is called before service.Stop() (nil is fine).
+func doUninstall(svc service.Service, stopFn func()) {
+	if !confirmDialog(
+		"Uninstall Automated Azan?",
+		"This will stop the service and remove it from automatic startup.\n\nYour config and prayer data will be kept.",
+	) {
+		return
+	}
+
+	log.Println("[main] uninstalling service...")
+	if stopFn != nil {
+		stopFn()
+	}
+	_ = svc.Stop()
+	_ = svc.Uninstall()
+
+	// Remove the helper binary that was copied outside the .app bundle (macOS).
+	if helperBin, _, _ := ensureHelperBinary(); helperBin != "" {
+		_ = os.Remove(helperBin)
+	}
+
+	os.Exit(0)
 }
 
 // runHeadless opens the dashboard in the default browser and blocks forever.

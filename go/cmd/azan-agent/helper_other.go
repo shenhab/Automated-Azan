@@ -2,5 +2,5 @@
 
 package main
 
-// ensureHelperBinary is a no-op on non-macOS platforms; returns empty string.
-func ensureHelperBinary() (string, error) { return "", nil }
+// ensureHelperBinary is a no-op on non-macOS platforms.
+func ensureHelperBinary() (path string, updated bool, err error) { return "", false, nil }

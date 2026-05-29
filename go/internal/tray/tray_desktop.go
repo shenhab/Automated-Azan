@@ -19,6 +19,7 @@ var iconData []byte
 // Config holds what the tray needs to show status and control streams.
 type Config struct {
 	Port       int
+	Version    string // shown in the status item, e.g. "v1.1.0"; omit for dev builds
 	NextPrayer func() (name string, at time.Time, ok bool)
 	OnQuit     func()
 
@@ -29,6 +30,14 @@ type Config struct {
 	StopQuranSpeaker   func()
 	StreamQuranLocal   func() error
 	StopQuranLocal     func()
+
+	// CheckUpdate, when non-nil, adds a "Check for Update" menu item.
+	// Returns (newVersion, releaseURL, hasUpdate, err).
+	CheckUpdate func() (newVersion, url string, hasUpdate bool, err error)
+
+	// Uninstall, when non-nil, adds an "Uninstall…" menu item.
+	// The function must handle confirmation dialog, service teardown, and exit.
+	Uninstall func()
 }
 
 // Run starts the system tray. This call blocks — it must be the last call
@@ -52,7 +61,11 @@ func onReady(cfg Config) {
 		systray.SetTitle("Azan") // fallback text when icon fails
 	}
 
-	mStatus := systray.AddMenuItem("● Running", "Azan Agent is running")
+	statusLabel := "● Running"
+	if cfg.Version != "" && cfg.Version != "dev" {
+		statusLabel = fmt.Sprintf("● Running  %s", cfg.Version)
+	}
+	mStatus := systray.AddMenuItem(statusLabel, "Azan Agent is running")
 	mStatus.Disable()
 
 	systray.AddSeparator()
@@ -72,13 +85,28 @@ func onReady(cfg Config) {
 		mQuranLocal   = systray.AddMenuItem("▶  Quran on This PC", "Stream Quran on this machine's audio")
 		quranSpeakerCh = mQuranSpeaker.ClickedCh
 		quranLocalCh   = mQuranLocal.ClickedCh
-
-		// Prime the labels with current state immediately
 		refreshQuranItems(mQuranSpeaker, mQuranLocal, cfg.QuranStatus)
 	}
 
 	systray.AddSeparator()
 	mDashboard := systray.AddMenuItem("Open Dashboard", fmt.Sprintf("http://localhost:%d", cfg.Port))
+
+	// Optional: Check for Update
+	var updateCh <-chan struct{}
+	if cfg.CheckUpdate != nil {
+		systray.AddSeparator()
+		mUpdate := systray.AddMenuItem("Check for Update", "Check GitHub for a newer release")
+		updateCh = mUpdate.ClickedCh
+	}
+
+	// Optional: Uninstall
+	var uninstallCh <-chan struct{}
+	if cfg.Uninstall != nil {
+		systray.AddSeparator()
+		mUninstall := systray.AddMenuItem("Uninstall…", "Remove Azan Agent from this machine")
+		uninstallCh = mUninstall.ClickedCh
+	}
+
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Exit", "Stop Azan Agent and exit")
 
@@ -86,7 +114,7 @@ func onReady(cfg Config) {
 	go func() {
 		pollInterval := time.Minute
 		if cfg.QuranStatus != nil {
-			pollInterval = 30 * time.Second // faster when Quran state can change
+			pollInterval = 30 * time.Second
 		}
 		for {
 			time.Sleep(pollInterval)
@@ -105,11 +133,29 @@ func onReady(cfg Config) {
 			handleQuranClick(mQuranLocal, false, cfg)
 		case <-mDashboard.ClickedCh:
 			openBrowser(fmt.Sprintf("http://localhost:%d", cfg.Port))
+		case <-updateCh:
+			go handleCheckUpdate(cfg.CheckUpdate, cfg.Port)
+		case <-uninstallCh:
+			cfg.Uninstall()
 		case <-mQuit.ClickedCh:
 			systray.Quit()
 			return
 		}
 	}
+}
+
+func handleCheckUpdate(checkFn func() (string, string, bool, error), port int) {
+	newVer, url, hasUpdate, err := checkFn()
+	if err != nil {
+		log.Printf("[tray] update check error: %v", err)
+		return
+	}
+	if !hasUpdate {
+		log.Printf("[tray] already on latest version")
+		return
+	}
+	log.Printf("[tray] update available: %s — opening %s", newVer, url)
+	openBrowser(url)
 }
 
 func refreshQuranItems(speaker, local *systray.MenuItem, status func() (bool, bool)) {
