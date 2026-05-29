@@ -66,10 +66,14 @@ func checkForUpdate(currentVersion string) (*UpdateInfo, error) {
 		return nil, nil // already on latest
 	}
 
-	// Look for a downloadable binary asset for this platform/arch.
-	want := selfUpdateAssetName()
+	// Find the binary asset for this platform. Assets are named
+	// azan-agent-{os}-{arch}-{version}[.exe]; match by prefix and skip
+	// installer packages (.dmg, .zip).
+	prefix := selfUpdateAssetPrefix()
 	for _, a := range rel.Assets {
-		if a.Name == want {
+		if strings.HasPrefix(a.Name, prefix) &&
+			!strings.HasSuffix(a.Name, ".dmg") &&
+			!strings.HasSuffix(a.Name, ".zip") {
 			return &UpdateInfo{
 				NewVersion:  rel.TagName,
 				DownloadURL: a.BrowserDownloadURL,
@@ -86,14 +90,12 @@ func checkForUpdate(currentVersion string) (*UpdateInfo, error) {
 	}, nil
 }
 
-// selfUpdateAssetName returns the GitHub release asset name for this platform.
-// Must match the asset names produced by the CI release workflow.
-func selfUpdateAssetName() string {
-	name := fmt.Sprintf("azan-agent-%s-%s", runtime.GOOS, runtime.GOARCH)
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	return name
+// selfUpdateAssetPrefix returns the platform/arch prefix used to find the
+// correct self-update binary in a GitHub release. Assets are named
+// azan-agent-{os}-{arch}-{version}[.exe], so we match by prefix and exclude
+// DMG/ZIP files to avoid picking up the installer package.
+func selfUpdateAssetPrefix() string {
+	return fmt.Sprintf("azan-agent-%s-%s", runtime.GOOS, runtime.GOARCH)
 }
 
 // applySelfUpdate downloads the binary at downloadURL, replaces the helper
