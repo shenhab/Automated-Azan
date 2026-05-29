@@ -55,14 +55,14 @@ jobs:
             goos:    darwin
             goarch:  amd64
             cgo:     "1"
-            asset:   azan-agent-darwin-amd64
+            asset:   azan-agent-darwin-amd64.zip
 
           # ── macOS Apple Silicon ───────────────────────────────────────────
           - runner:  macos-latest
             goos:    darwin
             goarch:  arm64
             cgo:     "1"
-            asset:   azan-agent-darwin-arm64
+            asset:   azan-agent-darwin-arm64.zip
 
     steps:
       - name: Checkout
@@ -91,10 +91,68 @@ jobs:
           CGO_ENABLED: ${{ matrix.cgo }}
         # -H windowsgui suppresses the console window on Windows so only the
         # system tray icon appears when the .exe is launched.
+        # macOS assets include .zip suffix (bundle added next step); strip it here for go build -o.
         run: |
           EXTRA=""
           if [ "${{ matrix.goos }}" = "windows" ]; then EXTRA="-H windowsgui"; fi
-          go build -ldflags="-s -w $EXTRA" -o ${{ matrix.asset }} ./cmd/azan-agent
+          OUT="${{ matrix.asset }}"
+          if [ "${{ matrix.goos }}" = "darwin" ]; then OUT="${OUT%.zip}"; fi
+          go build -ldflags="-s -w $EXTRA" -o "$OUT" ./cmd/azan-agent
+
+      # macOS only: wrap the binary in a proper .app bundle with icon, then zip.
+      # Uses sips + iconutil (both ship with Xcode on macOS runners) to convert
+      # the .ico tray icon into a full .icns for Finder / Dock / Launchpad.
+      - name: Package as .app bundle (macOS)
+        if: matrix.goos == 'darwin'
+        working-directory: go
+        shell: bash
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          BINARY="${{ matrix.asset }}"
+          BINARY="${BINARY%.zip}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$VERSION" =~ ^[0-9] ]] || VERSION="0.0.0"
+          APP="AzanAgent.app"
+
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp "$BINARY" "$APP/Contents/MacOS/AzanAgent"
+          chmod +x "$APP/Contents/MacOS/AzanAgent"
+
+          # Info.plist — LSUIElement hides the Dock icon; only the tray icon shows.
+          cat > "$APP/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key><string>AzanAgent</string>
+              <key>CFBundleName</key><string>AzanAgent</string>
+              <key>CFBundleDisplayName</key><string>Automated Azan</string>
+              <key>CFBundleIdentifier</key><string>com.shenhab.azanagent</string>
+              <key>CFBundleVersion</key><string>${VERSION}</string>
+              <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+              <key>CFBundlePackageType</key><string>APPL</string>
+              <key>CFBundleIconFile</key><string>AppIcon</string>
+              <key>LSUIElement</key><true/>
+              <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          PLIST
+
+          # Icon: ico → png → iconset → icns
+          sips -s format png internal/tray/azan.ico --out /tmp/azan_icon.png 2>/dev/null || true
+          mkdir AppIcon.iconset
+          for SIZE in 16 32 128 256 512; do
+            sips -z $SIZE $SIZE /tmp/azan_icon.png --out "AppIcon.iconset/icon_${SIZE}x${SIZE}.png" 2>/dev/null
+            DOUBLE=$((SIZE * 2))
+            sips -z $DOUBLE $DOUBLE /tmp/azan_icon.png --out "AppIcon.iconset/icon_${SIZE}x${SIZE}@2x.png" 2>/dev/null
+          done
+          iconutil -c icns AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
+          rm -rf AppIcon.iconset
+
+          # Zip the bundle; remove the raw binary
+          zip -r "${{ matrix.asset }}" "$APP"
+          rm -rf "$APP" "$BINARY"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -121,9 +179,9 @@ jobs:
 
       - name: Restore executable permissions
         # upload/download-artifact uses zip which strips Unix file mode.
-        # chmod every non-Windows binary so users can run them directly.
+        # chmod Linux binaries; macOS artifacts are .zip bundles (chmod not needed).
         run: |
-          chmod +x dist/azan-agent-linux-* dist/azan-agent-darwin-* 2>/dev/null || true
+          chmod +x dist/azan-agent-linux-* 2>/dev/null || true
           ls -lh dist/
 
       - name: Create / update GitHub Release
@@ -167,19 +225,21 @@ jobs:
             | `azan-agent-linux-arm64` | Raspberry Pi 4/5 | — headless |
             | `azan-agent-linux-arm` | Raspberry Pi 3 | — headless |
             | `azan-agent-windows-amd64.exe` | Windows 64-bit | ✅ native Win32 |
-            | `azan-agent-darwin-amd64` | macOS Intel | ✅ native NSStatusBar |
-            | `azan-agent-darwin-arm64` | macOS Apple Silicon (M1/M2/M3) | ✅ native NSStatusBar |
+            | `azan-agent-darwin-amd64.zip` | macOS Intel | ✅ native NSStatusBar |
+            | `azan-agent-darwin-arm64.zip` | macOS Apple Silicon (M1/M2/M3) | ✅ native NSStatusBar |
 
             ### Quick start
-            1. Download the binary for your platform
+            1. Download the binary/bundle for your platform
             2. Run it — it installs itself as a background service automatically
             3. Dashboard: `http://localhost:28426`
 
             ### macOS — first run only (Gatekeeper)
+            Download the `.zip`, unzip to get `AzanAgent.app`, then run once:
             ```bash
-            xattr -rd com.apple.quarantine azan-agent-darwin-arm64
-            ./azan-agent-darwin-arm64
+            xattr -rd com.apple.quarantine AzanAgent.app
             ```
+            Drag `AzanAgent.app` to `/Applications`, then double-click to launch.
+            The app installs itself as a LaunchAgent and starts automatically on login.
 
             ### Windows — first run (service registration)
             Right-click → **Run as administrator** once to register the Windows Service.
