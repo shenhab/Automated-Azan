@@ -348,7 +348,7 @@ func main() {
 	}
 
 	// Running interactively (double-click or terminal launch)
-	if service.Interactive() {
+	if isInteractiveLaunch() {
 		// All platforms: prefer running as a native service so the agent persists
 		// across terminal sessions and starts automatically on login/boot.
 		runAsService(prg, svc, helperUpdated)
@@ -359,6 +359,29 @@ func main() {
 	if err := svc.Run(); err != nil {
 		log.Fatalf("service run: %v", err)
 	}
+}
+
+// isInteractiveLaunch reports whether the process was started by a user
+// (double-click, terminal) rather than by the OS service manager.
+//
+// kardianos/service uses PPID != 1 to detect this, but on macOS both Finder
+// launches and LaunchAgent launches are parented by launchd (PID 1), so
+// service.Interactive() always returns false for app-bundle launches. We
+// distinguish the two cases by checking the executable path instead.
+func isInteractiveLaunch() bool {
+	if runtime.GOOS == "darwin" {
+		exe, _ := os.Executable()
+		// .app bundle launch (Finder or terminal inside the bundle)
+		if strings.Contains(exe, ".app/Contents/MacOS/") {
+			return true
+		}
+		// Plain binary run from a terminal (TERM or TERM_PROGRAM is set)
+		if os.Getenv("TERM") != "" || os.Getenv("TERM_PROGRAM") != "" {
+			return true
+		}
+		return false // helper binary started by launchd as a LaunchAgent
+	}
+	return service.Interactive()
 }
 
 // runAsService installs (if needed) and starts the native OS service, then
