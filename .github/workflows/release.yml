@@ -156,13 +156,24 @@ jobs:
             -ov -format UDZO \
             -imagekey zlib-level=9 \
             "${{ matrix.asset }}"
-          rm -rf dmg_staging "$APP" "$BINARY"
+          rm -rf dmg_staging "$APP"
+          # Keep $BINARY for the self-update artifact upload below.
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset }}
           path: go/${{ matrix.asset }}
+          retention-days: 1
+
+      # macOS: also upload the raw binary so the in-app self-updater can
+      # download it directly (programmatic downloads are never quarantined).
+      - name: Upload raw binary for self-update (macOS)
+        if: matrix.goos == 'darwin'
+        uses: actions/upload-artifact@v7
+        with:
+          name: azan-agent-darwin-${{ matrix.goarch }}
+          path: go/azan-agent-darwin-${{ matrix.goarch }}
           retention-days: 1
 
   # ── Create GitHub Release and attach all binaries ─────────────────────────

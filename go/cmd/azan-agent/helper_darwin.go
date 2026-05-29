@@ -45,14 +45,16 @@ func ensureHelperBinary() (path string, updated bool, err error) {
 		return helperBin, false, nil
 	}
 
-	// Check if a copy already exists and matches the source.
 	srcInfo, err := os.Stat(self)
 	if err != nil {
 		return "", false, err
 	}
+	// Only overwrite the helper if the source (.app binary) is strictly newer.
+	// A self-update sets the helper's modtime to the future, so an older .app
+	// binary will never satisfy this condition — preventing accidental downgrades.
 	if dstInfo, err := os.Stat(helperBin); err == nil {
-		if dstInfo.Size() == srcInfo.Size() && !srcInfo.ModTime().After(dstInfo.ModTime()) {
-			return helperBin, false, nil // already up to date
+		if !srcInfo.ModTime().After(dstInfo.ModTime()) {
+			return helperBin, false, nil // helper is same age or newer
 		}
 	}
 

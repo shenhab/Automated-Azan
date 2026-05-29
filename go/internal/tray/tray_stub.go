@@ -24,7 +24,7 @@ type Config struct {
 	StreamQuranLocal   func() error
 	StopQuranLocal     func()
 
-	CheckUpdate func() (newVersion, url string, hasUpdate bool, err error)
+	CheckUpdate func()
 	Uninstall   func()
 }
 

@@ -479,9 +479,7 @@ func runTrayForService(port int, svc service.Service) {
 		StopQuranSpeaker:   func() { quranActionFromAPI(port, "stop", "speaker") },
 		StreamQuranLocal:   func() error { return quranActionFromAPI(port, "play", "local") },
 		StopQuranLocal:     func() { quranActionFromAPI(port, "stop", "local") },
-		CheckUpdate: func() (string, string, bool, error) {
-			return checkForUpdate(version)
-		},
+		CheckUpdate: makeCheckUpdateFn(svc, nil),
 		Uninstall: func() {
 			doUninstall(svc, nil)
 		},
@@ -623,13 +621,63 @@ func runTray(prg *program, svc service.Service) {
 				prg.quranCtrl.StopLocal()
 			}
 		},
-		CheckUpdate: func() (string, string, bool, error) {
-			return checkForUpdate(version)
-		},
+		CheckUpdate: makeCheckUpdateFn(svc, func() { prg.Stop(svc) }),
 		Uninstall: func() {
 			doUninstall(svc, func() { prg.Stop(svc) })
 		},
 	})
+}
+
+// makeCheckUpdateFn returns the function wired into the tray's "Check for Update"
+// item. It handles the full flow: check → dialog → download → replace → restart.
+// stopFn is called before restarting the service (nil is fine for service-mode tray).
+func makeCheckUpdateFn(svc service.Service, stopFn func()) func() {
+	return func() {
+		info, err := checkForUpdate(version)
+		if err != nil {
+			showInfoDialog("Update Check Failed",
+				fmt.Sprintf("Could not reach GitHub:\n%v", err))
+			return
+		}
+		if info == nil {
+			showInfoDialog("Automated Azan — Up to Date",
+				fmt.Sprintf("You're running the latest version (%s).", version))
+			return
+		}
+
+		msg := fmt.Sprintf("Version %s is available (you have %s).",
+			info.NewVersion, version)
+		if !info.HasBinary {
+			// No downloadable binary — send user to the release page.
+			showInfoDialog("Update Available", msg+"\n\nOpening the download page in your browser.")
+			openBrowser(info.DownloadURL)
+			return
+		}
+
+		if !confirmDialog("Update Available",
+			msg+"\n\nDownload and install now? The app will restart automatically.") {
+			return
+		}
+
+		log.Printf("[update] downloading %s from %s", info.NewVersion, info.DownloadURL)
+		restartSvc := func() {
+			if stopFn != nil {
+				stopFn()
+			}
+			_ = svc.Stop()
+			time.Sleep(500 * time.Millisecond)
+			_ = svc.Start()
+		}
+		if err := applySelfUpdate(info.DownloadURL, restartSvc); err != nil {
+			showInfoDialog("Update Failed",
+				fmt.Sprintf("Could not apply update:\n%v", err))
+			return
+		}
+
+		showInfoDialog("Update Complete",
+			fmt.Sprintf("Updated to %s. Restarting now…", info.NewVersion))
+		relaunch()
+	}
 }
 
 // doUninstall shows a confirmation dialog, then stops and uninstalls the

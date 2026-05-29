@@ -32,8 +32,8 @@ type Config struct {
 	StopQuranLocal     func()
 
 	// CheckUpdate, when non-nil, adds a "Check for Update" menu item.
-	// Returns (newVersion, releaseURL, hasUpdate, err).
-	CheckUpdate func() (newVersion, url string, hasUpdate bool, err error)
+	// Called in a goroutine; must handle its own dialogs and feedback.
+	CheckUpdate func()
 
 	// Uninstall, when non-nil, adds an "Uninstall…" menu item.
 	// The function must handle confirmation dialog, service teardown, and exit.
@@ -134,7 +134,7 @@ func onReady(cfg Config) {
 		case <-mDashboard.ClickedCh:
 			openBrowser(fmt.Sprintf("http://localhost:%d", cfg.Port))
 		case <-updateCh:
-			go handleCheckUpdate(cfg.CheckUpdate, cfg.Port)
+			go cfg.CheckUpdate()
 		case <-uninstallCh:
 			cfg.Uninstall()
 		case <-mQuit.ClickedCh:
@@ -144,19 +144,6 @@ func onReady(cfg Config) {
 	}
 }
 
-func handleCheckUpdate(checkFn func() (string, string, bool, error), port int) {
-	newVer, url, hasUpdate, err := checkFn()
-	if err != nil {
-		log.Printf("[tray] update check error: %v", err)
-		return
-	}
-	if !hasUpdate {
-		log.Printf("[tray] already on latest version")
-		return
-	}
-	log.Printf("[tray] update available: %s — opening %s", newVer, url)
-	openBrowser(url)
-}
 
 func refreshQuranItems(speaker, local *systray.MenuItem, status func() (bool, bool)) {
 	spkActive, locActive := status()
