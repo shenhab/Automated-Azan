@@ -137,18 +137,19 @@ jobs:
           # to "unverified developer" (Open Anyway in System Settings).
           codesign --sign - --force --deep "$APP" 2>/dev/null || true
 
-          # DMG staging: app + Applications symlink + Install script
+          # DMG staging: app + Applications symlink + README + Terminal shortcut
           mkdir dmg_staging
           cp -r "$APP" dmg_staging/
           ln -s /Applications dmg_staging/Applications
 
-          # Install.command — double-click from the DMG to install without
-          # needing any terminal commands. Removes quarantine, copies to
-          # /Applications, and launches the app.
-          cat packaging/macos/Install.command \
-            | sed "s/__VERSION__/${VERSION}/g" \
-            > dmg_staging/"Install Automated Azan.command"
-          chmod +x dmg_staging/"Install Automated Azan.command"
+          # README with install steps and the one-time xattr command
+          sed "s/__VERSION__/${VERSION}/g" packaging/macos/README.txt \
+            > dmg_staging/README.txt
+
+          # Shortcut to Terminal so users can open it straight from the DMG
+          # window and paste the xattr command shown in README.txt
+          ln -s /System/Applications/Utilities/Terminal.app \
+            dmg_staging/Terminal.app
 
           hdiutil create \
             -volname "Automated Azan ${VERSION}" \
