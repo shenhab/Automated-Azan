@@ -119,25 +119,8 @@ jobs:
           cp "$BINARY" "$APP/Contents/MacOS/AzanAgent"
           chmod +x "$APP/Contents/MacOS/AzanAgent"
 
-          # Info.plist — LSUIElement hides the Dock icon; only the tray icon shows.
-          cat > "$APP/Contents/Info.plist" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key><string>AzanAgent</string>
-    <key>CFBundleName</key><string>AzanAgent</string>
-    <key>CFBundleDisplayName</key><string>Automated Azan</string>
-    <key>CFBundleIdentifier</key><string>com.shenhab.azanagent</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleIconFile</key><string>AppIcon</string>
-    <key>LSUIElement</key><true/>
-    <key>NSHighResolutionCapable</key><true/>
-</dict>
-</plist>
-PLIST
-          # Inject version into plist (sed is safe here; no special chars in semver)
-          sed -i '' "s|<key>CFBundlePackageType|<key>CFBundleVersion</key><string>${VERSION}</string><key>CFBundleShortVersionString</key><string>${VERSION}</string><key>CFBundlePackageType|" "$APP/Contents/Info.plist"
+          # Info.plist — inject version into the committed template
+          sed "s/__VERSION__/${VERSION}/g" packaging/macos/Info.plist > "$APP/Contents/Info.plist"
 
           # Icon: ico → png → iconset → icns
           sips -s format png internal/tray/azan.ico --out /tmp/azan_icon.png 2>/dev/null || true
