@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"azan-agent/internal/appdirs"
@@ -122,7 +123,12 @@ func (j JobChannelsConfig) ForPrayer(name string) ChannelConfig {
 
 // PrayerConfig holds prayer scheduling settings.
 type PrayerConfig struct {
+	// Location is either a preloaded key ("naas","icci","newbridge")
+	// or "aladhan" to use the Aladhan API.
 	Location          string             `toml:"location"`
+	AladhanCity       string             `toml:"aladhan_city"`
+	AladhanCountry    string             `toml:"aladhan_country"`
+	AladhanMethod     int                `toml:"aladhan_method"` // 3 = MWL (default)
 	PreFajrEnabled    bool               `toml:"pre_fajr_enabled"`
 	PreFajrMinutes    int                `toml:"pre_fajr_minutes"`
 	FridayKahfEnabled bool               `toml:"friday_kahf_enabled"`
@@ -176,7 +182,8 @@ func (c *Config) setDefaults() {
 	c.Speaker = SpeakerConfig{GroupName: "athan"}
 	defaultCh := ChannelConfig{Speaker: true, Local: false, Notify: false}
 	c.Prayer = PrayerConfig{
-		Location:       "naas",
+		Location:      "naas",
+		AladhanMethod: 3, // Muslim World League
 		PreFajrMinutes: 30,
 		Enabled: PrayerEnabledConfig{
 			Fajr: true, Dhuhr: true, Asr: true, Maghrib: true, Isha: true,
@@ -298,7 +305,11 @@ func (c *Config) AsWebDict() map[string]interface{} {
 		"friday_kahf_speaker":   c.Speaker.FridayKahfSpeaker,
 		"quran_speaker":         c.Speaker.QuranSpeaker,
 		"location":              c.Prayer.Location,
-		"location_label":        locationLabel(c.Prayer.Location),
+		"location_label":        locationLabel(c.Prayer.Location, c.Prayer.AladhanCity, c.Prayer.AladhanCountry),
+		"aladhan_city":          c.Prayer.AladhanCity,
+		"aladhan_country":       c.Prayer.AladhanCountry,
+		"aladhan_method":        c.Prayer.AladhanMethod,
+		"aladhan_ireland_warn":  c.Prayer.Location == "aladhan" && isIreland(c.Prayer.AladhanCountry),
 		"pre_fajr_enabled":      c.Prayer.PreFajrEnabled,
 		"pre_fajr_minutes":      c.Prayer.PreFajrMinutes,
 		"friday_kahf_enabled":   c.Prayer.FridayKahfEnabled,
@@ -357,8 +368,14 @@ func (c *Config) writablePath() string {
 	return filepath.Join(appdirs.Config(), "azan.toml")
 }
 
-// locationLabel maps internal location keys to human-readable country/city labels.
-func locationLabel(key string) string {
+// locationLabel returns a human-readable label for the active location.
+func locationLabel(key, aladhanCity, aladhanCountry string) string {
+	if key == "aladhan" {
+		if aladhanCity != "" && aladhanCountry != "" {
+			return aladhanCountry + " — " + aladhanCity
+		}
+		return "Aladhan API"
+	}
 	labels := map[string]string{
 		"naas":      "Ireland — Naas",
 		"icci":      "Ireland — Dublin",
@@ -368,4 +385,13 @@ func locationLabel(key string) string {
 		return l
 	}
 	return key
+}
+
+// isIreland reports whether the country string refers to Ireland.
+func isIreland(country string) bool {
+	switch strings.ToLower(strings.TrimSpace(country)) {
+	case "ireland", "ie", "irl", "republic of ireland":
+		return true
+	}
+	return false
 }

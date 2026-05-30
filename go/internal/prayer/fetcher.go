@@ -39,12 +39,13 @@ type cacheEntry struct {
 	at    time.Time
 }
 
-// Fetcher fetches and caches prayer times for naas/icci.
+// Fetcher fetches and caches prayer times for naas/icci/newbridge/aladhan.
 type Fetcher struct {
 	dataDir string
 	tz      *time.Location
 	mu      sync.Mutex
 	cache   map[string]cacheEntry // key: "location_YYYY-MM-DD"
+	aladhan aladhanState
 }
 
 // NewFetcher creates a Fetcher that stores timetable files in dataDir.
@@ -60,7 +61,12 @@ func NewFetcher(dataDir string) (*Fetcher, error) {
 }
 
 // Fetch returns prayer times for location on date, downloading if necessary.
+// When location is "aladhan", delegates to the Aladhan API path.
 func (f *Fetcher) Fetch(location string, date time.Time, forceDownload bool) (Times, error) {
+	if location == "aladhan" {
+		return f.fetchAladhan(date, forceDownload)
+	}
+
 	key := fmt.Sprintf("%s_%s", location, date.Format("2006-01-02"))
 
 	if !forceDownload {
@@ -90,8 +96,15 @@ func (f *Fetcher) Fetch(location string, date time.Time, forceDownload bool) (Ti
 	return times, nil
 }
 
-// ForceRefresh forces a download for the given location (or both if empty).
+// ForceRefresh forces a download for the given location (or all if empty).
+// For "aladhan" it triggers a full-year backup download.
 func (f *Fetcher) ForceRefresh(location string) error {
+	if location == "aladhan" {
+		f.aladhan.mu.Lock()
+		city, country, method := f.aladhan.city, f.aladhan.country, f.aladhan.method
+		f.aladhan.mu.Unlock()
+		return f.downloadAladhanBackup(city, country, method, time.Now().Year())
+	}
 	locations := []string{location}
 	if location == "" {
 		locations = []string{"icci", "naas", "newbridge"}
@@ -377,7 +390,15 @@ func (f *Fetcher) timetablePath(location string) string {
 	return filepath.Join(f.dataDir, names[location])
 }
 
-// Timezone returns the loaded timezone location.
+// Timezone returns the timezone to use for date calculations.
+// For Aladhan mode the API already returns local times, so we use the system
+// local timezone (assumes the agent runs on the user's own machine).
 func (f *Fetcher) Timezone() *time.Location {
+	f.aladhan.mu.Lock()
+	active := f.aladhan.active
+	f.aladhan.mu.Unlock()
+	if active {
+		return time.Local
+	}
 	return f.tz
 }

@@ -71,7 +71,7 @@ func NewServer(
 	quranCtrl QuranController,
 	mediaDir string,
 ) (*Server, error) {
-	return &Server{
+	srv := &Server{
 		cfg:       cfg,
 		fetcher:   fetcher,
 		scheduler: scheduler,
@@ -79,7 +79,15 @@ func NewServer(
 		quranCtrl: quranCtrl,
 		mediaDir:  mediaDir,
 		clients:   make(map[*websocket.Conn]struct{}),
-	}, nil
+	}
+	// Sync fetcher with current config on startup.
+	fetcher.SetAladhan(
+		cfg.Prayer.Location == "aladhan",
+		cfg.Prayer.AladhanCity,
+		cfg.Prayer.AladhanCountry,
+		cfg.Prayer.AladhanMethod,
+	)
+	return srv, nil
 }
 
 // Start begins serving on cfg.Web.Host:cfg.Web.Port.
@@ -118,6 +126,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/media/files", s.handleAPIMediaFiles)
 	mux.HandleFunc("/api/media/upload", s.handleAPIMediaUpload)
 	mux.HandleFunc("/api/hijri", s.handleAPIHijri)
+	mux.HandleFunc("/api/aladhan/methods", s.handleAPIAladhanMethods)
 
 	// Static files served from ../static relative to binary
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
@@ -239,9 +248,10 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		{Key: "friday_kahf", Label: "Friday Surah Al-Kahf", HasEnabled: false, HasMedia: false, AudioLabel: "Kahf (built-in)"},
 	}
 	s.renderPage(w, "settings.html", map[string]interface{}{
-		"page":       "settings",
-		"config":     s.cfg.AsWebDict(),
-		"notifRows":  rows,
+		"page":           "settings",
+		"config":         s.cfg.AsWebDict(),
+		"notifRows":      rows,
+		"aladhan_methods": prayer.AladhanMethods,
 	})
 }
 
@@ -316,6 +326,15 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 		if v, ok := body["location"].(string); ok {
 			s.cfg.Prayer.Location = v
 		}
+		if v, ok := body["aladhan_city"].(string); ok {
+			s.cfg.Prayer.AladhanCity = v
+		}
+		if v, ok := body["aladhan_country"].(string); ok {
+			s.cfg.Prayer.AladhanCountry = v
+		}
+		if v, ok := body["aladhan_method"].(float64); ok {
+			s.cfg.Prayer.AladhanMethod = int(v)
+		}
 		if v, ok := body["pre_fajr_enabled"].(bool); ok {
 			s.cfg.Prayer.PreFajrEnabled = v
 		}
@@ -386,6 +405,13 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, errResp(err))
 			return
 		}
+		// Keep fetcher in sync with any Aladhan setting changes.
+		s.fetcher.SetAladhan(
+			s.cfg.Prayer.Location == "aladhan",
+			s.cfg.Prayer.AladhanCity,
+			s.cfg.Prayer.AladhanCountry,
+			s.cfg.Prayer.AladhanMethod,
+		)
 		writeJSON(w, map[string]interface{}{"success": true, "config": s.cfg.AsWebDict()})
 
 	default:
@@ -635,6 +661,13 @@ func (s *Server) handleAPIMediaUpload(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[web] media file uploaded: %s (%d bytes)", name, n)
 	writeJSON(w, map[string]interface{}{"success": true, "filename": name, "bytes": n})
+}
+
+func (s *Server) handleAPIAladhanMethods(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"methods": prayer.AladhanMethods,
+	})
 }
 
 func (s *Server) handleAPIHijri(w http.ResponseWriter, r *http.Request) {

@@ -39,15 +39,85 @@
           <!-- Location -->
           <div class="mb-3">
             <label class="form-label fw-bold">
-              <i class="fas fa-map-marker-alt me-2"></i>Prayer Times Location
+              <i class="fas fa-map-marker-alt me-2"></i>Prayer Times Source
             </label>
-            <select class="form-select" name="location">
-              <optgroup label="Ireland">
-                <option value="naas" {{if eq (index .config "location") "naas"}}selected{{end}}>Naas</option>
-                <option value="icci" {{if eq (index .config "location") "icci"}}selected{{end}}>Dublin (ICCI)</option>
-                <option value="newbridge" {{if eq (index .config "location") "newbridge"}}selected{{end}}>Newbridge</option>
-              </optgroup>
-            </select>
+
+            <!-- Source toggle -->
+            <div class="d-flex gap-3 mb-3">
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="prayer_source" id="srcIreland" value="ireland"
+                  {{if ne (index .config "location") "aladhan"}}checked{{end}}
+                  onchange="toggleLocationSource(this.value)">
+                <label class="form-check-label" for="srcIreland">
+                  <strong>Ireland Mosque Timetable</strong>
+                  <span class="text-muted d-block" style="font-size:11px">Recommended for Ireland</span>
+                </label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="prayer_source" id="srcAladhan" value="aladhan"
+                  {{if eq (index .config "location") "aladhan"}}checked{{end}}
+                  onchange="toggleLocationSource(this.value)">
+                <label class="form-check-label" for="srcAladhan">
+                  <strong>Aladhan API</strong>
+                  <span class="text-muted d-block" style="font-size:11px">Any city worldwide</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Ireland mosque picker -->
+            <div id="irelandSection" {{if eq (index .config "location") "aladhan"}}style="display:none"{{end}}>
+              <input type="hidden" name="location" id="locationHidden"
+                value="{{if ne (index .config "location") "aladhan"}}{{index .config "location"}}{{else}}naas{{end}}">
+              <select class="form-select" id="irelandSelect"
+                onchange="document.getElementById('locationHidden').value=this.value">
+                <optgroup label="Ireland">
+                  <option value="naas"      {{if eq (index .config "location") "naas"}}selected{{end}}>Naas</option>
+                  <option value="icci"      {{if eq (index .config "location") "icci"}}selected{{end}}>Dublin (ICCI)</option>
+                  <option value="newbridge" {{if eq (index .config "location") "newbridge"}}selected{{end}}>Newbridge</option>
+                </optgroup>
+              </select>
+            </div>
+
+            <!-- Aladhan API picker -->
+            <div id="aladhanSection" {{if ne (index .config "location") "aladhan"}}style="display:none"{{end}}>
+              <div class="alert-info-pill mb-2">
+                <i class="fas fa-wifi me-1"></i>
+                Requires internet. A full-year backup is downloaded automatically for offline use.
+              </div>
+              <div class="row g-2 mb-2">
+                <div class="col-sm-6">
+                  <label class="form-label small fw-semibold">Country</label>
+                  <input type="text" class="form-control form-control-sm" name="aladhan_country"
+                    id="aladhanCountry" value="{{index .config "aladhan_country"}}"
+                    placeholder="e.g. UK, France, Egypt"
+                    oninput="checkIrelandAladhanWarn()">
+                </div>
+                <div class="col-sm-6">
+                  <label class="form-label small fw-semibold">City</label>
+                  <input type="text" class="form-control form-control-sm" name="aladhan_city"
+                    value="{{index .config "aladhan_city"}}" placeholder="e.g. London, Paris, Cairo">
+                </div>
+              </div>
+              <div class="mb-2">
+                <label class="form-label small fw-semibold">Calculation Method</label>
+                <select class="form-select form-select-sm" name="aladhan_method">
+                  {{range .aladhan_methods}}
+                  <option value="{{.ID}}"
+                    {{if eq .ID (index $.config "aladhan_method")}}selected{{end}}>
+                    {{.Name}}{{if eq .ID 3}} — default{{end}}
+                  </option>
+                  {{end}}
+                </select>
+              </div>
+              <!-- Warning: Aladhan + Ireland -->
+              <div id="irelandAladhanWarn" class="alert-warning-pill"
+                {{if not (index .config "aladhan_ireland_warn")}}style="display:none"{{end}}>
+                <i class="fas fa-exclamation-triangle me-1"></i>
+                For Ireland, the mosque timetables (Naas / Dublin / Newbridge) are more accurate
+                than any calculated method — they reflect what your local mosque actually uses.
+                Aladhan times may differ from actual prayer times in your mosque.
+              </div>
+            </div>
           </div>
 
           <!-- Pre-Fajr -->
@@ -389,9 +459,16 @@ function saveSettings() {
     return;
   }
 
+  // Determine active location value
+  const useAladhan = document.getElementById("srcAladhan").checked;
+  const locationVal = useAladhan ? "aladhan" : document.getElementById("locationHidden").value;
+
   const data = {
     speakers_group_name: speaker,
-    location:            form.location.value,
+    location:            locationVal,
+    aladhan_city:        (form.aladhan_city    || {value:""}).value.trim(),
+    aladhan_country:     (form.aladhan_country || {value:""}).value.trim(),
+    aladhan_method:      parseInt((form.aladhan_method || {value:"3"}).value) || 3,
     pre_fajr_enabled:    form.pre_fajr_enabled.checked,
     pre_fajr_minutes:    parseInt(form.pre_fajr_minutes.value),
     friday_kahf_enabled: form.friday_kahf_enabled.checked,
@@ -507,6 +584,30 @@ function savePrayerNotifications() {
       : '<span class="text-danger">' + (d.error || "error") + '</span>';
     if (d.success) showToast("Prayer notifications saved", "success");
   });
+}
+
+function toggleLocationSource(val) {
+  const irelandEl  = document.getElementById("irelandSection");
+  const aladhanEl  = document.getElementById("aladhanSection");
+  const hiddenLoc  = document.getElementById("locationHidden");
+  if (val === "aladhan") {
+    irelandEl.style.display  = "none";
+    aladhanEl.style.display  = "";
+    hiddenLoc.value = "aladhan";
+  } else {
+    irelandEl.style.display  = "";
+    aladhanEl.style.display  = "none";
+    hiddenLoc.value = document.getElementById("irelandSelect").value;
+  }
+  checkIrelandAladhanWarn();
+}
+
+function checkIrelandAladhanWarn() {
+  const warn    = document.getElementById("irelandAladhanWarn");
+  const country = (document.getElementById("aladhanCountry")?.value || "").toLowerCase().trim();
+  const isAladhan = document.getElementById("srcAladhan")?.checked;
+  const isIreland = ["ireland","ie","irl"].includes(country);
+  if (warn) warn.style.display = (isAladhan && isIreland) ? "" : "none";
 }
 </script>
 {{end}}
