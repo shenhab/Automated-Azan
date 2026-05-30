@@ -21,6 +21,8 @@ const (
 	icciBuildURL      = "https://islamireland.ie/api/timetable/"
 	naasURL           = "https://mawaqit.net/en/m/-34"
 	newbridgeURL      = "https://mawaqit.net/en/newbridge-masjid-newbridge-newbridge-ireland"
+	corkURL           = "https://mawaqit.net/en/m/icc-bandon-cork-bandon-p72ad92-ireland"
+	galwayURL         = "https://mawaqit.net/en/m/tuam-islamic-culture-centre-tuam-h54p62b-ireland-1"
 	timezone          = "Europe/Dublin"
 	cacheTTL          = time.Hour
 )
@@ -107,7 +109,7 @@ func (f *Fetcher) ForceRefresh(location string) error {
 	}
 	locations := []string{location}
 	if location == "" {
-		locations = []string{"icci", "naas", "newbridge"}
+		locations = []string{"icci", "naas", "newbridge", "cork", "galway"}
 	}
 	for _, loc := range locations {
 		if err := f.download(loc); err != nil {
@@ -149,6 +151,10 @@ func (f *Fetcher) download(location string) error {
 		return f.downloadMawaqit(naasURL, "naas")
 	case "newbridge":
 		return f.downloadMawaqit(newbridgeURL, "newbridge")
+	case "cork":
+		return f.downloadMawaqit(corkURL, "cork")
+	case "galway":
+		return f.downloadMawaqit(galwayURL, "galway")
 	default:
 		return fmt.Errorf("unknown location: %s", location)
 	}
@@ -251,7 +257,7 @@ func (f *Fetcher) loadFromFile(location string, date time.Time) (Times, error) {
 	switch location {
 	case "icci":
 		return f.extractICCI(data, date)
-	case "naas", "newbridge":
+	case "naas", "newbridge", "cork", "galway":
 		return f.extractNaas(data, date)
 	default:
 		return Times{}, fmt.Errorf("unknown location: %s", location)
@@ -264,6 +270,8 @@ func (f *Fetcher) embeddedTimetable(location string) ([]byte, error) {
 		"naas":      "embedded/naas_prayers_timetable.json",
 		"icci":      "embedded/icci_timetable.json",
 		"newbridge": "embedded/newbridge_timetable.json",
+		"cork":      "embedded/cork_timetable.json",
+		"galway":    "embedded/galway_timetable.json",
 	}
 	name, ok := names[location]
 	if !ok {
@@ -386,6 +394,8 @@ func (f *Fetcher) timetablePath(location string) string {
 		"naas":      "naas_prayers_timetable.json",
 		"icci":      "icci_timetable.json",
 		"newbridge": "newbridge_timetable.json",
+		"cork":      "cork_timetable.json",
+		"galway":    "galway_timetable.json",
 	}
 	return filepath.Join(f.dataDir, names[location])
 }

@@ -380,6 +380,8 @@ func locationLabel(key, aladhanCity, aladhanCountry string) string {
 		"naas":      "Ireland — Naas",
 		"icci":      "Ireland — Dublin",
 		"newbridge": "Ireland — Newbridge",
+		"cork":      "Ireland — Cork",
+		"galway":    "Ireland — Galway",
 	}
 	if l, ok := labels[key]; ok {
 		return l
