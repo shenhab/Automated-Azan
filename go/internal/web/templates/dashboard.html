@@ -249,17 +249,17 @@
     }
   };
 
-  // Sync dashboard button on load if browser Quran is already playing/paused.
+  // Sync dashboard button with current global player state.
   (function() {
-    const stored = sessionStorage.getItem("quranPlaying");
-    const btn = document.getElementById("quranPlayBtn");
-    const msg = document.getElementById("quranMsg");
-    if (!btn) return;
-    if (stored === "1") {
+    var audio = document.getElementById("quranAudio");
+    if (!audio) return;
+    var btn = document.getElementById("quranPlayBtn");
+    var msg = document.getElementById("quranMsg");
+    if (!audio.paused && audio.src) {
       btn.innerHTML = '<i class="fas fa-pause me-2"></i>Pause';
       btn.onclick = function() { window.quranBrowserPause(); };
       msg.innerHTML = '<span style="color:#40916C"><i class="fas fa-broadcast-tower me-1"></i>Streaming in browser</span>';
-    } else if (stored === "paused") {
+    } else if (audio.src && audio.paused) {
       msg.innerHTML = '<span class="text-muted">Paused</span>';
     }
   })();

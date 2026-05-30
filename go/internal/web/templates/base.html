@@ -530,46 +530,27 @@
       url = url || "/api/quran/stream";
       audio.src = url; audio.load();
       audio.play().then(function() {
-        sessionStorage.setItem("quranPlaying", "1");
-        sessionStorage.setItem("quranUrl", url);
         showPlayer(); setMiniBtn(false); notify("playing");
       }).catch(function(e) {
-        sessionStorage.removeItem("quranPlaying");
         notify("error", e);
       });
     };
 
     window.quranBrowserPause = function() {
       audio.pause();
-      sessionStorage.setItem("quranPlaying", "paused");
       setMiniBtn(true); notify("paused");
     };
 
     window.quranBrowserResume = function() {
       audio.play().then(function() {
-        sessionStorage.setItem("quranPlaying", "1");
         setMiniBtn(false); notify("playing");
       });
     };
 
     window.quranBrowserStop = function() {
       audio.pause(); audio.src = "";
-      sessionStorage.removeItem("quranPlaying");
-      sessionStorage.removeItem("quranUrl");
       hidePlayer(); notify("stopped");
     };
-
-    // Restore play state after page navigation within the same tab.
-    var stored    = sessionStorage.getItem("quranPlaying");
-    var storedUrl = sessionStorage.getItem("quranUrl") || "/api/quran/stream";
-    if (stored === "1") {
-      audio.src = storedUrl; audio.load();
-      audio.play().then(function() { showPlayer(); setMiniBtn(false); })
-                  .catch(function() { sessionStorage.removeItem("quranPlaying"); });
-    } else if (stored === "paused") {
-      audio.src = storedUrl;
-      showPlayer(); setMiniBtn(true);
-    }
 
     audio.addEventListener("ended", function() {
       sessionStorage.removeItem("quranPlaying");
@@ -607,10 +588,57 @@
   }
 
   // Active sidebar link
-  document.querySelectorAll(".sidebar-nav .nav-link").forEach(a => {
-    if (a.getAttribute("href") === location.pathname) a.classList.add("active");
-  });
+  function updateSidebarActive(path) {
+    document.querySelectorAll(".sidebar-nav .nav-link").forEach(function(a) {
+      a.classList.toggle("active", a.getAttribute("href") === path);
+    });
+  }
+  updateSidebarActive(location.pathname);
+
+  // ── AJAX navigation — keeps audio, WebSocket and mini-player alive ────────
+  (function() {
+    function swapPage(url) {
+      fetch(url)
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+          var doc = new DOMParser().parseFromString(html, "text/html");
+          document.querySelector(".topbar").innerHTML  = doc.querySelector(".topbar").innerHTML;
+          document.querySelector(".page-body").innerHTML = doc.querySelector(".page-body").innerHTML;
+          document.title = doc.title;
+          updateSidebarActive(new URL(url, location.href).pathname);
+          // Swap page-specific scripts so per-page JS re-initialises.
+          var oldC = document.getElementById("page-scripts-container");
+          if (oldC) oldC.remove();
+          var newC = doc.getElementById("page-scripts-container");
+          if (newC) {
+            var div = document.createElement("div");
+            div.id = "page-scripts-container";
+            newC.querySelectorAll("script").forEach(function(s) {
+              var el = document.createElement("script");
+              if (s.src) { el.src = s.src; } else { el.textContent = s.textContent; }
+              div.appendChild(el);
+            });
+            document.body.appendChild(div);
+          }
+          window.scrollTo(0, 0);
+        })
+        .catch(function() { location.href = url; });
+    }
+
+    document.addEventListener("click", function(e) {
+      var link = e.target.closest(".sidebar-nav .nav-link");
+      if (!link) return;
+      var href = link.getAttribute("href");
+      if (!href || href.charAt(0) !== "/") return;
+      e.preventDefault();
+      if (location.pathname === href) return;
+      history.pushState({url: href}, "", href);
+      swapPage(href);
+    });
+
+    window.addEventListener("popstate", function() { swapPage(location.pathname); });
+  })();
 </script>
-{{template "scripts" .}}
+<div id="page-scripts-container">{{template "scripts" .}}</div>
 </body>
 </html>
