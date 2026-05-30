@@ -21,6 +21,7 @@ import (
 	"azan-agent/internal/hijri"
 	"azan-agent/internal/media"
 	"azan-agent/internal/prayer"
+	"azan-agent/internal/quran"
 
 	"github.com/gorilla/websocket"
 )
@@ -39,6 +40,7 @@ var upgrader = websocket.Upgrader{
 // The concrete implementation lives in internal/quran to avoid import cycles.
 type QuranController interface {
 	StartSpeaker(dur time.Duration) error
+	StartSpeakerOnDevice(deviceName string, dur time.Duration) error
 	StopSpeaker()
 	StartLocal(dur time.Duration) error
 	StopLocal()
@@ -132,6 +134,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/quran/status", s.handleAPIQuranStatus)
 	mux.HandleFunc("/api/quran/play", s.handleAPIQuranPlay)
 	mux.HandleFunc("/api/quran/stop", s.handleAPIQuranStop)
+	mux.HandleFunc("/api/quran/stream-url", s.handleAPIQuranStreamURL)
 	mux.HandleFunc("/api/media/files", s.handleAPIMediaFiles)
 	mux.HandleFunc("/api/media/upload", s.handleAPIMediaUpload)
 	mux.HandleFunc("/api/hijri", s.handleAPIHijri)
@@ -213,12 +216,13 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	hd, _ := hijri.Today() // nil on first-ever network failure; template handles nil
 
 	s.renderPage(w, "dashboard.html", map[string]interface{}{
-		"page":         "dashboard",
-		"config":       s.cfg.AsWebDict(),
-		"prayer_times": times,
-		"next_prayer":  map[string]interface{}{"name": name, "time": at.Format("15:04")},
-		"jobs":         s.scheduler.Status(),
-		"hijri":        hd,
+		"page":            "dashboard",
+		"config":          s.cfg.AsWebDict(),
+		"prayer_times":    times,
+		"next_prayer":     map[string]interface{}{"name": name, "time": at.Format("15:04")},
+		"jobs":            s.scheduler.Status(),
+		"hijri":           hd,
+		"quran_stream_url": quran.StreamURL,
 	})
 }
 
@@ -520,13 +524,18 @@ func (s *Server) handleAPIQuranStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{"success": true, "speaker_active": spk, "local_active": loc})
 }
 
+func (s *Server) handleAPIQuranStreamURL(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]interface{}{"success": true, "url": quran.StreamURL})
+}
+
 func (s *Server) handleAPIQuranPlay(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	var body struct {
-		Target string `json:"target"` // "speaker", "local", or "both" (default "speaker")
+		Target string `json:"target"` // "speaker"|"device"|"local"|"both" (default "speaker")
+		Device string `json:"device"` // Chromecast device name when target=="device"
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 	if body.Target == "" {
@@ -543,6 +552,19 @@ func (s *Server) handleAPIQuranPlay(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, errResp(err))
 			return
 		}
+	case "device":
+		if body.Device == "" {
+			// No device name — fall back to default speaker.
+			if err := s.quranCtrl.StartSpeaker(0); err != nil {
+				writeJSON(w, errResp(err))
+				return
+			}
+		} else {
+			if err := s.quranCtrl.StartSpeakerOnDevice(body.Device, 0); err != nil {
+				writeJSON(w, errResp(err))
+				return
+			}
+		}
 	case "local":
 		if err := s.quranCtrl.StartLocal(0); err != nil {
 			writeJSON(w, errResp(err))
@@ -558,10 +580,10 @@ func (s *Server) handleAPIQuranPlay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	default:
-		writeJSON(w, map[string]interface{}{"success": false, "error": "target must be speaker, local, or both"})
+		writeJSON(w, map[string]interface{}{"success": false, "error": "unknown target"})
 		return
 	}
-	writeJSON(w, map[string]interface{}{"success": true, "target": body.Target})
+	writeJSON(w, map[string]interface{}{"success": true, "target": body.Target, "device": body.Device})
 }
 
 func (s *Server) handleAPIQuranStop(w http.ResponseWriter, r *http.Request) {

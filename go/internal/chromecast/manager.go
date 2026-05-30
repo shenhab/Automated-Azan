@@ -153,6 +153,51 @@ func (m *Manager) PlayURL(url, contentType string) error {
 	return m.playURL(url, contentType)
 }
 
+// PlayURLOnDevice plays url on the named device regardless of the Manager's
+// configured target. The device must already be in the cached device list or
+// reachable via mDNS. Updates m.app so StopPlayback() stops this device.
+func (m *Manager) PlayURLOnDevice(deviceName, url, contentType string) error {
+	devs, err := m.Discover(false)
+	if err != nil {
+		return fmt.Errorf("discover: %w", err)
+	}
+	var target *Device
+	for i := range devs {
+		if equalFold(devs[i].Name, deviceName) {
+			target = &devs[i]
+			break
+		}
+	}
+	if target == nil {
+		// Try a forced re-scan once.
+		devs, _ = m.Discover(true)
+		for i := range devs {
+			if equalFold(devs[i].Name, deviceName) {
+				target = &devs[i]
+				break
+			}
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("device %q not found", deviceName)
+	}
+
+	app, err := m.connectWithRetry(*target)
+	if err != nil {
+		return fmt.Errorf("connect to %s: %w", target.Name, err)
+	}
+	m.mu.Lock()
+	m.app = app
+	m.currentDevice = target
+	m.mu.Unlock()
+
+	log.Printf("[chromecast] PlayURLOnDevice: %s url=%s", target.Name, url)
+	if err := app.Load(url, 0, contentType, false, true, false); err != nil {
+		return fmt.Errorf("load on %s: %w", target.Name, err)
+	}
+	return nil
+}
+
 // PlayQuranStream plays the default live Quran recitation stream.
 func (m *Manager) PlayQuranStream() error {
 	log.Printf("[chromecast] starting Quran stream: %s", QuranStation["url"])

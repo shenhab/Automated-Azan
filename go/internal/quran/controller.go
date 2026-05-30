@@ -59,6 +59,32 @@ func (c *Controller) StartSpeaker(dur time.Duration) error {
 	return nil
 }
 
+// StartSpeakerOnDevice starts the Quran stream on a specific named Chromecast
+// device, regardless of the manager's configured default group.
+func (c *Controller) StartSpeakerOnDevice(deviceName string, dur time.Duration) error {
+	c.mu.Lock()
+	if c.speakerCancel != nil {
+		c.speakerCancel()
+	}
+	ctx, cancel := c.newCtx(dur)
+	c.speakerCancel = cancel
+	c.speakerActive = true
+	c.mu.Unlock()
+
+	log.Printf("[quran] starting stream on device %q (dur=%v)", deviceName, dur)
+	go func() {
+		defer c.clearSpeaker()
+		if err := c.castMgr.PlayURLOnDevice(deviceName, StreamURL, "audio/mpeg"); err != nil {
+			log.Printf("[quran] device stream error (%s): %v", deviceName, err)
+			return
+		}
+		<-ctx.Done()
+		c.castMgr.StopPlayback()
+		log.Printf("[quran] stream stopped on device %q", deviceName)
+	}()
+	return nil
+}
+
 // StopSpeaker cancels the active speaker stream, if any.
 func (c *Controller) StopSpeaker() {
 	c.mu.Lock()

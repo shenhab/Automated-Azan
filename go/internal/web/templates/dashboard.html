@@ -105,14 +105,27 @@
     <div class="card h-100">
       <div class="card-header"><i class="fas fa-quran me-2" style="color:#40916C"></i>Quran Recitation</div>
       <div class="card-body">
-        <p class="text-muted mb-3" style="font-size:13px">
+        <p class="text-muted mb-2" style="font-size:12px">
           Live stream — Mahmoud Khalil Al-Hussary (Warsh)
         </p>
+        <!-- Target selector -->
+        <div class="mb-2">
+          <select class="form-select form-select-sm" id="quranTargetSelect" onchange="onQuranTargetChange()">
+            <option value="browser">🔊 In this browser</option>
+            <option value="speaker">📡 Default speaker ({{index .config "speakers_group_name"}})</option>
+          </select>
+          <div id="quranDeviceLoading" style="display:none;font-size:11px" class="text-muted mt-1">
+            <i class="fas fa-spinner fa-spin me-1"></i>Looking for devices…
+          </div>
+        </div>
+        <!-- Hidden audio element for browser playback -->
+        <audio id="quranAudio" src="{{.quran_stream_url}}" preload="none"></audio>
+        <!-- Controls -->
         <div class="d-flex gap-2">
           <button class="btn btn-success flex-fill" id="quranPlayBtn" onclick="playQuran()">
-            <i class="fas fa-play me-2"></i>Play Quran
+            <i class="fas fa-play me-2"></i>Play
           </button>
-          <button class="btn btn-outline-secondary" id="quranStopBtn" onclick="stopQuran()" title="Stop">
+          <button class="btn btn-outline-secondary" onclick="stopQuran()" title="Stop">
             <i class="fas fa-stop"></i>
           </button>
         </div>
@@ -179,29 +192,117 @@
 
 {{define "scripts"}}
 <script>
-  function playQuran() {
-    const btn = document.getElementById("quranPlayBtn");
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Starting...';
-    fetch("/api/quran/play", {method:"POST"})
+  // ── Quran device dropdown ─────────────────────────────────────────────────
+  // Fetch discovered Chromecast devices and add them to the target dropdown.
+  (function loadQuranDevices() {
+    const sel = document.getElementById("quranTargetSelect");
+    const spinner = document.getElementById("quranDeviceLoading");
+    spinner.style.display = "";
+    fetch("/api/devices")
       .then(r => r.json())
       .then(d => {
-        showToast(d.success ? d.message : "Error: " + d.error, d.success ? "success" : "danger");
-        document.getElementById("quranMsg").innerHTML = d.success
-          ? '<span style="color:#40916C"><i class="fas fa-broadcast-tower me-1"></i>Streaming live</span>'
-          : '<span class="text-danger">' + d.error + '</span>';
+        if (d.success && d.devices && d.devices.length) {
+          d.devices.forEach(dev => {
+            const opt = document.createElement("option");
+            opt.value = "device:" + dev.name;
+            opt.textContent = "📻 " + dev.name;
+            sel.appendChild(opt);
+          });
+        }
       })
-      .finally(() => {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-play me-2"></i>Play Quran';
+      .catch(() => {}) // silently ignore if no devices
+      .finally(() => { spinner.style.display = "none"; });
+  })();
+
+  function onQuranTargetChange() {
+    const val = document.getElementById("quranTargetSelect").value;
+    const msg = document.getElementById("quranMsg");
+    if (val === "browser") {
+      // If something is playing on speaker, don't auto-stop it.
+      msg.innerHTML = "";
+    }
+  }
+
+  // ── Quran play / stop ─────────────────────────────────────────────────────
+  function playQuran() {
+    const btn = document.getElementById("quranPlayBtn");
+    const sel = document.getElementById("quranTargetSelect");
+    const val = sel.value;
+    const msg = document.getElementById("quranMsg");
+
+    // Browser playback: use the <audio> element directly, no API call needed.
+    if (val === "browser") {
+      const audio = document.getElementById("quranAudio");
+      audio.play().then(() => {
+        btn.innerHTML = '<i class="fas fa-pause me-2"></i>Pause';
+        btn.onclick = pauseQuranBrowser;
+        msg.innerHTML = '<span style="color:#40916C"><i class="fas fa-broadcast-tower me-1"></i>Streaming in browser</span>';
+        showToast("Quran streaming in browser", "success");
+      }).catch(e => {
+        msg.innerHTML = '<span class="text-danger">Browser playback blocked — click Play again</span>';
       });
+      return;
+    }
+
+    // Speaker / device playback: call the API.
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Starting…';
+
+    let body;
+    if (val === "speaker") {
+      body = {target: "speaker"};
+    } else {
+      // val = "device:Device Name"
+      body = {target: "device", device: val.substring(7)};
+    }
+
+    fetch("/api/quran/play", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body)
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        const label = val === "speaker" ? sel.options[sel.selectedIndex].textContent : body.device;
+        showToast("Quran streaming on " + label, "success");
+        msg.innerHTML = '<span style="color:#40916C"><i class="fas fa-broadcast-tower me-1"></i>Streaming on ' + label + '</span>';
+      } else {
+        showToast("Error: " + d.error, "danger");
+        msg.innerHTML = '<span class="text-danger">' + d.error + '</span>';
+      }
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-play me-2"></i>Play';
+    });
+  }
+
+  function pauseQuranBrowser() {
+    const audio = document.getElementById("quranAudio");
+    const btn = document.getElementById("quranPlayBtn");
+    audio.pause();
+    btn.innerHTML = '<i class="fas fa-play me-2"></i>Play';
+    btn.onclick = playQuran;
+    document.getElementById("quranMsg").innerHTML = "";
+    showToast("Browser playback paused", "secondary");
   }
 
   function stopQuran() {
-    fetch("/api/quran/stop", {method:"POST"})
+    // Stop browser audio if playing.
+    const audio = document.getElementById("quranAudio");
+    if (!audio.paused) {
+      audio.pause();
+      audio.currentTime = 0;
+      const btn = document.getElementById("quranPlayBtn");
+      btn.innerHTML = '<i class="fas fa-play me-2"></i>Play';
+      btn.onclick = playQuran;
+    }
+    // Also stop any speaker stream.
+    fetch("/api/quran/stop", {method: "POST"})
       .then(r => r.json())
       .then(d => {
-        showToast(d.success ? "Quran stopped" : d.error, d.success ? "secondary" : "danger");
+        showToast("Quran stopped", "secondary");
         document.getElementById("quranMsg").innerHTML = "";
       });
   }
