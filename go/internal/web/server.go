@@ -135,6 +135,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/quran/play", s.handleAPIQuranPlay)
 	mux.HandleFunc("/api/quran/stop", s.handleAPIQuranStop)
 	mux.HandleFunc("/api/quran/stream-url", s.handleAPIQuranStreamURL)
+	mux.HandleFunc("/api/quran/stream", s.handleAPIQuranStream)
 	mux.HandleFunc("/api/media/files", s.handleAPIMediaFiles)
 	mux.HandleFunc("/api/media/upload", s.handleAPIMediaUpload)
 	mux.HandleFunc("/api/hijri", s.handleAPIHijri)
@@ -526,6 +527,38 @@ func (s *Server) handleAPIQuranStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAPIQuranStreamURL(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{"success": true, "url": quran.StreamURL})
+}
+
+// handleAPIQuranStream proxies the Quran radio stream through the local server
+// so the browser can play it without CORS issues.
+func (s *Server) handleAPIQuranStream(w http.ResponseWriter, r *http.Request) {
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, quran.StreamURL, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
+	if rng := r.Header.Get("Range"); rng != "" {
+		req.Header.Set("Range", rng)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		http.Error(w, "stream unavailable: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Forward content-type and status; strip CORS headers so ours apply.
+	if ct := resp.Header.Get("Content-Type"); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	} else {
+		w.Header().Set("Content-Type", "audio/mpeg")
+	}
+	w.Header().Set("Cache-Control", "no-cache, no-store")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body) //nolint:errcheck
 }
 
 func (s *Server) handleAPIQuranPlay(w http.ResponseWriter, r *http.Request) {
