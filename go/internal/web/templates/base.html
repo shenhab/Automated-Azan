@@ -390,6 +390,16 @@
       .topbar { padding: 0 16px; }
       .page-body { padding: 16px; }
     }
+    /* ── Quran mini-player ─────────────────────────────────────────────── */
+    #quranMiniPlayer {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: var(--green-900); color: #fff;
+      padding: 8px 20px 8px calc(var(--sidebar-w) + 20px);
+      display: none; align-items: center; gap: 10px;
+      z-index: 1050; font-size: 13px; box-shadow: 0 -2px 8px rgba(0,0,0,.2);
+    }
+    #quranMiniPlayer.visible { display: flex; }
+    body.quran-playing .page-body { padding-bottom: 56px; }
   </style>
 </head>
 <body>
@@ -459,6 +469,19 @@
   </div>
 </div>
 
+<!-- Persistent Quran browser player -->
+<audio id="quranAudio" preload="none"></audio>
+<div id="quranMiniPlayer">
+  <i class="fas fa-music" style="color:#74C69D"></i>
+  <span style="flex:1">Quran Recitation — Playing in browser</span>
+  <button id="miniPauseBtn" class="btn btn-sm btn-outline-light py-0 px-2">
+    <i class="fas fa-pause"></i>
+  </button>
+  <button onclick="window.quranBrowserStop()" class="btn btn-sm btn-outline-light py-0 px-2 ms-1" title="Stop">
+    <i class="fas fa-stop"></i>
+  </button>
+</div>
+
 <!-- Toast container -->
 <div class="toast-container">
   <div id="globalToast" class="toast align-items-center" role="alert" aria-live="assertive">
@@ -480,17 +503,98 @@
     } catch(_) {}
   };
 
-  // Browser alert: show a Web Notification when a prayer fires (if permitted
-  // and the server says browser_notify is enabled for that prayer).
+  // ── Persistent Quran browser player ──────────────────────────────────────
+  (function() {
+    var audio    = document.getElementById("quranAudio");
+    var player   = document.getElementById("quranMiniPlayer");
+    var pauseBtn = document.getElementById("miniPauseBtn");
+
+    function showPlayer() { player.classList.add("visible"); document.body.classList.add("quran-playing"); }
+    function hidePlayer() { player.classList.remove("visible"); document.body.classList.remove("quran-playing"); }
+
+    function setMiniBtn(isPaused) {
+      if (isPaused) {
+        pauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+        pauseBtn.onclick = window.quranBrowserResume;
+      } else {
+        pauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+        pauseBtn.onclick = window.quranBrowserPause;
+      }
+    }
+
+    function notify(state, err) {
+      if (typeof window.onQuranBrowserState === "function") window.onQuranBrowserState(state, err);
+    }
+
+    window.quranBrowserPlay = function(url) {
+      url = url || "/api/quran/stream";
+      audio.src = url; audio.load();
+      audio.play().then(function() {
+        sessionStorage.setItem("quranPlaying", "1");
+        sessionStorage.setItem("quranUrl", url);
+        showPlayer(); setMiniBtn(false); notify("playing");
+      }).catch(function(e) {
+        sessionStorage.removeItem("quranPlaying");
+        notify("error", e);
+      });
+    };
+
+    window.quranBrowserPause = function() {
+      audio.pause();
+      sessionStorage.setItem("quranPlaying", "paused");
+      setMiniBtn(true); notify("paused");
+    };
+
+    window.quranBrowserResume = function() {
+      audio.play().then(function() {
+        sessionStorage.setItem("quranPlaying", "1");
+        setMiniBtn(false); notify("playing");
+      });
+    };
+
+    window.quranBrowserStop = function() {
+      audio.pause(); audio.src = "";
+      sessionStorage.removeItem("quranPlaying");
+      sessionStorage.removeItem("quranUrl");
+      hidePlayer(); notify("stopped");
+    };
+
+    // Restore play state after page navigation within the same tab.
+    var stored    = sessionStorage.getItem("quranPlaying");
+    var storedUrl = sessionStorage.getItem("quranUrl") || "/api/quran/stream";
+    if (stored === "1") {
+      audio.src = storedUrl; audio.load();
+      audio.play().then(function() { showPlayer(); setMiniBtn(false); })
+                  .catch(function() { sessionStorage.removeItem("quranPlaying"); });
+    } else if (stored === "paused") {
+      audio.src = storedUrl;
+      showPlayer(); setMiniBtn(true);
+    }
+
+    audio.addEventListener("ended", function() {
+      sessionStorage.removeItem("quranPlaying");
+      hidePlayer(); notify("ended");
+    });
+  })();
+
+  // Browser alert + browser Athan: fires when the server broadcasts a prayer_fired event.
+  var _athanAudio = null;
   document.addEventListener("prayer_fired", function(e) {
     const d = e.detail || {};
-    if (!d.browser_notify) return;
-    if (!("Notification" in window) || Notification.permission !== "granted") return;
-    new Notification("Prayer Time — " + d.prayer, {
-      body: "It is time for " + d.prayer + " prayer.",
-      icon: "/favicon.ico",
-      tag:  "azan-" + d.prayer  // prevents duplicate stacking
-    });
+    if (d.browser_notify) {
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("Prayer Time — " + d.prayer, {
+          body: "It is time for " + d.prayer + " prayer.",
+          icon: "/favicon.ico",
+          tag:  "azan-" + d.prayer
+        });
+      }
+    }
+    if (d.browser_athan && d.audio_url) {
+      if (_athanAudio) { _athanAudio.pause(); _athanAudio = null; }
+      _athanAudio = new Audio(d.audio_url);
+      _athanAudio.play().catch(function() {});
+    }
   });
 
   // Toast helper

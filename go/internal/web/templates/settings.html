@@ -264,8 +264,8 @@
               <th style="width:90px" title="Play audio on the server machine running the agent — not in your browser">
                 <i class="fas fa-server text-muted me-1"></i>Server Audio
               </th>
-              <th style="width:80px" title="Show an OS desktop notification on the server machine">
-                <i class="fas fa-bell text-muted me-1"></i>OS Notify
+              <th style="width:80px" title="Show an OS desktop notification on the server machine running the agent — not in your browser">
+                <i class="fas fa-desktop text-muted me-1"></i>Server Notify
               </th>
               <th style="width:95px" title="Show a browser notification in this tab when prayer time fires">
                 <i class="fas fa-globe text-muted me-1"></i>Browser Alert
@@ -273,6 +273,9 @@
                   onclick="requestBrowserNotifyPermission()" title="Grant browser notification permission" id="notifPermBtn">
                   <i class="fas fa-key"></i>
                 </button>
+              </th>
+              <th style="width:100px" title="Play the Athan audio in your browser tab when prayer time fires">
+                <i class="fas fa-volume-up text-muted me-1"></i>Browser Athan
               </th>
               <th style="min-width:160px">Audio File</th>
             </tr>
@@ -311,6 +314,11 @@
                 <input class="form-check-input channel-cb" type="checkbox"
                        data-prayer="{{$row.Key}}" data-ch="browser"
                        {{if index $.config (print "ch_" $row.Key "_browser")}}checked{{end}}>
+              </td>
+              <td class="text-center">
+                <input class="form-check-input channel-cb" type="checkbox"
+                       data-prayer="{{$row.Key}}" data-ch="browser_athan"
+                       {{if index $.config (print "ch_" $row.Key "_browser_athan")}}checked{{end}}>
               </td>
               <td>
                 {{if $row.HasMedia}}

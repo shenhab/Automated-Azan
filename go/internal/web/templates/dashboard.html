@@ -118,8 +118,6 @@
             <i class="fas fa-spinner fa-spin me-1"></i>Looking for devices…
           </div>
         </div>
-        <!-- Audio element for browser playback — proxied through local server to avoid CORS -->
-        <audio id="quranAudio" src="/api/quran/stream" preload="none"></audio>
         <!-- Controls -->
         <div class="d-flex gap-2">
           <button class="btn btn-success flex-fill" id="quranPlayBtn" onclick="playQuran()">
@@ -224,33 +222,60 @@
   }
 
   // ── Quran play / stop ─────────────────────────────────────────────────────
+  // Callback from the global player (base.html) to sync dashboard button state.
+  window.onQuranBrowserState = function(state, err) {
+    const btn = document.getElementById("quranPlayBtn");
+    const msg = document.getElementById("quranMsg");
+    if (!btn) return;
+    if (state === "playing") {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-pause me-2"></i>Pause';
+      btn.onclick = function() { window.quranBrowserPause(); };
+      msg.innerHTML = '<span style="color:#40916C"><i class="fas fa-broadcast-tower me-1"></i>Streaming in browser</span>';
+    } else if (state === "paused") {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-play me-2"></i>Play';
+      btn.onclick = playQuran;
+      msg.innerHTML = '<span class="text-muted">Paused</span>';
+    } else if (state === "stopped" || state === "ended") {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-play me-2"></i>Play';
+      btn.onclick = playQuran;
+      msg.innerHTML = "";
+    } else if (state === "error") {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-play me-2"></i>Play';
+      msg.innerHTML = '<span class="text-danger">Playback failed: ' + ((err && err.message) || err) + '</span>';
+    }
+  };
+
+  // Sync dashboard button on load if browser Quran is already playing/paused.
+  (function() {
+    const stored = sessionStorage.getItem("quranPlaying");
+    const btn = document.getElementById("quranPlayBtn");
+    const msg = document.getElementById("quranMsg");
+    if (!btn) return;
+    if (stored === "1") {
+      btn.innerHTML = '<i class="fas fa-pause me-2"></i>Pause';
+      btn.onclick = function() { window.quranBrowserPause(); };
+      msg.innerHTML = '<span style="color:#40916C"><i class="fas fa-broadcast-tower me-1"></i>Streaming in browser</span>';
+    } else if (stored === "paused") {
+      msg.innerHTML = '<span class="text-muted">Paused</span>';
+    }
+  })();
+
   function playQuran() {
     const btn = document.getElementById("quranPlayBtn");
     const sel = document.getElementById("quranTargetSelect");
     const val = sel.value;
     const msg = document.getElementById("quranMsg");
 
-    // Browser playback: proxy stream through local server to avoid CORS.
+    // Browser playback: delegate to persistent global player in base.html.
     if (val === "browser") {
-      const audio = document.getElementById("quranAudio");
-      // Reset src to force a fresh connection on each play attempt.
-      audio.src = "/api/quran/stream";
       btn.disabled = true;
       btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Loading…';
-      audio.load();
-      audio.play()
-        .then(() => {
-          btn.disabled = false;
-          btn.innerHTML = '<i class="fas fa-pause me-2"></i>Pause';
-          btn.onclick = pauseQuranBrowser;
-          msg.innerHTML = '<span style="color:#40916C"><i class="fas fa-broadcast-tower me-1"></i>Streaming in browser</span>';
-          showToast("Quran streaming in browser", "success");
-        })
-        .catch(e => {
-          btn.disabled = false;
-          btn.innerHTML = '<i class="fas fa-play me-2"></i>Play';
-          msg.innerHTML = '<span class="text-danger">Playback failed: ' + (e.message || e) + '</span>';
-        });
+      window.quranBrowserPlay("/api/quran/stream");
+      showToast("Quran streaming in browser", "success");
       return;
     }
 
@@ -262,7 +287,6 @@
     if (val === "speaker") {
       body = {target: "speaker"};
     } else {
-      // val = "device:Device Name"
       body = {target: "device", device: val.substring(7)};
     }
 
@@ -288,31 +312,11 @@
     });
   }
 
-  function pauseQuranBrowser() {
-    const audio = document.getElementById("quranAudio");
-    const btn = document.getElementById("quranPlayBtn");
-    audio.pause();
-    btn.innerHTML = '<i class="fas fa-play me-2"></i>Play';
-    btn.onclick = playQuran;
-    document.getElementById("quranMsg").innerHTML = "";
-    showToast("Browser playback paused", "secondary");
-  }
-
   function stopQuran() {
-    // Stop browser audio if playing.
-    const audio = document.getElementById("quranAudio");
-    audio.pause();
-    audio.src = "";  // release the proxy connection
-    const btn = document.getElementById("quranPlayBtn");
-    btn.innerHTML = '<i class="fas fa-play me-2"></i>Play';
-    btn.onclick = playQuran;
-    // Also stop any speaker stream.
+    window.quranBrowserStop();
     fetch("/api/quran/stop", {method: "POST"})
       .then(r => r.json())
-      .then(d => {
-        showToast("Quran stopped", "secondary");
-        document.getElementById("quranMsg").innerHTML = "";
-      });
+      .then(() => showToast("Quran stopped", "secondary"));
   }
 
   function playAthan() {

@@ -138,6 +138,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/quran/stream", s.handleAPIQuranStream)
 	mux.HandleFunc("/api/media/files", s.handleAPIMediaFiles)
 	mux.HandleFunc("/api/media/upload", s.handleAPIMediaUpload)
+	mux.HandleFunc("/media/", s.handleMediaServe)
 	mux.HandleFunc("/api/hijri", s.handleAPIHijri)
 	mux.HandleFunc("/api/aladhan/methods", s.handleAPIAladhanMethods)
 	mux.HandleFunc("/api/geo/countries", s.handleAPIGeoCountries)
@@ -192,11 +193,13 @@ func (s *Server) Stop() {
 
 // Broadcast sends a JSON message to all connected WebSocket clients.
 // BroadcastPrayerFired sends a prayer_fired WebSocket event to all connected
-// browser clients so they can show a browser notification if enabled.
-func (s *Server) BroadcastPrayerFired(prayerName string, browserNotify bool) {
+// browser clients so they can show a notification or play audio if enabled.
+func (s *Server) BroadcastPrayerFired(prayerName string, browserNotify, browserAthan bool, audioURL string) {
 	s.Broadcast("prayer_fired", map[string]interface{}{
 		"prayer":         prayerName,
 		"browser_notify": browserNotify,
+		"browser_athan":  browserAthan,
+		"audio_url":      audioURL,
 	})
 }
 
@@ -409,30 +412,37 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 		setBool(&s.cfg.Prayer.Channels.Fajr.Local,                "ch_fajr_local")
 		setBool(&s.cfg.Prayer.Channels.Fajr.Notify,               "ch_fajr_notify")
 		setBool(&s.cfg.Prayer.Channels.Fajr.BrowserNotify,        "ch_fajr_browser")
+		setBool(&s.cfg.Prayer.Channels.Fajr.BrowserAthan,         "ch_fajr_browser_athan")
 		setBool(&s.cfg.Prayer.Channels.Dhuhr.Speaker,             "ch_dhuhr_speaker")
 		setBool(&s.cfg.Prayer.Channels.Dhuhr.Local,               "ch_dhuhr_local")
 		setBool(&s.cfg.Prayer.Channels.Dhuhr.Notify,              "ch_dhuhr_notify")
 		setBool(&s.cfg.Prayer.Channels.Dhuhr.BrowserNotify,       "ch_dhuhr_browser")
+		setBool(&s.cfg.Prayer.Channels.Dhuhr.BrowserAthan,        "ch_dhuhr_browser_athan")
 		setBool(&s.cfg.Prayer.Channels.Asr.Speaker,               "ch_asr_speaker")
 		setBool(&s.cfg.Prayer.Channels.Asr.Local,                 "ch_asr_local")
 		setBool(&s.cfg.Prayer.Channels.Asr.Notify,                "ch_asr_notify")
 		setBool(&s.cfg.Prayer.Channels.Asr.BrowserNotify,         "ch_asr_browser")
+		setBool(&s.cfg.Prayer.Channels.Asr.BrowserAthan,          "ch_asr_browser_athan")
 		setBool(&s.cfg.Prayer.Channels.Maghrib.Speaker,           "ch_maghrib_speaker")
 		setBool(&s.cfg.Prayer.Channels.Maghrib.Local,             "ch_maghrib_local")
 		setBool(&s.cfg.Prayer.Channels.Maghrib.Notify,            "ch_maghrib_notify")
 		setBool(&s.cfg.Prayer.Channels.Maghrib.BrowserNotify,     "ch_maghrib_browser")
+		setBool(&s.cfg.Prayer.Channels.Maghrib.BrowserAthan,      "ch_maghrib_browser_athan")
 		setBool(&s.cfg.Prayer.Channels.Isha.Speaker,              "ch_isha_speaker")
 		setBool(&s.cfg.Prayer.Channels.Isha.Local,                "ch_isha_local")
 		setBool(&s.cfg.Prayer.Channels.Isha.Notify,               "ch_isha_notify")
 		setBool(&s.cfg.Prayer.Channels.Isha.BrowserNotify,        "ch_isha_browser")
+		setBool(&s.cfg.Prayer.Channels.Isha.BrowserAthan,         "ch_isha_browser_athan")
 		setBool(&s.cfg.Prayer.Channels.PreFajr.Speaker,           "ch_pre_fajr_speaker")
 		setBool(&s.cfg.Prayer.Channels.PreFajr.Local,             "ch_pre_fajr_local")
 		setBool(&s.cfg.Prayer.Channels.PreFajr.Notify,            "ch_pre_fajr_notify")
 		setBool(&s.cfg.Prayer.Channels.PreFajr.BrowserNotify,     "ch_pre_fajr_browser")
+		setBool(&s.cfg.Prayer.Channels.PreFajr.BrowserAthan,      "ch_pre_fajr_browser_athan")
 		setBool(&s.cfg.Prayer.Channels.FridayKahf.Speaker,        "ch_friday_kahf_speaker")
 		setBool(&s.cfg.Prayer.Channels.FridayKahf.Local,          "ch_friday_kahf_local")
 		setBool(&s.cfg.Prayer.Channels.FridayKahf.Notify,         "ch_friday_kahf_notify")
 		setBool(&s.cfg.Prayer.Channels.FridayKahf.BrowserNotify,  "ch_friday_kahf_browser")
+		setBool(&s.cfg.Prayer.Channels.FridayKahf.BrowserAthan,   "ch_friday_kahf_browser_athan")
 		if err := s.cfg.Save(); err != nil {
 			writeJSON(w, errResp(err))
 			return
@@ -669,6 +679,34 @@ func (s *Server) handleAPIQuranStop(w http.ResponseWriter, r *http.Request) {
 // not appear in the per-prayer media selection dropdown.
 var athanExclusions = map[string]bool{
 	"kahf.mp3": true, // Friday Surah Al-Kahf — used internally, not for Athan
+}
+
+// handleMediaServe serves media files from the local media directory with embedded fallback.
+// Used by browser-side Athan playback.
+func (s *Server) handleMediaServe(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/media/")
+	if name == "" || strings.Contains(name, "..") {
+		http.NotFound(w, r)
+		return
+	}
+	localPath := filepath.Join(s.mediaDir, name)
+	if _, err := os.Stat(localPath); err == nil {
+		http.ServeFile(w, r, localPath)
+		return
+	}
+	f, err := media.EmbeddedFS.Open("embedded/" + name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+	stat, _ := f.Stat()
+	rs, ok := f.(io.ReadSeeker)
+	if !ok || stat == nil {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeContent(w, r, name, stat.ModTime(), rs)
 }
 
 func (s *Server) handleAPIMediaFiles(w http.ResponseWriter, r *http.Request) {

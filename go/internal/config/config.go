@@ -97,6 +97,7 @@ type ChannelConfig struct {
 	Local          bool `toml:"local"`           // play audio on the server machine
 	Notify         bool `toml:"notify"`          // show an OS desktop notification (server-side)
 	BrowserNotify  bool `toml:"browser_notify"`  // show a Web Notification in connected browser tabs
+	BrowserAthan   bool `toml:"browser_athan"`   // play athan audio in the browser
 }
 
 // JobChannelsConfig holds per-job channel settings for every schedulable job.
@@ -329,13 +330,13 @@ func (c *Config) AsWebDict() map[string]interface{} {
 		"maghrib_media": c.Prayer.Media.Maghrib,
 		"isha_media":    c.Prayer.Media.Isha,
 		// Per-job notification channels  (ch_ prefix avoids collision with speaker-device overrides)
-		"ch_fajr_speaker": c.Prayer.Channels.Fajr.Speaker, "ch_fajr_local": c.Prayer.Channels.Fajr.Local, "ch_fajr_notify": c.Prayer.Channels.Fajr.Notify, "ch_fajr_browser": c.Prayer.Channels.Fajr.BrowserNotify,
-		"ch_dhuhr_speaker": c.Prayer.Channels.Dhuhr.Speaker, "ch_dhuhr_local": c.Prayer.Channels.Dhuhr.Local, "ch_dhuhr_notify": c.Prayer.Channels.Dhuhr.Notify, "ch_dhuhr_browser": c.Prayer.Channels.Dhuhr.BrowserNotify,
-		"ch_asr_speaker": c.Prayer.Channels.Asr.Speaker, "ch_asr_local": c.Prayer.Channels.Asr.Local, "ch_asr_notify": c.Prayer.Channels.Asr.Notify, "ch_asr_browser": c.Prayer.Channels.Asr.BrowserNotify,
-		"ch_maghrib_speaker": c.Prayer.Channels.Maghrib.Speaker, "ch_maghrib_local": c.Prayer.Channels.Maghrib.Local, "ch_maghrib_notify": c.Prayer.Channels.Maghrib.Notify, "ch_maghrib_browser": c.Prayer.Channels.Maghrib.BrowserNotify,
-		"ch_isha_speaker": c.Prayer.Channels.Isha.Speaker, "ch_isha_local": c.Prayer.Channels.Isha.Local, "ch_isha_notify": c.Prayer.Channels.Isha.Notify, "ch_isha_browser": c.Prayer.Channels.Isha.BrowserNotify,
-		"ch_pre_fajr_speaker": c.Prayer.Channels.PreFajr.Speaker, "ch_pre_fajr_local": c.Prayer.Channels.PreFajr.Local, "ch_pre_fajr_notify": c.Prayer.Channels.PreFajr.Notify, "ch_pre_fajr_browser": c.Prayer.Channels.PreFajr.BrowserNotify,
-		"ch_friday_kahf_speaker": c.Prayer.Channels.FridayKahf.Speaker, "ch_friday_kahf_local": c.Prayer.Channels.FridayKahf.Local, "ch_friday_kahf_notify": c.Prayer.Channels.FridayKahf.Notify, "ch_friday_kahf_browser": c.Prayer.Channels.FridayKahf.BrowserNotify,
+		"ch_fajr_speaker": c.Prayer.Channels.Fajr.Speaker, "ch_fajr_local": c.Prayer.Channels.Fajr.Local, "ch_fajr_notify": c.Prayer.Channels.Fajr.Notify, "ch_fajr_browser": c.Prayer.Channels.Fajr.BrowserNotify, "ch_fajr_browser_athan": c.Prayer.Channels.Fajr.BrowserAthan,
+		"ch_dhuhr_speaker": c.Prayer.Channels.Dhuhr.Speaker, "ch_dhuhr_local": c.Prayer.Channels.Dhuhr.Local, "ch_dhuhr_notify": c.Prayer.Channels.Dhuhr.Notify, "ch_dhuhr_browser": c.Prayer.Channels.Dhuhr.BrowserNotify, "ch_dhuhr_browser_athan": c.Prayer.Channels.Dhuhr.BrowserAthan,
+		"ch_asr_speaker": c.Prayer.Channels.Asr.Speaker, "ch_asr_local": c.Prayer.Channels.Asr.Local, "ch_asr_notify": c.Prayer.Channels.Asr.Notify, "ch_asr_browser": c.Prayer.Channels.Asr.BrowserNotify, "ch_asr_browser_athan": c.Prayer.Channels.Asr.BrowserAthan,
+		"ch_maghrib_speaker": c.Prayer.Channels.Maghrib.Speaker, "ch_maghrib_local": c.Prayer.Channels.Maghrib.Local, "ch_maghrib_notify": c.Prayer.Channels.Maghrib.Notify, "ch_maghrib_browser": c.Prayer.Channels.Maghrib.BrowserNotify, "ch_maghrib_browser_athan": c.Prayer.Channels.Maghrib.BrowserAthan,
+		"ch_isha_speaker": c.Prayer.Channels.Isha.Speaker, "ch_isha_local": c.Prayer.Channels.Isha.Local, "ch_isha_notify": c.Prayer.Channels.Isha.Notify, "ch_isha_browser": c.Prayer.Channels.Isha.BrowserNotify, "ch_isha_browser_athan": c.Prayer.Channels.Isha.BrowserAthan,
+		"ch_pre_fajr_speaker": c.Prayer.Channels.PreFajr.Speaker, "ch_pre_fajr_local": c.Prayer.Channels.PreFajr.Local, "ch_pre_fajr_notify": c.Prayer.Channels.PreFajr.Notify, "ch_pre_fajr_browser": c.Prayer.Channels.PreFajr.BrowserNotify, "ch_pre_fajr_browser_athan": c.Prayer.Channels.PreFajr.BrowserAthan,
+		"ch_friday_kahf_speaker": c.Prayer.Channels.FridayKahf.Speaker, "ch_friday_kahf_local": c.Prayer.Channels.FridayKahf.Local, "ch_friday_kahf_notify": c.Prayer.Channels.FridayKahf.Notify, "ch_friday_kahf_browser": c.Prayer.Channels.FridayKahf.BrowserNotify, "ch_friday_kahf_browser_athan": c.Prayer.Channels.FridayKahf.BrowserAthan,
 	}
 }
 
