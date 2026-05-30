@@ -18,10 +18,11 @@ import (
 var embeddedTimetables embed.FS
 
 const (
-	icciBuildURL = "https://islamireland.ie/api/timetable/"
-	naasURL      = "https://mawaqit.net/en/m/-34"
-	timezone     = "Europe/Dublin"
-	cacheTTL     = time.Hour
+	icciBuildURL      = "https://islamireland.ie/api/timetable/"
+	naasURL           = "https://mawaqit.net/en/m/-34"
+	newbridgeURL      = "https://mawaqit.net/en/newbridge-masjid-newbridge-newbridge-ireland"
+	timezone          = "Europe/Dublin"
+	cacheTTL          = time.Hour
 )
 
 // Times holds the five daily prayer times as HH:MM strings.
@@ -93,7 +94,7 @@ func (f *Fetcher) Fetch(location string, date time.Time, forceDownload bool) (Ti
 func (f *Fetcher) ForceRefresh(location string) error {
 	locations := []string{location}
 	if location == "" {
-		locations = []string{"icci", "naas"}
+		locations = []string{"icci", "naas", "newbridge"}
 	}
 	for _, loc := range locations {
 		if err := f.download(loc); err != nil {
@@ -132,7 +133,9 @@ func (f *Fetcher) download(location string) error {
 	case "icci":
 		return f.downloadICCI()
 	case "naas":
-		return f.downloadNaas()
+		return f.downloadMawaqit(naasURL, "naas")
+	case "newbridge":
+		return f.downloadMawaqit(newbridgeURL, "newbridge")
 	default:
 		return fmt.Errorf("unknown location: %s", location)
 	}
@@ -167,50 +170,54 @@ func (f *Fetcher) downloadICCI() error {
 	return nil
 }
 
-func (f *Fetcher) downloadNaas() error {
-	log.Println("[prayer/fetcher] downloading Naas timetable via Mawaqit page")
+// downloadMawaqit fetches a Mawaqit mosque page, extracts the confData calendar
+// block, and saves it as the timetable for the given location key.
+// Handles both "var confData = {...}" and "confData = {...}" page variants.
+func (f *Fetcher) downloadMawaqit(url, location string) error {
+	log.Printf("[prayer/fetcher] downloading %s timetable from Mawaqit", location)
 	client := &http.Client{Timeout: 15 * time.Second}
-	req, _ := http.NewRequest("GET", naasURL, nil)
+	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("GET naas: %w", err)
+		return fmt.Errorf("GET %s: %w", location, err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("read naas body: %w", err)
+		return fmt.Errorf("read %s body: %w", location, err)
 	}
 
-	re := regexp.MustCompile(`(?s)var confData = ({.*?});`)
+	// Some pages use "var confData = {...};" others just "confData = {...};"
+	re := regexp.MustCompile(`(?:var )?confData = ({[^\n]+});`)
 	m := re.FindSubmatch(body)
 	if m == nil {
-		return fmt.Errorf("confData block not found in Mawaqit page")
+		return fmt.Errorf("confData block not found in Mawaqit page for %s", location)
 	}
 
 	var conf struct {
 		Calendar []interface{} `json:"calendar"`
 	}
 	if err := json.Unmarshal(m[1], &conf); err != nil {
-		return fmt.Errorf("parse confData: %w", err)
+		return fmt.Errorf("parse confData for %s: %w", location, err)
 	}
 	if len(conf.Calendar) != 12 {
-		return fmt.Errorf("expected 12 months, got %d", len(conf.Calendar))
+		return fmt.Errorf("expected 12 months for %s, got %d", location, len(conf.Calendar))
 	}
 
 	data, err := json.MarshalIndent(conf.Calendar, "", "  ")
 	if err != nil {
-		return fmt.Errorf("re-marshal naas: %w", err)
+		return fmt.Errorf("re-marshal %s: %w", location, err)
 	}
 
-	path := f.timetablePath("naas")
+	path := f.timetablePath(location)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("write naas: %w", err)
+		return fmt.Errorf("write %s: %w", location, err)
 	}
-	f.saveDSTMetadata("naas")
-	log.Printf("[prayer/fetcher] Naas timetable saved to %s", path)
+	f.saveDSTMetadata(location)
+	log.Printf("[prayer/fetcher] %s timetable saved to %s", location, path)
 	return nil
 }
 
@@ -231,7 +238,7 @@ func (f *Fetcher) loadFromFile(location string, date time.Time) (Times, error) {
 	switch location {
 	case "icci":
 		return f.extractICCI(data, date)
-	case "naas":
+	case "naas", "newbridge":
 		return f.extractNaas(data, date)
 	default:
 		return Times{}, fmt.Errorf("unknown location: %s", location)
@@ -241,8 +248,9 @@ func (f *Fetcher) loadFromFile(location string, date time.Time) (Times, error) {
 // embeddedTimetable returns the bundled timetable JSON for the given location.
 func (f *Fetcher) embeddedTimetable(location string) ([]byte, error) {
 	names := map[string]string{
-		"naas": "embedded/naas_prayers_timetable.json",
-		"icci": "embedded/icci_timetable.json",
+		"naas":      "embedded/naas_prayers_timetable.json",
+		"icci":      "embedded/icci_timetable.json",
+		"newbridge": "embedded/newbridge_timetable.json",
 	}
 	name, ok := names[location]
 	if !ok {
@@ -362,8 +370,9 @@ func (f *Fetcher) dstChanged(location string) bool {
 
 func (f *Fetcher) timetablePath(location string) string {
 	names := map[string]string{
-		"naas": "naas_prayers_timetable.json",
-		"icci": "icci_timetable.json",
+		"naas":      "naas_prayers_timetable.json",
+		"icci":      "icci_timetable.json",
+		"newbridge": "newbridge_timetable.json",
 	}
 	return filepath.Join(f.dataDir, names[location])
 }

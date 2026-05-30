@@ -360,8 +360,9 @@ func (c *Config) writablePath() string {
 // locationLabel maps internal location keys to human-readable country/city labels.
 func locationLabel(key string) string {
 	labels := map[string]string{
-		"naas": "Ireland — Naas",
-		"icci": "Ireland — Dublin",
+		"naas":      "Ireland — Naas",
+		"icci":      "Ireland — Dublin",
+		"newbridge": "Ireland — Newbridge",
 	}
 	if l, ok := labels[key]; ok {
 		return l
