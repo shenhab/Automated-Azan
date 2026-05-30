@@ -60,6 +60,13 @@ type Server struct {
 	clients map[*websocket.Conn]struct{}
 
 	httpSrv *http.Server
+
+	// Geo cache — proxied from CountriesNow
+	geoMu         sync.Mutex
+	geoCountries  []map[string]string // [{name, Iso2, Iso3}]
+	geoCountriesAt time.Time
+	geoCities      map[string][]string // country → city list
+	geoCitiesAt    map[string]time.Time
 }
 
 // NewServer constructs the web server.
@@ -72,13 +79,15 @@ func NewServer(
 	mediaDir string,
 ) (*Server, error) {
 	srv := &Server{
-		cfg:       cfg,
-		fetcher:   fetcher,
-		scheduler: scheduler,
-		castMgr:   castMgr,
-		quranCtrl: quranCtrl,
-		mediaDir:  mediaDir,
-		clients:   make(map[*websocket.Conn]struct{}),
+		cfg:         cfg,
+		fetcher:     fetcher,
+		scheduler:   scheduler,
+		castMgr:     castMgr,
+		quranCtrl:   quranCtrl,
+		mediaDir:    mediaDir,
+		clients:     make(map[*websocket.Conn]struct{}),
+		geoCities:   make(map[string][]string),
+		geoCitiesAt: make(map[string]time.Time),
 	}
 	// Sync fetcher with current config on startup.
 	fetcher.SetAladhan(
@@ -127,6 +136,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/media/upload", s.handleAPIMediaUpload)
 	mux.HandleFunc("/api/hijri", s.handleAPIHijri)
 	mux.HandleFunc("/api/aladhan/methods", s.handleAPIAladhanMethods)
+	mux.HandleFunc("/api/geo/countries", s.handleAPIGeoCountries)
+	mux.HandleFunc("/api/geo/cities", s.handleAPIGeoCities)
 
 	// Static files served from ../static relative to binary
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
@@ -668,6 +679,82 @@ func (s *Server) handleAPIAladhanMethods(w http.ResponseWriter, r *http.Request)
 		"success": true,
 		"methods": prayer.AladhanMethods,
 	})
+}
+
+const countriesNowBase = "https://countriesnow.space/api/v0.1"
+const geoCacheTTL = 24 * time.Hour
+
+func (s *Server) handleAPIGeoCountries(w http.ResponseWriter, r *http.Request) {
+	s.geoMu.Lock()
+	if s.geoCountries != nil && time.Since(s.geoCountriesAt) < geoCacheTTL {
+		countries := s.geoCountries
+		s.geoMu.Unlock()
+		writeJSON(w, map[string]interface{}{"success": true, "data": countries})
+		return
+	}
+	s.geoMu.Unlock()
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(countriesNowBase + "/countries/iso")
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Data []map[string]string `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	s.geoMu.Lock()
+	s.geoCountries = result.Data
+	s.geoCountriesAt = time.Now()
+	s.geoMu.Unlock()
+
+	writeJSON(w, map[string]interface{}{"success": true, "data": result.Data})
+}
+
+func (s *Server) handleAPIGeoCities(w http.ResponseWriter, r *http.Request) {
+	country := strings.TrimSpace(r.URL.Query().Get("country"))
+	if country == "" {
+		writeJSON(w, map[string]interface{}{"success": false, "error": "country required"})
+		return
+	}
+
+	s.geoMu.Lock()
+	if cities, ok := s.geoCities[country]; ok && time.Since(s.geoCitiesAt[country]) < geoCacheTTL {
+		s.geoMu.Unlock()
+		writeJSON(w, map[string]interface{}{"success": true, "data": cities})
+		return
+	}
+	s.geoMu.Unlock()
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(countriesNowBase + "/countries/cities/q?country=" + strings.ReplaceAll(country, " ", "%20"))
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Data []string `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	s.geoMu.Lock()
+	s.geoCities[country] = result.Data
+	s.geoCitiesAt[country] = time.Now()
+	s.geoMu.Unlock()
+
+	writeJSON(w, map[string]interface{}{"success": true, "data": result.Data})
 }
 
 func (s *Server) handleAPIHijri(w http.ResponseWriter, r *http.Request) {
