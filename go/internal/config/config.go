@@ -298,6 +298,7 @@ func (c *Config) AsWebDict() map[string]interface{} {
 		"friday_kahf_speaker":   c.Speaker.FridayKahfSpeaker,
 		"quran_speaker":         c.Speaker.QuranSpeaker,
 		"location":              c.Prayer.Location,
+		"location_label":        locationLabel(c.Prayer.Location),
 		"pre_fajr_enabled":      c.Prayer.PreFajrEnabled,
 		"pre_fajr_minutes":      c.Prayer.PreFajrMinutes,
 		"friday_kahf_enabled":   c.Prayer.FridayKahfEnabled,
@@ -354,4 +355,16 @@ func (c *Config) writablePath() string {
 		return env
 	}
 	return filepath.Join(appdirs.Config(), "azan.toml")
+}
+
+// locationLabel maps internal location keys to human-readable country/city labels.
+func locationLabel(key string) string {
+	labels := map[string]string{
+		"naas": "Ireland — Naas",
+		"icci": "Ireland — Dublin",
+	}
+	if l, ok := labels[key]; ok {
+		return l
+	}
+	return key
 }

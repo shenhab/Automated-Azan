@@ -42,8 +42,10 @@
               <i class="fas fa-map-marker-alt me-2"></i>Prayer Times Location
             </label>
             <select class="form-select" name="location">
-              <option value="naas" {{if eq (index .config "location") "naas"}}selected{{end}}>Naas Mosque (Ireland)</option>
-              <option value="icci" {{if eq (index .config "location") "icci"}}selected{{end}}>ICCI Mosque (Ireland)</option>
+              <optgroup label="Ireland">
+                <option value="naas" {{if eq (index .config "location") "naas"}}selected{{end}}>Naas</option>
+                <option value="icci" {{if eq (index .config "location") "icci"}}selected{{end}}>Dublin (ICCI)</option>
+              </optgroup>
             </select>
           </div>
 
@@ -253,7 +255,7 @@
         </div>
         <div class="mb-2">
           <strong>Location:</strong><br>
-          <span class="text-muted">{{index .config "location"}} Mosque</span>
+          <span class="text-muted">{{index .config "location_label"}}</span>
         </div>
         <div class="mb-2">
           <strong>Pre-Fajr Quran:</strong>
