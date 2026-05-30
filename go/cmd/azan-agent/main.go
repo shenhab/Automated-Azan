@@ -162,6 +162,9 @@ func (p *program) run() {
 		if ch.Notify {
 			go fireNotify("Automated Azan", prayerName+" prayer time")
 		}
+		if ch.BrowserNotify && p.webSrv != nil {
+			go p.webSrv.BroadcastPrayerFired(prayerName, true)
+		}
 		if ch.Speaker {
 			if err := castMgr.PlayAthan(prayerName, filename); err != nil {
 				log.Printf("[main] speaker athan (%s): %v", prayerName, err)
@@ -182,6 +185,9 @@ func (p *program) run() {
 		if ch.Notify {
 			go fireNotify("Automated Azan", "Pre-Fajr Quran recitation starting")
 		}
+		if ch.BrowserNotify && p.webSrv != nil {
+			go p.webSrv.BroadcastPrayerFired("Pre-Fajr Quran", true)
+		}
 		dur := time.Duration(durationSec) * time.Second
 		if ch.Speaker {
 			quranCtrl.StartSpeaker(dur)
@@ -198,6 +204,9 @@ func (p *program) run() {
 		ch := cfg.Prayer.Channels.FridayKahf
 		if ch.Notify {
 			go fireNotify("Automated Azan", "Friday Surah Al-Kahf starting")
+		}
+		if ch.BrowserNotify && p.webSrv != nil {
+			go p.webSrv.BroadcastPrayerFired("Friday Surah Al-Kahf", true)
 		}
 		if ch.Speaker {
 			log.Println("[main] playing Friday Surah Al-Kahf on speaker")

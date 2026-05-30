@@ -191,6 +191,15 @@ func (s *Server) Stop() {
 }
 
 // Broadcast sends a JSON message to all connected WebSocket clients.
+// BroadcastPrayerFired sends a prayer_fired WebSocket event to all connected
+// browser clients so they can show a browser notification if enabled.
+func (s *Server) BroadcastPrayerFired(prayerName string, browserNotify bool) {
+	s.Broadcast("prayer_fired", map[string]interface{}{
+		"prayer":         prayerName,
+		"browser_notify": browserNotify,
+	})
+}
+
 func (s *Server) Broadcast(event string, data interface{}) {
 	msg, err := json.Marshal(map[string]interface{}{"event": event, "data": data})
 	if err != nil {
@@ -396,27 +405,34 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 		setStr(&s.cfg.Prayer.Media.Maghrib, "maghrib_media")
 		setStr(&s.cfg.Prayer.Media.Isha,    "isha_media")
 		// Per-job notification channels (ch_ prefix avoids collision with speaker-device overrides)
-		setBool(&s.cfg.Prayer.Channels.Fajr.Speaker,       "ch_fajr_speaker")
-		setBool(&s.cfg.Prayer.Channels.Fajr.Local,         "ch_fajr_local")
-		setBool(&s.cfg.Prayer.Channels.Fajr.Notify,        "ch_fajr_notify")
-		setBool(&s.cfg.Prayer.Channels.Dhuhr.Speaker,      "ch_dhuhr_speaker")
-		setBool(&s.cfg.Prayer.Channels.Dhuhr.Local,        "ch_dhuhr_local")
-		setBool(&s.cfg.Prayer.Channels.Dhuhr.Notify,       "ch_dhuhr_notify")
-		setBool(&s.cfg.Prayer.Channels.Asr.Speaker,        "ch_asr_speaker")
-		setBool(&s.cfg.Prayer.Channels.Asr.Local,          "ch_asr_local")
-		setBool(&s.cfg.Prayer.Channels.Asr.Notify,         "ch_asr_notify")
-		setBool(&s.cfg.Prayer.Channels.Maghrib.Speaker,    "ch_maghrib_speaker")
-		setBool(&s.cfg.Prayer.Channels.Maghrib.Local,      "ch_maghrib_local")
-		setBool(&s.cfg.Prayer.Channels.Maghrib.Notify,     "ch_maghrib_notify")
-		setBool(&s.cfg.Prayer.Channels.Isha.Speaker,       "ch_isha_speaker")
-		setBool(&s.cfg.Prayer.Channels.Isha.Local,         "ch_isha_local")
-		setBool(&s.cfg.Prayer.Channels.Isha.Notify,        "ch_isha_notify")
-		setBool(&s.cfg.Prayer.Channels.PreFajr.Speaker,    "ch_pre_fajr_speaker")
-		setBool(&s.cfg.Prayer.Channels.PreFajr.Local,      "ch_pre_fajr_local")
-		setBool(&s.cfg.Prayer.Channels.PreFajr.Notify,     "ch_pre_fajr_notify")
-		setBool(&s.cfg.Prayer.Channels.FridayKahf.Speaker, "ch_friday_kahf_speaker")
-		setBool(&s.cfg.Prayer.Channels.FridayKahf.Local,   "ch_friday_kahf_local")
-		setBool(&s.cfg.Prayer.Channels.FridayKahf.Notify,  "ch_friday_kahf_notify")
+		setBool(&s.cfg.Prayer.Channels.Fajr.Speaker,              "ch_fajr_speaker")
+		setBool(&s.cfg.Prayer.Channels.Fajr.Local,                "ch_fajr_local")
+		setBool(&s.cfg.Prayer.Channels.Fajr.Notify,               "ch_fajr_notify")
+		setBool(&s.cfg.Prayer.Channels.Fajr.BrowserNotify,        "ch_fajr_browser")
+		setBool(&s.cfg.Prayer.Channels.Dhuhr.Speaker,             "ch_dhuhr_speaker")
+		setBool(&s.cfg.Prayer.Channels.Dhuhr.Local,               "ch_dhuhr_local")
+		setBool(&s.cfg.Prayer.Channels.Dhuhr.Notify,              "ch_dhuhr_notify")
+		setBool(&s.cfg.Prayer.Channels.Dhuhr.BrowserNotify,       "ch_dhuhr_browser")
+		setBool(&s.cfg.Prayer.Channels.Asr.Speaker,               "ch_asr_speaker")
+		setBool(&s.cfg.Prayer.Channels.Asr.Local,                 "ch_asr_local")
+		setBool(&s.cfg.Prayer.Channels.Asr.Notify,                "ch_asr_notify")
+		setBool(&s.cfg.Prayer.Channels.Asr.BrowserNotify,         "ch_asr_browser")
+		setBool(&s.cfg.Prayer.Channels.Maghrib.Speaker,           "ch_maghrib_speaker")
+		setBool(&s.cfg.Prayer.Channels.Maghrib.Local,             "ch_maghrib_local")
+		setBool(&s.cfg.Prayer.Channels.Maghrib.Notify,            "ch_maghrib_notify")
+		setBool(&s.cfg.Prayer.Channels.Maghrib.BrowserNotify,     "ch_maghrib_browser")
+		setBool(&s.cfg.Prayer.Channels.Isha.Speaker,              "ch_isha_speaker")
+		setBool(&s.cfg.Prayer.Channels.Isha.Local,                "ch_isha_local")
+		setBool(&s.cfg.Prayer.Channels.Isha.Notify,               "ch_isha_notify")
+		setBool(&s.cfg.Prayer.Channels.Isha.BrowserNotify,        "ch_isha_browser")
+		setBool(&s.cfg.Prayer.Channels.PreFajr.Speaker,           "ch_pre_fajr_speaker")
+		setBool(&s.cfg.Prayer.Channels.PreFajr.Local,             "ch_pre_fajr_local")
+		setBool(&s.cfg.Prayer.Channels.PreFajr.Notify,            "ch_pre_fajr_notify")
+		setBool(&s.cfg.Prayer.Channels.PreFajr.BrowserNotify,     "ch_pre_fajr_browser")
+		setBool(&s.cfg.Prayer.Channels.FridayKahf.Speaker,        "ch_friday_kahf_speaker")
+		setBool(&s.cfg.Prayer.Channels.FridayKahf.Local,          "ch_friday_kahf_local")
+		setBool(&s.cfg.Prayer.Channels.FridayKahf.Notify,         "ch_friday_kahf_notify")
+		setBool(&s.cfg.Prayer.Channels.FridayKahf.BrowserNotify,  "ch_friday_kahf_browser")
 		if err := s.cfg.Save(); err != nil {
 			writeJSON(w, errResp(err))
 			return

@@ -480,6 +480,19 @@
     } catch(_) {}
   };
 
+  // Browser alert: show a Web Notification when a prayer fires (if permitted
+  // and the server says browser_notify is enabled for that prayer).
+  document.addEventListener("prayer_fired", function(e) {
+    const d = e.detail || {};
+    if (!d.browser_notify) return;
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    new Notification("Prayer Time — " + d.prayer, {
+      body: "It is time for " + d.prayer + " prayer.",
+      icon: "/favicon.ico",
+      tag:  "azan-" + d.prayer  // prevents duplicate stacking
+    });
+  });
+
   // Toast helper
   function showToast(msg, type) {
     const el = document.getElementById("globalToast");

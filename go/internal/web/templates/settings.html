@@ -261,11 +261,18 @@
               <th style="width:80px" title="Play on Google/Chromecast speaker">
                 <i class="fas fa-broadcast-tower text-muted me-1"></i>Speaker
               </th>
-              <th style="width:90px" title="Play audio on this device">
-                <i class="fas fa-laptop text-muted me-1"></i>Local Audio
+              <th style="width:90px" title="Play audio on the server machine running the agent — not in your browser">
+                <i class="fas fa-server text-muted me-1"></i>Server Audio
               </th>
-              <th style="width:80px" title="Show OS desktop notification">
-                <i class="fas fa-bell text-muted me-1"></i>Notify
+              <th style="width:80px" title="Show an OS desktop notification on the server machine">
+                <i class="fas fa-bell text-muted me-1"></i>OS Notify
+              </th>
+              <th style="width:95px" title="Show a browser notification in this tab when prayer time fires">
+                <i class="fas fa-globe text-muted me-1"></i>Browser Alert
+                <button class="btn btn-link p-0 ms-1" style="font-size:10px;vertical-align:middle"
+                  onclick="requestBrowserNotifyPermission()" title="Grant browser notification permission" id="notifPermBtn">
+                  <i class="fas fa-key"></i>
+                </button>
               </th>
               <th style="min-width:160px">Audio File</th>
             </tr>
@@ -299,6 +306,11 @@
                 <input class="form-check-input channel-cb" type="checkbox"
                        data-prayer="{{$row.Key}}" data-ch="notify"
                        {{if index $.config (print "ch_" $row.Key "_notify")}}checked{{end}}>
+              </td>
+              <td class="text-center">
+                <input class="form-check-input channel-cb" type="checkbox"
+                       data-prayer="{{$row.Key}}" data-ch="browser"
+                       {{if index $.config (print "ch_" $row.Key "_browser")}}checked{{end}}>
               </td>
               <td>
                 {{if $row.HasMedia}}
@@ -604,6 +616,44 @@ function savePrayerNotifications() {
     if (d.success) showToast("Prayer notifications saved", "success");
   });
 }
+
+// ── Browser notification permission ──────────────────────────────────────
+function requestBrowserNotifyPermission() {
+  if (!("Notification" in window)) {
+    showToast("Browser notifications not supported in this browser", "warning");
+    return;
+  }
+  Notification.requestPermission().then(perm => {
+    updatePermBtn(perm);
+    if (perm === "granted") {
+      showToast("Browser notifications granted", "success");
+      new Notification("Automated Azan", {
+        body: "Browser alerts are now enabled.",
+        icon: "/favicon.ico"
+      });
+    } else {
+      showToast("Permission " + perm + " — browser alerts won't fire", "warning");
+    }
+  });
+}
+
+function updatePermBtn(perm) {
+  const btn = document.getElementById("notifPermBtn");
+  if (!btn) return;
+  if (perm === "granted") {
+    btn.innerHTML = '<i class="fas fa-check-circle text-success"></i>';
+    btn.title = "Permission granted";
+  } else if (perm === "denied") {
+    btn.innerHTML = '<i class="fas fa-times-circle text-danger"></i>';
+    btn.title = "Permission denied — change in browser settings";
+  } else {
+    btn.innerHTML = '<i class="fas fa-key"></i>';
+    btn.title = "Click to grant browser notification permission";
+  }
+}
+
+// Reflect current permission state on load
+if ("Notification" in window) updatePermBtn(Notification.permission);
 
 // ── Location source toggle ────────────────────────────────────────────────
 function toggleLocationSource(val) {
