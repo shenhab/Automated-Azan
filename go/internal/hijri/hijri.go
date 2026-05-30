@@ -41,9 +41,9 @@ func (d Date) RamadanDay() int {
 // or an empty string on an ordinary day.
 func (d Date) SpecialDay() string {
 	switch {
-	case d.Month == 10 && d.Day == 1:
+	case d.Month == 10 && d.Day >= 1 && d.Day <= 3:
 		return "Eid al-Fitr"
-	case d.Month == 12 && d.Day == 10:
+	case d.Month == 12 && d.Day >= 10 && d.Day <= 13:
 		return "Eid al-Adha"
 	case d.Month == 12 && d.Day == 9:
 		return "Day of Arafat"
@@ -55,10 +55,12 @@ func (d Date) SpecialDay() string {
 		return "Laylat al-Mi'raj"
 	case d.Month == 8 && d.Day == 15:
 		return "Laylat al-Bara'at"
-	case d.IsRamadan() && d.Day == 27:
-		return "Laylat al-Qadr (27th)"
+	case d.IsRamadan() && d.Day >= 19:
+		// The last 10 nights of Ramadan — any could be Laylat al-Qadr;
+		// no single night is singled out since the exact night is unknown.
+		return "Potentially Laylat al-Qadr"
 	case d.IsRamadan():
-		return fmt.Sprintf("Ramadan — Day %d", d.Day)
+		return "Ramadan"
 	}
 	if len(d.Holidays) > 0 {
 		return d.Holidays[0]
