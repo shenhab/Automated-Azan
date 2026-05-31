@@ -446,9 +446,16 @@
     </ul>
   </nav>
 
-  <div class="sidebar-footer">
-    <i class="fas fa-circle text-success me-1" style="font-size:8px"></i>
-    Agent running
+  <div class="sidebar-footer" style="display:flex;flex-direction:column;gap:8px">
+    <div>
+      <i class="fas fa-circle text-success me-1" style="font-size:8px"></i>
+      Agent running
+    </div>
+    {{if index .config "auth_enabled"}}
+    <a href="/logout" style="color:rgba(255,255,255,.5);font-size:12px;text-decoration:none;display:flex;align-items:center;gap:6px">
+      <i class="fas fa-sign-out-alt"></i>Sign out
+    </a>
+    {{end}}
   </div>
 </aside>
 

@@ -1,0 +1,149 @@
+{{define "title"}}Login — Automated Azan{{end}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{template "title" .}}</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    :root {
+      --green-900: #1B4332;
+      --green-800: #2D6A4F;
+      --green-600: #40916C;
+    }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 14px;
+      background: linear-gradient(135deg, var(--green-900) 0%, #0d2b1e 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .login-card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.4);
+      padding: 40px 36px 36px;
+      width: 100%;
+      max-width: 380px;
+    }
+    .brand {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    .brand-icon {
+      width: 56px;
+      height: 56px;
+      background: linear-gradient(135deg, var(--green-800), var(--green-600));
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 12px;
+      color: #fff;
+      font-size: 24px;
+    }
+    .brand h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--green-900);
+      margin: 0;
+    }
+    .brand p {
+      font-size: 13px;
+      color: #6c757d;
+      margin: 4px 0 0;
+    }
+    .form-label {
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+    .form-control {
+      border-radius: 8px;
+      border: 1.5px solid #e5e7eb;
+      padding: 10px 14px;
+      font-size: 14px;
+      transition: border-color .15s;
+    }
+    .form-control:focus {
+      border-color: var(--green-600);
+      box-shadow: 0 0 0 3px rgba(64,145,108,.15);
+    }
+    .btn-login {
+      background: linear-gradient(135deg, var(--green-800), var(--green-600));
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-weight: 600;
+      padding: 11px;
+      width: 100%;
+      font-size: 15px;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .btn-login:hover { opacity: .9; }
+    .alert-danger {
+      border-radius: 8px;
+      font-size: 13px;
+      padding: 10px 14px;
+    }
+    .input-group-text {
+      border-radius: 8px 0 0 8px;
+      border: 1.5px solid #e5e7eb;
+      border-right: none;
+      background: #f9fafb;
+      color: #6b7280;
+    }
+    .input-group .form-control { border-radius: 0 8px 8px 0; }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="brand">
+      <div class="brand-icon"><i class="fas fa-mosque"></i></div>
+      <h1>Automated Azan</h1>
+      <p>Sign in to continue</p>
+    </div>
+
+    {{if .error}}
+    <div class="alert alert-danger" role="alert">
+      <i class="fas fa-exclamation-circle me-2"></i>{{.error}}
+    </div>
+    {{end}}
+
+    <form method="POST" action="/login">
+      <input type="hidden" name="next" value="{{.next}}">
+
+      <div class="mb-3">
+        <label class="form-label" for="username">Username</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="fas fa-user"></i></span>
+          <input type="text" id="username" name="username" class="form-control"
+                 placeholder="Enter username" autocomplete="username" required autofocus>
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <label class="form-label" for="password">Password</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="fas fa-lock"></i></span>
+          <input type="password" id="password" name="password" class="form-control"
+                 placeholder="Enter password" autocomplete="current-password" required>
+        </div>
+      </div>
+
+      <button type="submit" class="btn-login">
+        <i class="fas fa-sign-in-alt me-2"></i>Sign In
+      </button>
+    </form>
+  </div>
+</body>
+</html>

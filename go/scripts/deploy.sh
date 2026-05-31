@@ -14,14 +14,18 @@ TZ_VALUE="Europe/Dublin"
 # --network host   → required for Chromecast mDNS discovery (no port mappings shown)
 # --network bridge → proper isolation with explicit port mappings, but mDNS breaks
 NETWORK_MODE="host"
+AUTH_USER=""
+AUTH_PASS=""
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --image)  IMAGE="$2"; shift 2 ;;
-    --tz)     TZ_VALUE="$2"; shift 2 ;;
-    --bridge) NETWORK_MODE="bridge" ;;
-    --host)   NETWORK_MODE="host" ;;
+    --image)    IMAGE="$2"; shift 2 ;;
+    --tz)       TZ_VALUE="$2"; shift 2 ;;
+    --bridge)   NETWORK_MODE="bridge" ;;
+    --host)     NETWORK_MODE="host" ;;
+    --username) AUTH_USER="$2"; shift 2 ;;
+    --password) AUTH_PASS="$2"; shift 2 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -67,6 +71,13 @@ fi
 # ── 4. Start the new container ────────────────────────────────────────────────
 step "Starting new container '$CONTAINER'..."
 
+# Build the auth env args (only passed on first run to seed credentials)
+AUTH_ARGS=()
+if [[ -n "$AUTH_USER" && -n "$AUTH_PASS" ]]; then
+  AUTH_ARGS=(-e "AZAN_USERNAME=${AUTH_USER}" -e "AZAN_PASSWORD=${AUTH_PASS}")
+  echo "  Auth credentials will be seeded for user: ${AUTH_USER}"
+fi
+
 if [[ "$NETWORK_MODE" == "host" ]]; then
   # Host networking: Chromecast mDNS discovery works, but no port mappings shown in docker ps.
   # The app binds directly to host ports 28426 (dashboard) and 28427 (media server).
@@ -75,6 +86,7 @@ if [[ "$NETWORK_MODE" == "host" ]]; then
     --network host \
     --restart unless-stopped \
     -e TZ="$TZ_VALUE" \
+    "${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"}" \
     -v azan_config:/config \
     -v azan_data:/root/.local/share/azan-agent \
     "$IMAGE"
@@ -86,6 +98,7 @@ else
     --name "$CONTAINER" \
     --restart unless-stopped \
     -e TZ="$TZ_VALUE" \
+    "${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"}" \
     -p 28426:28426 \
     -p 28427:28427 \
     -v azan_config:/config \

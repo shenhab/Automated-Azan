@@ -20,7 +20,8 @@ const StreamURL = "https://backup.qurango.net/radio/mahmoud_khalil_alhussary_war
 type Controller struct {
 	castMgr *chromecast.Manager
 
-	mu            sync.Mutex
+	mu          sync.Mutex
+	speakerGen  uint64 // incremented on every StartSpeaker* call
 	speakerActive bool
 	speakerCancel context.CancelFunc
 	localActive   bool
@@ -38,8 +39,10 @@ func New(castMgr *chromecast.Manager) *Controller {
 func (c *Controller) StartSpeaker(dur time.Duration) error {
 	c.mu.Lock()
 	if c.speakerCancel != nil {
-		c.speakerCancel() // stop any previous stream first
+		c.speakerCancel()
 	}
+	c.speakerGen++
+	myGen := c.speakerGen
 	ctx, cancel := c.newCtx(dur)
 	c.speakerCancel = cancel
 	c.speakerActive = true
@@ -47,13 +50,23 @@ func (c *Controller) StartSpeaker(dur time.Duration) error {
 
 	log.Printf("[quran] starting speaker stream (dur=%v)", dur)
 	go func() {
-		defer c.clearSpeaker()
+		defer c.clearSpeakerIfGen(myGen)
+
+		if superseded(ctx) {
+			return
+		}
 		if err := c.castMgr.PlayURL(StreamURL, "audio/mpeg"); err != nil {
 			log.Printf("[quran] speaker stream error: %v", err)
 			return
 		}
+		log.Println("[quran] speaker stream started")
 		<-ctx.Done()
-		c.castMgr.StopPlayback()
+		// Only send Stop to Chromecast when the timer expired naturally.
+		// StopSpeaker/Stop call StopPlayback explicitly; a replacement call
+		// must not kill the new stream.
+		if ctx.Err() == context.DeadlineExceeded {
+			c.castMgr.StopPlayback()
+		}
 		log.Println("[quran] speaker stream stopped")
 	}()
 	return nil
@@ -66,6 +79,8 @@ func (c *Controller) StartSpeakerOnDevice(deviceName string, dur time.Duration) 
 	if c.speakerCancel != nil {
 		c.speakerCancel()
 	}
+	c.speakerGen++
+	myGen := c.speakerGen
 	ctx, cancel := c.newCtx(dur)
 	c.speakerCancel = cancel
 	c.speakerActive = true
@@ -73,25 +88,39 @@ func (c *Controller) StartSpeakerOnDevice(deviceName string, dur time.Duration) 
 
 	log.Printf("[quran] starting stream on device %q (dur=%v)", deviceName, dur)
 	go func() {
-		defer c.clearSpeaker()
+		defer c.clearSpeakerIfGen(myGen)
+
+		// Bail immediately if a newer call already superseded this one
+		// (can happen when rapid clicks pile up during mDNS discovery).
+		if superseded(ctx) {
+			return
+		}
 		if err := c.castMgr.PlayURLOnDevice(deviceName, StreamURL, "audio/mpeg"); err != nil {
 			log.Printf("[quran] device stream error (%s): %v", deviceName, err)
 			return
 		}
+		log.Printf("[quran] stream started on device %q", deviceName)
 		<-ctx.Done()
-		c.castMgr.StopPlayback()
+		// Only send Stop when this timed stream expired naturally.
+		// When cancelled (by StopSpeaker or a replacement call), the caller
+		// is responsible for stopping — otherwise we'd kill a newer stream.
+		if ctx.Err() == context.DeadlineExceeded {
+			c.castMgr.StopPlayback()
+		}
 		log.Printf("[quran] stream stopped on device %q", deviceName)
 	}()
 	return nil
 }
 
-// StopSpeaker cancels the active speaker stream, if any.
+// StopSpeaker cancels the active speaker stream and stops Chromecast playback.
 func (c *Controller) StopSpeaker() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.speakerCancel != nil {
 		c.speakerCancel()
+		c.speakerCancel = nil
 	}
+	c.mu.Unlock()
+	c.castMgr.StopPlayback()
 }
 
 // StartLocal starts (or restarts) the Quran stream on the local audio output.
@@ -121,7 +150,7 @@ func (c *Controller) StartLocal(dur time.Duration) error {
 	return nil
 }
 
-// StopLocal cancels the active local stream, if any.
+// StopLocal cancels the active local stream.
 func (c *Controller) StopLocal() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -133,13 +162,16 @@ func (c *Controller) StopLocal() {
 // Stop cancels both speaker and local streams.
 func (c *Controller) Stop() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.speakerCancel != nil {
 		c.speakerCancel()
+		c.speakerCancel = nil
 	}
 	if c.localCancel != nil {
 		c.localCancel()
+		c.localCancel = nil
 	}
+	c.mu.Unlock()
+	c.castMgr.StopPlayback()
 }
 
 // Status returns whether each stream is currently active.
@@ -158,11 +190,15 @@ func (c *Controller) newCtx(dur time.Duration) (context.Context, context.CancelF
 	return context.WithCancel(context.Background())
 }
 
-func (c *Controller) clearSpeaker() {
+// clearSpeakerIfGen only resets speaker state when myGen is still the current
+// generation — superseded goroutines must not clear a newer stream's state.
+func (c *Controller) clearSpeakerIfGen(myGen uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.speakerActive = false
-	c.speakerCancel = nil
+	if c.speakerGen == myGen {
+		c.speakerActive = false
+		c.speakerCancel = nil
+	}
 }
 
 func (c *Controller) clearLocal() {
@@ -170,4 +206,14 @@ func (c *Controller) clearLocal() {
 	defer c.mu.Unlock()
 	c.localActive = false
 	c.localCancel = nil
+}
+
+// superseded reports whether ctx is already done (cancelled by a newer call).
+func superseded(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
 }

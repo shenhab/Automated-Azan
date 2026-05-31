@@ -139,11 +139,18 @@ type PrayerConfig struct {
 	Channels          JobChannelsConfig   `toml:"channels"`
 }
 
+// AuthConfig holds web authentication credentials.
+type AuthConfig struct {
+	Username     string `toml:"username"`
+	PasswordHash string `toml:"password_hash"` // bcrypt hash; empty = auth disabled
+}
+
 // WebConfig holds web server settings.
 type WebConfig struct {
-	Host      string `toml:"host"`
-	Port      int    `toml:"port"`
-	SecretKey string `toml:"secret_key"`
+	Host      string     `toml:"host"`
+	Port      int        `toml:"port"`
+	SecretKey string     `toml:"secret_key"`
+	Auth      AuthConfig `toml:"auth"`
 }
 
 // LogConfig holds logging settings.
@@ -301,6 +308,7 @@ func (c *Config) AsWebDict() map[string]interface{} {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return map[string]interface{}{
+		"auth_enabled":          c.Web.Auth.Username != "",
 		"speakers_group_name":   c.Speaker.GroupName,
 		"athan_speaker":         c.Speaker.AthanSpeaker,
 		"pre_fajr_speaker":      c.Speaker.PreFajrSpeaker,

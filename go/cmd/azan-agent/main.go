@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +27,8 @@ import (
 	"azan-agent/internal/web"
 
 	"github.com/kardianos/service"
+	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/term"
 )
 
 // binDir returns the directory containing the running binary.
@@ -231,6 +234,11 @@ func (p *program) run() {
 	}
 	p.scheduler = sched
 
+	// First-run: prompt for credentials if none are set yet
+	if cfg.Web.Auth.Username == "" {
+		setupFirstRunAuth(cfg)
+	}
+
 	// Web server
 	webSrv, err := web.NewServer(cfg, fetcher, sched, castMgr, quranCtrl, resolvedMediaDir)
 	if err != nil {
@@ -279,6 +287,82 @@ func (p *program) run() {
 
 	// Block forever — scheduler timers and web server run in goroutines
 	select {}
+}
+
+// setupFirstRunAuth sets up web interface credentials on the first run.
+// Priority order:
+//  1. AZAN_USERNAME + AZAN_PASSWORD environment variables (Docker-friendly)
+//  2. Interactive terminal prompt (local / dev)
+//  3. Skip with instructions (non-interactive, no env vars)
+func setupFirstRunAuth(cfg *config.Config) {
+	// 1. Environment variables — preferred for Docker deployments
+	envUser := strings.TrimSpace(os.Getenv("AZAN_USERNAME"))
+	envPass := strings.TrimSpace(os.Getenv("AZAN_PASSWORD"))
+	if envUser != "" && envPass != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(envPass), bcrypt.DefaultCost)
+		if err != nil {
+			log.Printf("[auth] failed to hash password from env: %v", err)
+			return
+		}
+		cfg.Web.Auth.Username = envUser
+		cfg.Web.Auth.PasswordHash = string(hash)
+		if err := cfg.Save(); err != nil {
+			log.Printf("[auth] failed to save credentials: %v", err)
+			return
+		}
+		log.Printf("[auth] credentials set from environment. Username: %s", envUser)
+		return
+	}
+
+	// 2. Interactive terminal prompt
+	fmt.Println()
+	fmt.Println("=== First-run setup: create web interface credentials ===")
+
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		fmt.Println("[auth] stdin is not a terminal — skipping interactive setup.")
+		fmt.Println("[auth] Set AZAN_USERNAME and AZAN_PASSWORD environment variables,")
+		fmt.Printf("[auth] or add [web.auth] username/password_hash to: %s\n", cfg.FilePath())
+		fmt.Println("[auth] Web interface will be accessible without a password until credentials are set.")
+		return
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Print("Username: ")
+	username, _ := reader.ReadString('\n')
+	username = strings.TrimSpace(username)
+	if username == "" {
+		fmt.Println("[auth] Empty username — skipping. Web interface will be unprotected.")
+		return
+	}
+
+	fmt.Print("Password: ")
+	passwordBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println()
+	if err != nil {
+		fmt.Printf("[auth] Could not read password: %v — skipping.\n", err)
+		return
+	}
+	password := strings.TrimSpace(string(passwordBytes))
+	if password == "" {
+		fmt.Println("[auth] Empty password — skipping. Web interface will be unprotected.")
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		fmt.Printf("[auth] Failed to hash password: %v — skipping.\n", err)
+		return
+	}
+
+	cfg.Web.Auth.Username = username
+	cfg.Web.Auth.PasswordHash = string(hash)
+	if err := cfg.Save(); err != nil {
+		fmt.Printf("[auth] Failed to save config: %v\n", err)
+		return
+	}
+	fmt.Printf("[auth] Credentials saved. Username: %s\n", username)
+	fmt.Println()
 }
 
 func main() {
