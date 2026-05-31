@@ -190,7 +190,7 @@ jobs:
           fi
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.versioned.outputs.asset }}
           path: go/${{ steps.versioned.outputs.asset }}
@@ -200,7 +200,7 @@ jobs:
       # download it directly (programmatic downloads are never quarantined).
       - name: Upload raw binary for self-update (macOS)
         if: matrix.goos == 'darwin'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.versioned.outputs.raw_binary }}
           path: go/${{ steps.versioned.outputs.raw_binary }}
@@ -259,7 +259,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
