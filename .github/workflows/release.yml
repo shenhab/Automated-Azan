@@ -10,9 +10,60 @@ permissions:
   contents: write   # needed to create/upload releases
 
 jobs:
+  # ── Create the GitHub Release first so build jobs can upload directly ─────
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name:   ${{ github.ref_name }}
+          name:       "Automated Azan ${{ github.ref_name }}"
+          body: |
+            ## Automated Azan — ${{ github.ref_name }}
+
+            Cross-platform Go agent. Single binary, no runtime required.
+
+            ### Downloads
+
+            | File | Platform | Tray |
+            |---|---|---|
+            | `azan-agent-linux-amd64` | Linux x86-64 | ✅ native GTK |
+            | `azan-agent-linux-arm64` | Raspberry Pi 4/5 | — headless |
+            | `azan-agent-linux-arm` | Raspberry Pi 3 | — headless |
+            | `azan-agent-windows-amd64.exe` | Windows 64-bit | ✅ native Win32 |
+            | `azan-agent-darwin-amd64.dmg` | macOS Intel | ✅ native NSStatusBar |
+            | `azan-agent-darwin-arm64.dmg` | macOS Apple Silicon (M1/M2/M3) | ✅ native NSStatusBar |
+
+            ### Quick start
+            1. Download the binary/bundle for your platform
+            2. Run it — it installs itself as a background service automatically
+            3. Dashboard: `http://localhost:28426`
+
+            ### Docker
+            ```
+            docker pull shenhab/athan:${{ github.ref_name }}
+            ```
+
+            ### macOS — install
+            1. Download and open the `.dmg`
+            2. Double-click **"Install Automated Azan"** inside the DMG
+            3. Look for the icon in your **menu bar** (top-right)
+
+            > **Alternative:** `xattr -rd com.apple.quarantine /Applications/AzanAgent.app`
+
+            ### Windows — first run
+            Right-click → **Run as administrator** once to register the Windows Service.
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # ── Build matrix: each OS builds its own native binary (CGO = real tray) ──
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: create-release
     runs-on: ${{ matrix.runner }}
 
     strategy:
@@ -189,22 +240,31 @@ jobs:
             echo "raw_binary=${RAW_V}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.versioned.outputs.asset }}
-          path: go/${{ steps.versioned.outputs.asset }}
-          retention-days: 1
+      - name: Upload to GitHub Release
+        shell: bash
+        run: |
+          if [[ "${{ matrix.goos }}" == "linux" ]]; then
+            chmod +x go/${{ steps.versioned.outputs.asset }}
+          fi
+          gh release upload ${{ github.ref_name }} \
+            go/${{ steps.versioned.outputs.asset }} \
+            --repo ${{ github.repository }} \
+            --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # macOS: also upload the raw binary so the in-app self-updater can
       # download it directly (programmatic downloads are never quarantined).
       - name: Upload raw binary for self-update (macOS)
         if: matrix.goos == 'darwin'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.versioned.outputs.raw_binary }}
-          path: go/${{ steps.versioned.outputs.raw_binary }}
-          retention-days: 1
+        shell: bash
+        run: |
+          gh release upload ${{ github.ref_name }} \
+            go/${{ steps.versioned.outputs.raw_binary }} \
+            --repo ${{ github.repository }} \
+            --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ── Build headless Docker image and push to Docker Hub ───────────────────
   docker:
@@ -248,95 +308,3 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/athan:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/athan:${{ github.ref_name }}
 
-  # ── Create GitHub Release and attach all binaries ─────────────────────────
-  release:
-    name: Publish Release
-    runs-on: ubuntu-latest
-    needs: build
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-
-      - name: Restore executable permissions
-        # upload/download-artifact uses zip which strips Unix file mode.
-        # chmod Linux binaries; macOS artifacts are .zip bundles (chmod not needed).
-        run: |
-          chmod +x dist/azan-agent-linux-* 2>/dev/null || true
-          ls -lh dist/
-
-      - name: Create / update GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name:   ${{ github.ref_name }}
-          name:       "Automated Azan ${{ github.ref_name }}"
-          body: |
-            ## Automated Azan — ${{ github.ref_name }}
-
-            Cross-platform Go agent. Single binary, no runtime required.
-
-            ### What's new in v1.1.0
-
-            **Background service on all platforms**
-            - On first launch the agent automatically installs itself as a native background service (systemd user service on Linux, LaunchAgent on macOS, Windows Service on Windows) and starts it — no manual `install` step required
-            - The tray icon now has an **Exit** option that fully stops the service
-            - Windows: launches without a console window (`-H windowsgui`); shows a clear message if admin rights are needed to register the service
-
-            **Three notification channels — per prayer**
-            - Each of the 5 prayers, Pre-Fajr Quran, and Friday Al-Kahf independently supports: **Google/Chromecast speaker**, **local desktop audio**, and **OS desktop notification** (toast)
-            - Mix and match per prayer — e.g. speaker + notification for Fajr, local audio only for Dhuhr
-            - Local audio: macOS uses `afplay` (built-in); Linux tries `mpg123` → `ffplay` → `cvlc`; Windows uses PowerShell WMF MediaPlayer (built-in)
-
-            **Quran streaming from the tray**
-            - Tray menu shows **▶ Quran on Speaker** and **▶ Quran on This PC**
-            - Click to start; title changes to **■ Stop Quran on …** while streaming
-            - Click again (or use any other stop path) to end the stream
-            - State syncs every 30 seconds so the label always reflects reality
-
-            **Scheduler sorted by time**
-            - The Scheduler page now lists all jobs in chronological order (Pre-Fajr Quran correctly appears before Fajr Athan)
-
-            ---
-
-            ### Downloads
-
-            | File | Platform | Tray |
-            |---|---|---|
-            | `azan-agent-linux-amd64` | Linux x86-64 | ✅ native GTK |
-            | `azan-agent-linux-arm64` | Raspberry Pi 4/5 | — headless |
-            | `azan-agent-linux-arm` | Raspberry Pi 3 | — headless |
-            | `azan-agent-windows-amd64.exe` | Windows 64-bit | ✅ native Win32 |
-            | `azan-agent-darwin-amd64.dmg` | macOS Intel | ✅ native NSStatusBar |
-            | `azan-agent-darwin-arm64.dmg` | macOS Apple Silicon (M1/M2/M3) | ✅ native NSStatusBar |
-
-            ### Quick start
-            1. Download the binary/bundle for your platform
-            2. Run it — it installs itself as a background service automatically
-            3. Dashboard: `http://localhost:28426`
-
-            ### macOS — install
-            1. Download and open the `.dmg`
-            2. Double-click **"Install Automated Azan"** inside the DMG — it removes the quarantine flag, copies to `/Applications`, and launches the app automatically
-            3. Look for the icon in your **menu bar** (top-right). The app installs itself as a LaunchAgent and starts on every login.
-
-            > **Alternative (manual drag):** Drag `AzanAgent` → `Applications`, then run once in Terminal:
-            > `xattr -rd com.apple.quarantine /Applications/AzanAgent.app`
-            > Or: right-click the app → Open → Open Anyway in System Settings → Privacy & Security.
-
-            **Upgrade**: download new `.dmg`, run **Install** again — detects new binary and restarts service automatically.
-            **Uninstall**: tray icon → **Uninstall…** — removes service and helper binary; config and data are kept.
-
-            ### Windows — first run (service registration)
-            Right-click → **Run as administrator** once to register the Windows Service.
-            All subsequent launches work without elevation.
-          files: dist/*
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
