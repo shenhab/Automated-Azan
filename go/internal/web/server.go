@@ -170,7 +170,7 @@ func (s *Server) Start() error {
 	}
 
 	s.port = port
-	s.httpSrv = &http.Server{Handler: mux}
+	s.httpSrv = &http.Server{Handler: accessLogger(mux)}
 
 	go func() {
 		log.Printf("[web] dashboard at http://localhost:%d", port)
@@ -310,13 +310,13 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	s.clients[conn] = struct{}{}
 	s.mu.Unlock()
 
-	log.Printf("[web/ws] client connected from %s", r.RemoteAddr)
+	log.Printf("[web/ws] client connected from %s", realIP(r))
 	defer func() {
 		s.mu.Lock()
 		delete(s.clients, conn)
 		s.mu.Unlock()
 		conn.Close()
-		log.Printf("[web/ws] client disconnected from %s", r.RemoteAddr)
+		log.Printf("[web/ws] client disconnected from %s", realIP(r))
 	}()
 
 	for {
@@ -903,6 +903,45 @@ func (s *Server) handleAPINextPrayer(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- helpers ---
+
+// realIP returns the client IP, preferring X-Real-IP then X-Forwarded-For
+// (first entry) over the raw RemoteAddr, so logs show the true source IP
+// when the app sits behind a reverse proxy.
+func realIP(r *http.Request) string {
+	if ip := r.Header.Get("X-Real-IP"); ip != "" {
+		return ip
+	}
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+		if i := strings.Index(fwd, ","); i >= 0 {
+			return strings.TrimSpace(fwd[:i])
+		}
+		return strings.TrimSpace(fwd)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (rec *statusRecorder) WriteHeader(code int) {
+	rec.status = code
+	rec.ResponseWriter.WriteHeader(code)
+}
+
+func accessLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		log.Printf("[web] %s %s %s %d %s", realIP(r), r.Method, r.URL.Path, rec.status, time.Since(start).Round(time.Millisecond))
+	})
+}
 
 // renderPage parses base.html + the named page together each time.
 // This avoids Go's "last define wins" problem — when all pages are parsed
