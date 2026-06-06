@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bufio"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -932,6 +933,14 @@ type statusRecorder struct {
 func (rec *statusRecorder) WriteHeader(code int) {
 	rec.status = code
 	rec.ResponseWriter.WriteHeader(code)
+}
+
+func (rec *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := rec.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("response writer does not implement http.Hijacker")
+	}
+	return h.Hijack()
 }
 
 func accessLogger(next http.Handler) http.Handler {
