@@ -253,6 +253,23 @@ func (m *Manager) playURL(url, contentType string) error {
 			app, err = m.connectWithRetry(fresh)
 			dev = fresh
 		}
+		// If the Cast Group port is still unreachable, fall back to the host
+		// device's standard port (8009). Cast Groups have dynamic ports; the
+		// physical Nest Hub / speaker at the same IP is usually still reachable.
+		if err != nil && dev.Port != 8009 {
+			fallback := Device{
+				UUID:      dev.UUID,
+				Name:      dev.Name,
+				Host:      dev.Host,
+				Port:      8009,
+				ModelName: dev.ModelName,
+			}
+			log.Printf("[chromecast] Cast Group unreachable — falling back to %s:8009", dev.Host)
+			app, err = m.connectWithRetry(fallback)
+			if err == nil {
+				dev = fallback
+			}
+		}
 		if err != nil {
 			return fmt.Errorf("connect to %s: %w", dev.Name, err)
 		}
