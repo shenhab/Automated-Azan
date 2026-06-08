@@ -222,7 +222,7 @@ func (c *Config) setDefaults() {
 func (c *Config) load() error {
 	path := c.resolvePath()
 	if path == "" {
-		// First run — write default config to OS standard location
+		// First run — write default config to OS standard location.
 		path = c.writablePath()
 		if err := c.writeDefaults(path); err != nil {
 			log.Printf("[config] could not write default config: %v", err)
@@ -235,12 +235,22 @@ func (c *Config) load() error {
 	c.filePath = path
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	_, err := toml.DecodeFile(path, c)
+	c.mu.Unlock()
 	if err != nil {
 		return fmt.Errorf("decode %s: %w", path, err)
 	}
 	log.Printf("[config] loaded from %s", path)
+
+	// Write the merged config back so any fields added in a new version
+	// get their default values persisted to disk. Compare hashes first to
+	// avoid a spurious config-watcher reload when nothing changed.
+	hashBefore := c.Hash()
+	if err := c.writeDefaults(path); err != nil {
+		log.Printf("[config] could not update config with new defaults: %v", err)
+	} else if c.Hash() != hashBefore {
+		log.Printf("[config] config updated with new default fields at %s", path)
+	}
 	return nil
 }
 

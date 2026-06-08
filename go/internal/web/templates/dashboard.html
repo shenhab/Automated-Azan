@@ -154,6 +154,11 @@
             <i class="fas fa-stop"></i>
           </button>
         </div>
+        <div class="mt-2">
+          <button class="btn btn-outline-success w-100" id="workflowBtn" onclick="testFullWorkflow()">
+            <i class="fas fa-project-diagram me-2"></i>Full Workflow Test
+          </button>
+        </div>
         <div id="athanMsg" class="mt-2" style="font-size:12px"></div>
       </div>
     </div>
@@ -190,6 +195,7 @@
 
 {{define "scripts"}}
 <script>
+(function() {
   // ── Quran device dropdown ─────────────────────────────────────────────────
   // Fetch discovered Chromecast devices and add them to the target dropdown.
   (function loadQuranDevices() {
@@ -346,13 +352,48 @@
       .then(d => showToast(d.success ? "Playback stopped" : d.error, "secondary"));
   }
 
+  function testFullWorkflow() {
+    const prayer = document.getElementById("testPrayerSelect").value;
+    const btn = document.getElementById("workflowBtn");
+    const msg = document.getElementById("athanMsg");
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Running workflow…';
+    msg.innerHTML = '<span class="text-muted">Step 1/3: pre-connect warmup…</span>';
+
+    fetch("/api/test-workflow", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({prayer})
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        const tvNote = d.tv_muted ? " · TVs muted" : " · TV mute disabled";
+        showToast("Full workflow complete — " + prayer + tvNote, "success");
+        msg.innerHTML = '<span style="color:#40916C"><i class="fas fa-check-circle me-1"></i>' +
+          prayer + ' Athan playing' + tvNote + '</span>';
+      } else {
+        showToast("Workflow failed: " + d.error, "danger");
+        msg.innerHTML = '<span class="text-danger">' + d.error + '</span>';
+      }
+    })
+    .catch(e => {
+      showToast("Workflow error: " + e, "danger");
+      msg.innerHTML = '<span class="text-danger">' + e + '</span>';
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-project-diagram me-2"></i>Full Workflow Test';
+    });
+  }
+
   // Show today's date
   document.getElementById("todayDate").textContent =
     new Date().toLocaleDateString('en-IE', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
 
   // Set next job label from injected data
-  const nextPrayerName = "{{index .next_prayer "name"}}";
-  const nextPrayerTime = "{{index .next_prayer "time"}}";
+  var nextPrayerName = "{{index .next_prayer "name"}}";
+  var nextPrayerTime = "{{index .next_prayer "time"}}";
   if (nextPrayerName && nextPrayerTime) {
     document.getElementById("nextJobLabel").textContent = nextPrayerName + " at " + nextPrayerTime;
   } else {
@@ -361,22 +402,25 @@
 
   // Countdown to next prayer
   if (nextPrayerTime) {
+    var _countdownTimer = null;
     function updateCountdown() {
+      var el = document.getElementById("countdown");
+      if (!el) { clearInterval(_countdownTimer); return; }
       const now = new Date();
       const [h, m] = nextPrayerTime.split(":").map(Number);
       const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
       const diff = target - now;
-      if (diff <= 0) { document.getElementById("countdown").textContent = "Now"; return; }
+      if (diff <= 0) { el.textContent = "Now"; return; }
       const hh = Math.floor(diff / 3600000);
       const mm = Math.floor((diff % 3600000) / 60000);
       const ss = Math.floor((diff % 60000) / 1000);
-      document.getElementById("countdown").textContent =
-        (hh > 0 ? hh + "h " : "") + mm + "m " + ss + "s away";
+      el.textContent = (hh > 0 ? hh + "h " : "") + mm + "m " + ss + "s away";
     }
     updateCountdown();
-    setInterval(updateCountdown, 1000);
+    _countdownTimer = setInterval(updateCountdown, 1000);
 
     // Highlight active prayer pill
+
     const prayerPills = {
       "Fajr": "pill-fajr", "Dhuhr": "pill-dhuhr", "Asr": "pill-asr",
       "Maghrib": "pill-maghrib", "Isha": "pill-isha"
@@ -385,5 +429,13 @@
       document.getElementById(prayerPills[nextPrayerName])?.classList.add("active");
     }
   }
+
+  window.onQuranTargetChange = onQuranTargetChange;
+  window.playQuran           = playQuran;
+  window.stopQuran           = stopQuran;
+  window.playAthan           = playAthan;
+  window.stopAll             = stopAll;
+  window.testFullWorkflow    = testFullWorkflow;
+})();
 </script>
 {{end}}
