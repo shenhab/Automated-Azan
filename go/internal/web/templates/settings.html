@@ -943,6 +943,10 @@ function testResume() {
 }
 
 function refreshPauseStatus() {
+  if (!document.getElementById("tvPauseStatusBadge")) {
+    clearInterval(_tvPauseInterval);
+    return;
+  }
   fetch("/api/tv-pause/status")
     .then(r => r.json())
     .then(d => { if (d.success) renderPauseStatus(d.paused, d.paused_count); });
@@ -968,7 +972,7 @@ function escHtml(s) {
 
 loadTVPauseConfig();
 loadTVDevices();
-setInterval(refreshPauseStatus, 15000);
+var _tvPauseInterval = setInterval(refreshPauseStatus, 15000);
 
 window.refreshAll                    = refreshAll;
 window.saveSettings                  = saveSettings;
