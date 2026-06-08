@@ -35,8 +35,9 @@ type Device struct {
 
 // Manager discovers Chromecast devices and plays audio on them.
 type Manager struct {
-	deviceName    string // configured target speaker name
-	mediaBaseURL  string // e.g. http://192.168.1.x:5000/media/
+	deviceName   string // configured target speaker name
+	mediaBaseURL string // e.g. http://192.168.1.x:5000/media/
+	cacheDir     string // data directory for devices.json cache
 
 	mu            sync.Mutex
 	devices       map[string]Device // uuid → Device
@@ -54,6 +55,14 @@ func NewManager(deviceName string) *Manager {
 		deviceName: deviceName,
 		devices:    make(map[string]Device),
 	}
+}
+
+// SetCacheDir sets the directory used to persist the device cache.
+// Call before LoadCache and Discover.
+func (m *Manager) SetCacheDir(dir string) {
+	m.mu.Lock()
+	m.cacheDir = dir
+	m.mu.Unlock()
 }
 
 // SetMediaBaseURL sets the HTTP base URL used to construct media URLs for Chromecast.
@@ -99,7 +108,10 @@ func (m *Manager) Discover(force bool) ([]Device, error) {
 	m.mu.Lock()
 	m.devices = found
 	m.lastDiscovery = time.Now()
+	cacheDir := m.cacheDir
 	m.mu.Unlock()
+
+	go m.saveCache(cacheDir)
 
 	return m.deviceList(), nil
 }

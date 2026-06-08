@@ -142,14 +142,16 @@ func (p *program) run() {
 	// Chromecast manager
 	castMgr := chromecast.NewManager(cfg.Speaker.GroupName)
 	castMgr.SetMediaBaseURL(mediaSrv.BaseURL())
+	castMgr.SetCacheDir(resolvedDataDir)
+	castMgr.LoadCache(resolvedDataDir) // seed from last-known devices immediately
 	p.castMgr = castMgr
 	log.Printf("[main] chromecast media base URL: %s", mediaSrv.BaseURL())
 
-	// TV pause manager — pauses Cast screens during Athan
+	// TV pause manager — mutes Cast screens during Athan
 	tvPauseMgr := chromecast.NewTVPauseManager(castMgr)
 	p.tvPause = tvPauseMgr
 
-	// Trigger background discovery (non-blocking)
+	// Trigger background discovery to refresh cache (non-blocking)
 	go func() {
 		devs, err := castMgr.Discover(false)
 		if err != nil {
@@ -282,6 +284,8 @@ func (p *program) run() {
 		if old.Speaker.GroupName != new.Speaker.GroupName {
 			castMgr := chromecast.NewManager(new.Speaker.GroupName)
 			castMgr.SetMediaBaseURL(mediaSrv.BaseURL())
+			castMgr.SetCacheDir(resolvedDataDir)
+			castMgr.LoadCache(resolvedDataDir)
 			p.castMgr = castMgr
 		}
 
