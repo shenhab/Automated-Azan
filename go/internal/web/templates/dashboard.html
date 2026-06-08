@@ -190,6 +190,7 @@
 
 {{define "scripts"}}
 <script>
+(function() {
   // ── Quran device dropdown ─────────────────────────────────────────────────
   // Fetch discovered Chromecast devices and add them to the target dropdown.
   (function loadQuranDevices() {
@@ -379,6 +380,7 @@
     _countdownTimer = setInterval(updateCountdown, 1000);
 
     // Highlight active prayer pill
+
     const prayerPills = {
       "Fajr": "pill-fajr", "Dhuhr": "pill-dhuhr", "Asr": "pill-asr",
       "Maghrib": "pill-maghrib", "Isha": "pill-isha"
@@ -387,5 +389,12 @@
       document.getElementById(prayerPills[nextPrayerName])?.classList.add("active");
     }
   }
+
+  window.onQuranTargetChange = onQuranTargetChange;
+  window.playQuran           = playQuran;
+  window.stopQuran           = stopQuran;
+  window.playAthan           = playAthan;
+  window.stopAll             = stopAll;
+})();
 </script>
 {{end}}

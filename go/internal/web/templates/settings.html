@@ -471,6 +471,7 @@
 
 {{define "scripts"}}
 <script>
+(function() {
 var currentSpeaker = "{{index .config "speakers_group_name"}}";
 
 // ── Device loading ────────────────────────────────────────────────────────
@@ -968,5 +969,20 @@ function escHtml(s) {
 loadTVPauseConfig();
 loadTVDevices();
 setInterval(refreshPauseStatus, 15000);
+
+window.refreshAll                    = refreshAll;
+window.saveSettings                  = saveSettings;
+window.saveSpeakerAssignment         = saveSpeakerAssignment;
+window.refreshMediaFiles             = refreshMediaFiles;
+window.uploadMedia                   = uploadMedia;
+window.savePrayerNotifications       = savePrayerNotifications;
+window.requestBrowserNotifyPermission = requestBrowserNotifyPermission;
+window.toggleLocationSource          = toggleLocationSource;
+window.onCountryChange               = onCountryChange;
+window.selectAllTVDevices            = selectAllTVDevices;
+window.saveTVPauseConfig             = saveTVPauseConfig;
+window.testPause                     = testPause;
+window.testResume                    = testResume;
+})();
 </script>
 {{end}}

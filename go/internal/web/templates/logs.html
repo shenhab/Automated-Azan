@@ -29,6 +29,7 @@
 
 {{define "scripts"}}
 <script>
+(function() {
   function scrollToBottom() {
     const v = document.getElementById("logViewer");
     v.scrollTop = v.scrollHeight;
@@ -44,5 +45,9 @@
 
   // Auto-scroll on load
   scrollToBottom();
+
+  window.scrollToBottom = scrollToBottom;
+  window.toggleWrap    = toggleWrap;
+})();
 </script>
 {{end}}
