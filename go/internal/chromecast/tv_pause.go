@@ -20,9 +20,9 @@ type TVPauseManager struct {
 }
 
 type pausedDevice struct {
-	device  Device
-	app     *application.Application
-	stopped bool // true when Stop() was used instead of Pause() — cannot Unpause()
+	device Device
+	app    *application.Application
+	muted  bool // true when muted instead of paused (no active Cast session) — resume with SetMuted(false)
 }
 
 // NewTVPauseManager returns a manager backed by the given Chromecast manager.
@@ -93,14 +93,14 @@ func (t *TVPauseManager) PauseForAthan(uuids []string, excludeName string) {
 					log.Printf("[tv-pause] pause %q failed: %v", dev.Name, err)
 					return
 				}
-				// No active Cast session — stop the receiver instead so the TV
-				// stops playing whatever it was showing natively.
-				if err2 := app.Stop(); err2 != nil {
-					log.Printf("[tv-pause] stop %q failed: %v", dev.Name, err2)
+				// No active Cast session — mute the device so Athan audio
+				// isn't competing. Video keeps playing visually but silently.
+				if err2 := app.SetMuted(true); err2 != nil {
+					log.Printf("[tv-pause] mute %q failed: %v", dev.Name, err2)
 					return
 				}
-				pd.stopped = true
-				log.Printf("[tv-pause] stopped %q (%s) — no active cast session", dev.Name, dev.ModelName)
+				pd.muted = true
+				log.Printf("[tv-pause] muted %q (%s) — no active cast session", dev.Name, dev.ModelName)
 			} else {
 				log.Printf("[tv-pause] paused %q (%s)", dev.Name, dev.ModelName)
 			}
@@ -136,9 +136,12 @@ func (t *TVPauseManager) ResumeAfterAthan() {
 	for _, pd := range paused {
 		pd := pd
 		go func() {
-			if pd.stopped {
-				// Device was stopped (not paused) — nothing to resume.
-				log.Printf("[tv-pause] skipping resume for %q (was stopped, not paused)", pd.device.Name)
+			if pd.muted {
+				if err := pd.app.SetMuted(false); err != nil {
+					log.Printf("[tv-pause] unmute %q failed: %v", pd.device.Name, err)
+				} else {
+					log.Printf("[tv-pause] unmuted %q", pd.device.Name)
+				}
 				return
 			}
 			if err := pd.app.Unpause(); err != nil {
