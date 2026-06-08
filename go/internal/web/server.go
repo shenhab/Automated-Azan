@@ -291,10 +291,12 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		{Key: "friday_kahf", Label: "Friday Surah Al-Kahf", HasEnabled: false, HasMedia: false, AudioLabel: "Kahf (built-in)"},
 	}
 	s.renderPage(w, "settings.html", map[string]interface{}{
-		"page":           "settings",
-		"config":         s.cfg.AsWebDict(),
-		"notifRows":      rows,
+		"page":            "settings",
+		"config":          s.cfg.AsWebDict(),
+		"notifRows":       rows,
 		"aladhan_methods": prayer.AladhanMethods,
+		"tv_paused":       s.tvPause.IsPaused(),
+		"tv_paused_n":     s.tvPause.PausedCount(),
 	})
 }
 
