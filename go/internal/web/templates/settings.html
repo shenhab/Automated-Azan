@@ -471,7 +471,7 @@
 
 {{define "scripts"}}
 <script>
-const currentSpeaker = "{{index .config "speakers_group_name"}}";
+var currentSpeaker = "{{index .config "speakers_group_name"}}";
 
 // ── Device loading ────────────────────────────────────────────────────────
 function loadDevices(forceRefresh) {

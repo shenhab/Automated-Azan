@@ -351,8 +351,8 @@
     new Date().toLocaleDateString('en-IE', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
 
   // Set next job label from injected data
-  const nextPrayerName = "{{index .next_prayer "name"}}";
-  const nextPrayerTime = "{{index .next_prayer "time"}}";
+  var nextPrayerName = "{{index .next_prayer "name"}}";
+  var nextPrayerTime = "{{index .next_prayer "time"}}";
   if (nextPrayerName && nextPrayerTime) {
     document.getElementById("nextJobLabel").textContent = nextPrayerName + " at " + nextPrayerTime;
   } else {
@@ -361,20 +361,22 @@
 
   // Countdown to next prayer
   if (nextPrayerTime) {
+    var _countdownTimer = null;
     function updateCountdown() {
+      var el = document.getElementById("countdown");
+      if (!el) { clearInterval(_countdownTimer); return; }
       const now = new Date();
       const [h, m] = nextPrayerTime.split(":").map(Number);
       const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
       const diff = target - now;
-      if (diff <= 0) { document.getElementById("countdown").textContent = "Now"; return; }
+      if (diff <= 0) { el.textContent = "Now"; return; }
       const hh = Math.floor(diff / 3600000);
       const mm = Math.floor((diff % 3600000) / 60000);
       const ss = Math.floor((diff % 60000) / 1000);
-      document.getElementById("countdown").textContent =
-        (hh > 0 ? hh + "h " : "") + mm + "m " + ss + "s away";
+      el.textContent = (hh > 0 ? hh + "h " : "") + mm + "m " + ss + "s away";
     }
     updateCountdown();
-    setInterval(updateCountdown, 1000);
+    _countdownTimer = setInterval(updateCountdown, 1000);
 
     // Highlight active prayer pill
     const prayerPills = {
