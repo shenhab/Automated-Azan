@@ -402,6 +402,13 @@ func (m *Manager) connectWithBackoff(name string) (*application.Application, Dev
 					}
 					log.Printf("[chromecast] backoff attempt %d: %q at %s:%d unreachable: %v",
 						attempt, d.Name, d.Host, d.Port, err)
+
+					// Kick the host device at port 8009 — sending Stop may
+					// force the Nest Hub to reinitialise the Cast Group receiver
+					// on a new port, which the next discovery will find.
+					if d.Port != 8009 {
+						m.kickHost(d.Host)
+					}
 					break
 				}
 			}
@@ -420,6 +427,23 @@ func (m *Manager) connectWithBackoff(name string) (*application.Application, Dev
 		time.Sleep(wait)
 	}
 	return nil, Device{}, fmt.Errorf("could not connect to %q after %v", name, backoffMaxWait)
+}
+
+// kickHost connects to the physical device at host:8009 and sends a Stop
+// command. This can revive a crashed Cast Group receiver on the same host.
+func (m *Manager) kickHost(host string) {
+	log.Printf("[chromecast] kicking host %s:8009 to revive Cast Group", host)
+	hostDev := Device{Host: host, Port: 8009, Name: host + ":8009"}
+	app := application.NewApplication()
+	if err := app.Start(host, 8009); err != nil {
+		log.Printf("[chromecast] kick connect to %s:8009 failed: %v", host, err)
+		return
+	}
+	if err := app.Stop(); err != nil {
+		log.Printf("[chromecast] kick Stop on %s:8009 failed: %v", hostDev.Name, err)
+		return
+	}
+	log.Printf("[chromecast] kick sent to %s:8009 — waiting for Cast Group to reinitialise", host)
 }
 
 // rediscoverByName forces a fresh mDNS scan and returns the device matching
