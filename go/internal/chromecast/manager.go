@@ -13,9 +13,11 @@ import (
 )
 
 const (
-	discoveryCooldown = 60 * time.Second
-	connectTimeout    = 10 * time.Second
-	maxRetries        = 3
+	discoveryCooldown    = 60 * time.Second
+	connectTimeout       = 10 * time.Second
+	maxRetries           = 3
+	backoffRetryInterval = 30 * time.Second // wait between backoff attempts
+	backoffMaxWait       = 3 * time.Minute  // total time to keep retrying
 )
 
 // QuranStation is the default live Quran recitation stream.
@@ -35,14 +37,19 @@ type Device struct {
 
 // Manager discovers Chromecast devices and plays audio on them.
 type Manager struct {
-	deviceName    string // configured target speaker name
-	mediaBaseURL  string // e.g. http://192.168.1.x:5000/media/
+	deviceName   string // configured target speaker name
+	mediaBaseURL string // e.g. http://192.168.1.x:5000/media/
+	cacheDir     string // data directory for devices.json cache
 
 	mu            sync.Mutex
 	devices       map[string]Device // uuid → Device
 	lastDiscovery time.Time
 	app           *application.Application
 	currentDevice *Device
+
+	// Pre-connect cache populated by PreConnect; consumed by the next playURL.
+	preApp *application.Application
+	preDev *Device
 
 	athanPlaying bool
 	quranPlaying bool
@@ -54,6 +61,97 @@ func NewManager(deviceName string) *Manager {
 		deviceName: deviceName,
 		devices:    make(map[string]Device),
 	}
+}
+
+// SetCacheDir sets the directory used to persist the device cache.
+// Call before LoadCache and Discover.
+func (m *Manager) SetCacheDir(dir string) {
+	m.mu.Lock()
+	m.cacheDir = dir
+	m.mu.Unlock()
+}
+
+// StartHealthMonitor starts a background goroutine that probes the configured
+// speaker's TCP port every interval. When the port is unreachable (common for
+// Cast Groups whose dynamic port goes stale), it triggers a forced mDNS
+// rediscovery so the cache always holds a live address before prayer time.
+func (m *Manager) StartHealthMonitor(interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			m.probeAndRefresh()
+		}
+	}()
+	log.Printf("[chromecast/health] monitor started (interval %v)", interval)
+}
+
+func (m *Manager) probeAndRefresh() {
+	m.mu.Lock()
+	target := m.deviceName
+	m.mu.Unlock()
+	if target == "" {
+		return
+	}
+
+	var found *Device
+	for _, d := range m.Devices() {
+		d := d
+		if equalFold(d.Name, target) {
+			found = &d
+			break
+		}
+	}
+	if found == nil {
+		log.Printf("[chromecast/health] %q not in cache — skipping probe", target)
+		return
+	}
+
+	if IsAvailable(found.Host, found.Port) {
+		return // port is alive, nothing to do
+	}
+
+	log.Printf("[chromecast/health] %q at %s:%d unreachable — forcing rediscovery",
+		found.Name, found.Host, found.Port)
+	devs, err := m.Discover(true)
+	if err != nil {
+		log.Printf("[chromecast/health] rediscovery error: %v", err)
+		return
+	}
+	for _, d := range devs {
+		if equalFold(d.Name, target) {
+			if d.Host != found.Host || d.Port != found.Port {
+				log.Printf("[chromecast/health] %q updated: %s:%d → %s:%d",
+					target, found.Host, found.Port, d.Host, d.Port)
+			} else {
+				log.Printf("[chromecast/health] %q still at %s:%d after rediscovery",
+					target, d.Host, d.Port)
+			}
+			return
+		}
+	}
+	log.Printf("[chromecast/health] %q not found after rediscovery", target)
+}
+
+// PreConnect establishes a connection to the configured speaker and caches it
+// so the next playURL call can skip the connection step entirely.
+// Called by the scheduler ~60 s before each prayer.
+func (m *Manager) PreConnect() error {
+	dev, err := m.resolveDevice()
+	if err != nil {
+		return fmt.Errorf("pre-connect resolve: %w", err)
+	}
+	app, err := m.connectWithRetry(dev)
+	if err != nil {
+		return fmt.Errorf("pre-connect to %q: %w", dev.Name, err)
+	}
+	m.mu.Lock()
+	m.preApp = app
+	devCopy := dev
+	m.preDev = &devCopy
+	m.mu.Unlock()
+	log.Printf("[chromecast] pre-connected to %q (%s:%d)", dev.Name, dev.Host, dev.Port)
+	return nil
 }
 
 // SetMediaBaseURL sets the HTTP base URL used to construct media URLs for Chromecast.
@@ -99,7 +197,10 @@ func (m *Manager) Discover(force bool) ([]Device, error) {
 	m.mu.Lock()
 	m.devices = found
 	m.lastDiscovery = time.Now()
+	cacheDir := m.cacheDir
 	m.mu.Unlock()
+
+	go m.saveCache(cacheDir)
 
 	return m.deviceList(), nil
 }
@@ -226,6 +327,27 @@ func (m *Manager) IsAthanPlaying() bool {
 // --- internal ---
 
 func (m *Manager) playURL(url, contentType string) error {
+	// Use the pre-cached connection if one was established by PreConnect.
+	m.mu.Lock()
+	preApp := m.preApp
+	preDev := m.preDev
+	m.preApp = nil
+	m.preDev = nil
+	m.mu.Unlock()
+
+	if preApp != nil && preDev != nil {
+		log.Printf("[chromecast] using pre-connected session for %q (%s:%d) url=%s",
+			preDev.Name, preDev.Host, preDev.Port, url)
+		if err := preApp.Load(url, 0, contentType, false, true, false); err == nil {
+			m.mu.Lock()
+			m.app = preApp
+			m.mu.Unlock()
+			log.Printf("[chromecast] Load accepted by %q (pre-connect)", preDev.Name)
+			return nil
+		}
+		log.Printf("[chromecast] pre-connect session stale for %q — reconnecting", preDev.Name)
+	}
+
 	dev, err := m.resolveDevice()
 	if err != nil {
 		return fmt.Errorf("resolve device: %w", err)
@@ -233,7 +355,17 @@ func (m *Manager) playURL(url, contentType string) error {
 
 	app, err := m.connectWithRetry(dev)
 	if err != nil {
-		return fmt.Errorf("connect to %s: %w", dev.Name, err)
+		// Cast Group ports are dynamic and can go stale. Enter a backoff retry
+		// loop with forced rediscovery between attempts so the Athan plays on
+		// the full group once the group's port recovers (usually within 1–2 min).
+		log.Printf("[chromecast] connect to %q failed — entering backoff retry loop (max %v)",
+			dev.Name, backoffMaxWait)
+		var backoffDev Device
+		app, backoffDev, err = m.connectWithBackoff(dev.Name)
+		if err != nil {
+			return fmt.Errorf("connect to %s: %w", dev.Name, err)
+		}
+		dev = backoffDev
 	}
 
 	m.mu.Lock()
@@ -241,7 +373,6 @@ func (m *Manager) playURL(url, contentType string) error {
 	m.mu.Unlock()
 
 	log.Printf("[chromecast] sending Load to %s (%s:%d) url=%s", dev.Name, dev.Host, dev.Port, url)
-	// Load(filenameOrUrl, startTime, contentType, transcode, detach, forceDetach)
 	// detach=true so we return immediately without waiting for playback to finish
 	if err := app.Load(url, 0, contentType, false, true, false); err != nil {
 		return fmt.Errorf("load media on %s: %w", dev.Name, err)
@@ -250,20 +381,105 @@ func (m *Manager) playURL(url, contentType string) error {
 	return nil
 }
 
+// connectWithBackoff retries connecting to the named device with forced mDNS
+// rediscovery between each attempt, blocking for up to backoffMaxWait. Used
+// when Cast Group dynamic ports go stale and refuse connections — the group
+// typically recovers within 1–2 minutes.
+func (m *Manager) connectWithBackoff(name string) (*application.Application, Device, error) {
+	deadline := time.Now().Add(backoffMaxWait)
+	for attempt := 1; ; attempt++ {
+		devs, err := m.Discover(true)
+		if err != nil {
+			log.Printf("[chromecast] backoff attempt %d: discover error: %v", attempt, err)
+		} else {
+			for _, d := range devs {
+				if equalFold(d.Name, name) {
+					app, err := m.connectWithRetry(d)
+					if err == nil {
+						log.Printf("[chromecast] backoff attempt %d: connected to %q at %s:%d",
+							attempt, d.Name, d.Host, d.Port)
+						return app, d, nil
+					}
+					log.Printf("[chromecast] backoff attempt %d: %q at %s:%d unreachable: %v",
+						attempt, d.Name, d.Host, d.Port, err)
+
+					// Kick the host device at port 8009 — sending Stop may
+					// force the Nest Hub to reinitialise the Cast Group receiver
+					// on a new port, which the next discovery will find.
+					if d.Port != 8009 {
+						m.kickHost(d.Host)
+					}
+					break
+				}
+			}
+		}
+
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		wait := backoffRetryInterval
+		if wait > remaining {
+			wait = remaining
+		}
+		log.Printf("[chromecast] backoff: waiting %v before attempt %d (%.0fs remaining)",
+			wait, attempt+1, remaining.Seconds())
+		time.Sleep(wait)
+	}
+	return nil, Device{}, fmt.Errorf("could not connect to %q after %v", name, backoffMaxWait)
+}
+
+// kickHost connects to the physical device at host:8009 and sends a Stop
+// command. This can revive a crashed Cast Group receiver on the same host.
+func (m *Manager) kickHost(host string) {
+	log.Printf("[chromecast] kicking host %s:8009 to revive Cast Group", host)
+	hostDev := Device{Host: host, Port: 8009, Name: host + ":8009"}
+	app := application.NewApplication()
+	if err := app.Start(host, 8009); err != nil {
+		log.Printf("[chromecast] kick connect to %s:8009 failed: %v", host, err)
+		return
+	}
+	if err := app.Stop(); err != nil {
+		log.Printf("[chromecast] kick Stop on %s:8009 failed: %v", hostDev.Name, err)
+		return
+	}
+	log.Printf("[chromecast] kick sent to %s:8009 — waiting for Cast Group to reinitialise", host)
+}
+
+// rediscoverByName forces a fresh mDNS scan and returns the device matching
+// name. Used to recover from stale Cast Group ports after a connect failure.
+func (m *Manager) rediscoverByName(name string) (Device, error) {
+	devs, err := m.Discover(true)
+	if err != nil {
+		return Device{}, err
+	}
+	for _, d := range devs {
+		if equalFold(d.Name, name) {
+			return d, nil
+		}
+	}
+	return Device{}, fmt.Errorf("device %q not found after rediscovery", name)
+}
+
 func (m *Manager) resolveDevice() (Device, error) {
 	m.mu.Lock()
 	target := m.deviceName
 	m.mu.Unlock()
 
-	devs, err := m.Discover(false)
-	if err != nil {
-		return Device{}, err
-	}
+	// Use the in-memory cache first so we never block on an mDNS scan at
+	// prayer time. Only scan if the cache is empty or the target isn't found.
+	devs := m.Devices()
 	if len(devs) == 0 {
-		// Try forced rediscovery once
-		devs, err = m.Discover(true)
-		if err != nil || len(devs) == 0 {
-			return Device{}, fmt.Errorf("no Chromecast devices found")
+		var err error
+		devs, err = m.Discover(false)
+		if err != nil {
+			return Device{}, err
+		}
+		if len(devs) == 0 {
+			devs, err = m.Discover(true)
+			if err != nil || len(devs) == 0 {
+				return Device{}, fmt.Errorf("no Chromecast devices found")
+			}
 		}
 	}
 
@@ -274,7 +490,7 @@ func (m *Manager) resolveDevice() (Device, error) {
 				return d, nil
 			}
 		}
-		// Not found — try once more after forced rediscovery
+		// Not in cache — force a fresh scan once
 		devs, _ = m.Discover(true)
 		for _, d := range devs {
 			if equalFold(d.Name, target) {
@@ -284,7 +500,7 @@ func (m *Manager) resolveDevice() (Device, error) {
 		return Device{}, fmt.Errorf("device %q not found", target)
 	}
 
-	// No name configured: prefer "Adahn", then any Google Nest/Home device
+	// No name configured: prefer "Adahn", then first available
 	for _, d := range devs {
 		if equalFold(d.Name, "Adahn") {
 			return d, nil

@@ -410,9 +410,6 @@
           <button class="btn btn-success btn-sm" onclick="saveTVPauseConfig()">
             <i class="fas fa-save me-1"></i>Save Settings
           </button>
-          <button class="btn btn-outline-secondary btn-sm" onclick="testPause()">
-            <i class="fas fa-volume-mute me-1"></i>Test Mute Now
-          </button>
           <button class="btn btn-outline-secondary btn-sm" id="resumeNowBtn" onclick="testResume()">
             <i class="fas fa-volume-up me-1"></i>Unmute Now
           </button>
@@ -471,7 +468,8 @@
 
 {{define "scripts"}}
 <script>
-const currentSpeaker = "{{index .config "speakers_group_name"}}";
+(function() {
+var currentSpeaker = "{{index .config "speakers_group_name"}}";
 
 // ── Device loading ────────────────────────────────────────────────────────
 function loadDevices(forceRefresh) {
@@ -750,7 +748,7 @@ function toggleLocationSource(val) {
 }
 
 // ── Countries / Cities dropdowns ─────────────────────────────────────────
-let countriesLoaded = false;
+var countriesLoaded = false;
 
 async function loadCountries() {
   if (countriesLoaded) return;
@@ -915,18 +913,6 @@ function saveTVPauseConfig() {
   });
 }
 
-function testPause() {
-  fetch("/api/tv-pause/pause", {method: "POST"})
-    .then(r => r.json())
-    .then(d => {
-      if (d.success) {
-        showToast("Mute command sent — check your TVs", "success");
-        setTimeout(refreshPauseStatus, 2000);
-      } else {
-        showToast("Mute failed: " + d.error, "danger");
-      }
-    });
-}
 
 function testResume() {
   fetch("/api/tv-pause/resume", {method: "POST"})
@@ -942,6 +928,10 @@ function testResume() {
 }
 
 function refreshPauseStatus() {
+  if (!document.getElementById("tvPauseStatusBadge")) {
+    clearInterval(_tvPauseInterval);
+    return;
+  }
   fetch("/api/tv-pause/status")
     .then(r => r.json())
     .then(d => { if (d.success) renderPauseStatus(d.paused, d.paused_count); });
@@ -967,6 +957,20 @@ function escHtml(s) {
 
 loadTVPauseConfig();
 loadTVDevices();
-setInterval(refreshPauseStatus, 15000);
+var _tvPauseInterval = setInterval(refreshPauseStatus, 15000);
+
+window.refreshAll                    = refreshAll;
+window.saveSettings                  = saveSettings;
+window.saveSpeakerAssignment         = saveSpeakerAssignment;
+window.refreshMediaFiles             = refreshMediaFiles;
+window.uploadMedia                   = uploadMedia;
+window.savePrayerNotifications       = savePrayerNotifications;
+window.requestBrowserNotifyPermission = requestBrowserNotifyPermission;
+window.toggleLocationSource          = toggleLocationSource;
+window.onCountryChange               = onCountryChange;
+window.selectAllTVDevices            = selectAllTVDevices;
+window.saveTVPauseConfig             = saveTVPauseConfig;
+window.testResume                    = testResume;
+})();
 </script>
 {{end}}

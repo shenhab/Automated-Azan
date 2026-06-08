@@ -60,6 +60,7 @@
 
 {{define "scripts"}}
 <script>
+(function() {
 function discoverDevices() {
   document.getElementById("statusBar").innerHTML =
     '<div class="d-flex align-items-center gap-2 text-muted" style="font-size:13px">' +
@@ -77,5 +78,8 @@ function discoverDevices() {
       }
     });
 }
+
+window.discoverDevices = discoverDevices;
+})();
 </script>
 {{end}}
