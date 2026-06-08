@@ -245,7 +245,17 @@ func (m *Manager) playURL(url, contentType string) error {
 
 	app, err := m.connectWithRetry(dev)
 	if err != nil {
-		return fmt.Errorf("connect to %s: %w", dev.Name, err)
+		// Cast Group ports are dynamic and can change between discovery and
+		// connection. Force a fresh scan and retry once with the new address.
+		log.Printf("[chromecast] connect to %q failed, rediscovering...", dev.Name)
+		if fresh, ferr := m.rediscoverByName(dev.Name); ferr == nil {
+			log.Printf("[chromecast] retrying %q at %s:%d", fresh.Name, fresh.Host, fresh.Port)
+			app, err = m.connectWithRetry(fresh)
+			dev = fresh
+		}
+		if err != nil {
+			return fmt.Errorf("connect to %s: %w", dev.Name, err)
+		}
 	}
 
 	m.mu.Lock()
@@ -253,7 +263,6 @@ func (m *Manager) playURL(url, contentType string) error {
 	m.mu.Unlock()
 
 	log.Printf("[chromecast] sending Load to %s (%s:%d) url=%s", dev.Name, dev.Host, dev.Port, url)
-	// Load(filenameOrUrl, startTime, contentType, transcode, detach, forceDetach)
 	// detach=true so we return immediately without waiting for playback to finish
 	if err := app.Load(url, 0, contentType, false, true, false); err != nil {
 		return fmt.Errorf("load media on %s: %w", dev.Name, err)
@@ -262,20 +271,40 @@ func (m *Manager) playURL(url, contentType string) error {
 	return nil
 }
 
+// rediscoverByName forces a fresh mDNS scan and returns the device matching
+// name. Used to recover from stale Cast Group ports after a connect failure.
+func (m *Manager) rediscoverByName(name string) (Device, error) {
+	devs, err := m.Discover(true)
+	if err != nil {
+		return Device{}, err
+	}
+	for _, d := range devs {
+		if equalFold(d.Name, name) {
+			return d, nil
+		}
+	}
+	return Device{}, fmt.Errorf("device %q not found after rediscovery", name)
+}
+
 func (m *Manager) resolveDevice() (Device, error) {
 	m.mu.Lock()
 	target := m.deviceName
 	m.mu.Unlock()
 
-	devs, err := m.Discover(false)
-	if err != nil {
-		return Device{}, err
-	}
+	// Use the in-memory cache first so we never block on an mDNS scan at
+	// prayer time. Only scan if the cache is empty or the target isn't found.
+	devs := m.Devices()
 	if len(devs) == 0 {
-		// Try forced rediscovery once
-		devs, err = m.Discover(true)
-		if err != nil || len(devs) == 0 {
-			return Device{}, fmt.Errorf("no Chromecast devices found")
+		var err error
+		devs, err = m.Discover(false)
+		if err != nil {
+			return Device{}, err
+		}
+		if len(devs) == 0 {
+			devs, err = m.Discover(true)
+			if err != nil || len(devs) == 0 {
+				return Device{}, fmt.Errorf("no Chromecast devices found")
+			}
 		}
 	}
 
@@ -286,7 +315,7 @@ func (m *Manager) resolveDevice() (Device, error) {
 				return d, nil
 			}
 		}
-		// Not found — try once more after forced rediscovery
+		// Not in cache — force a fresh scan once
 		devs, _ = m.Discover(true)
 		for _, d := range devs {
 			if equalFold(d.Name, target) {
@@ -296,7 +325,7 @@ func (m *Manager) resolveDevice() (Device, error) {
 		return Device{}, fmt.Errorf("device %q not found", target)
 	}
 
-	// No name configured: prefer "Adahn", then any Google Nest/Home device
+	// No name configured: prefer "Adahn", then first available
 	for _, d := range devs {
 		if equalFold(d.Name, "Adahn") {
 			return d, nil
