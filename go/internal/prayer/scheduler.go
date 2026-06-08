@@ -27,7 +27,10 @@ type JobStatus struct {
 	NextRunAt string `json:"next_run,omitempty"`
 }
 
-const warmupLeadTime = 60 * time.Second
+const (
+	warmupLeadTime = 60 * time.Second
+	muteLeadTime   = 2 * time.Second
+)
 
 // Scheduler schedules daily Athan playback and optional Quran/Kahf jobs.
 type Scheduler struct {
@@ -39,7 +42,8 @@ type Scheduler struct {
 	playKahf  func() error
 	stopQuran func()
 	stopKahf  func()
-	warmup    func() error // called warmupLeadTime before each Athan to pre-connect
+	warmup    func() error // called warmupLeadTime before each event to pre-connect
+	mute      func() error // called muteLeadTime before each Athan to silence TVs
 
 	mu        sync.Mutex
 	todayJobs []JobStatus
@@ -62,6 +66,7 @@ func NewScheduler(
 	playKahf func() error,
 	stopKahf func(),
 	warmup func() error,
+	mute func() error,
 ) *Scheduler {
 	return &Scheduler{
 		cfg:       cfg,
@@ -73,6 +78,7 @@ func NewScheduler(
 		playKahf:  playKahf,
 		stopKahf:  stopKahf,
 		warmup:    warmup,
+		mute:      mute,
 	}
 }
 
@@ -292,6 +298,23 @@ func (s *Scheduler) scheduleTodayLocked() error {
 				s.timers = append(s.timers, warmupTimer)
 				log.Printf("[scheduler] warmup scheduled for %s at %s",
 					j.label, j.at.Add(-warmupLeadTime).Format("15:04:05"))
+			}
+		}
+
+		// Schedule TV mute muteLeadTime before each Athan so TVs are silent
+		// when the Athan starts playing.
+		if s.mute != nil && (j.kind == "fajr_athan" || j.kind == "regular_athan") {
+			if muteDelay := delay - muteLeadTime; muteDelay > 0 {
+				muteLabel := label
+				muteTimer := time.AfterFunc(muteDelay, func() {
+					log.Printf("[scheduler] muting TVs for %s", muteLabel)
+					if err := s.mute(); err != nil {
+						log.Printf("[scheduler] mute failed for %s: %v", muteLabel, err)
+					}
+				})
+				s.timers = append(s.timers, muteTimer)
+				log.Printf("[scheduler] TV mute scheduled for %s at %s",
+					j.label, j.at.Add(-muteLeadTime).Format("15:04:05"))
 			}
 		}
 	}

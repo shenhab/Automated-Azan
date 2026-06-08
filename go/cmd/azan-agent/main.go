@@ -175,19 +175,23 @@ func (p *program) run() {
 		}
 	}
 
+	// muteForAthan is called by the scheduler muteLeadTime before each Athan.
+	muteForAthan := func() error {
+		if !cfg.TVPause.Enabled {
+			return nil
+		}
+		delay := time.Duration(cfg.TVPause.ResumeDelaySecs) * time.Second
+		if delay == 0 {
+			delay = 5 * time.Minute
+		}
+		excludeSpeaker := cfg.Speaker.Resolve("athan")
+		tvPauseMgr.PauseForAthan(cfg.TVPause.Devices, excludeSpeaker)
+		tvPauseMgr.ScheduleResume(delay)
+		return nil
+	}
+
 	playAthan := func(prayerName, filename string) error {
 		ch := cfg.Prayer.Channels.ForPrayer(prayerName)
-
-		// Mute TVs first (blocking) so they're silent before Athan starts.
-		if cfg.TVPause.Enabled {
-			delay := time.Duration(cfg.TVPause.ResumeDelaySecs) * time.Second
-			if delay == 0 {
-				delay = 5 * time.Minute
-			}
-			excludeSpeaker := cfg.Speaker.Resolve("athan")
-			tvPauseMgr.PauseForAthan(cfg.TVPause.Devices, excludeSpeaker)
-			tvPauseMgr.ScheduleResume(delay)
-		}
 
 		if ch.Notify {
 			go fireNotify("Automated Azan", prayerName+" prayer time")
@@ -255,7 +259,7 @@ func (p *program) run() {
 	}
 
 	// Prayer scheduler
-	sched := prayer.NewScheduler(cfg, fetcher, playAthan, playQuran, stopQuran, playKahf, nil, castMgr.PreConnect)
+	sched := prayer.NewScheduler(cfg, fetcher, playAthan, playQuran, stopQuran, playKahf, nil, castMgr.PreConnect, muteForAthan)
 	if err := sched.Start(); err != nil {
 		log.Fatalf("[main] scheduler start: %v", err)
 	}
