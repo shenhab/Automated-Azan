@@ -326,7 +326,7 @@ func (s *Scheduler) fire(prayer string) {
 	switch prayer {
 	case "pre_fajr":
 		if s.playQuran != nil {
-			dur := s.cfg.Prayer.PreFajrMinutes * 60
+			dur := s.cfg.Prayer.PreFajrMinutes*60 - 10 // stop 10 s before Fajr to avoid killing the Athan
 			if err := s.playQuran(dur); err != nil {
 				log.Printf("[scheduler] pre-fajr quran error: %v", err)
 			}
