@@ -139,6 +139,13 @@ type PrayerConfig struct {
 	Channels          JobChannelsConfig   `toml:"channels"`
 }
 
+// TVPauseConfig controls pausing Cast-capable screens during Athan.
+type TVPauseConfig struct {
+	Enabled         bool     `toml:"enabled"`
+	ResumeDelaySecs int      `toml:"resume_delay_seconds"` // default 300 (5 min)
+	Devices         []string `toml:"devices"`              // UUIDs to pause; empty = all discovered
+}
+
 // AuthConfig holds web authentication credentials.
 type AuthConfig struct {
 	Username     string `toml:"username"`
@@ -161,10 +168,11 @@ type LogConfig struct {
 
 // Config is the top-level configuration structure.
 type Config struct {
-	Speaker SpeakerConfig `toml:"speaker"`
-	Prayer  PrayerConfig  `toml:"prayer"`
-	Web     WebConfig     `toml:"web"`
-	Log     LogConfig     `toml:"log"`
+	Speaker  SpeakerConfig  `toml:"speaker"`
+	Prayer   PrayerConfig   `toml:"prayer"`
+	Web      WebConfig      `toml:"web"`
+	Log      LogConfig      `toml:"log"`
+	TVPause  TVPauseConfig  `toml:"tv_pause"`
 
 	mu       sync.RWMutex
 	filePath string
@@ -204,6 +212,7 @@ func (c *Config) setDefaults() {
 		},
 	}
 	c.Web = WebConfig{Host: "0.0.0.0", Port: 28426, SecretKey: "automated-azan-secret-key"}
+	c.TVPause = TVPauseConfig{Enabled: false, ResumeDelaySecs: 300}
 	c.Log = LogConfig{
 		Level:    "INFO",
 		FilePath: filepath.Join(appdirs.Logs(), "azan.log"),
@@ -345,6 +354,10 @@ func (c *Config) AsWebDict() map[string]interface{} {
 		"ch_isha_speaker": c.Prayer.Channels.Isha.Speaker, "ch_isha_local": c.Prayer.Channels.Isha.Local, "ch_isha_notify": c.Prayer.Channels.Isha.Notify, "ch_isha_browser": c.Prayer.Channels.Isha.BrowserNotify, "ch_isha_browser_athan": c.Prayer.Channels.Isha.BrowserAthan,
 		"ch_pre_fajr_speaker": c.Prayer.Channels.PreFajr.Speaker, "ch_pre_fajr_local": c.Prayer.Channels.PreFajr.Local, "ch_pre_fajr_notify": c.Prayer.Channels.PreFajr.Notify, "ch_pre_fajr_browser": c.Prayer.Channels.PreFajr.BrowserNotify, "ch_pre_fajr_browser_athan": c.Prayer.Channels.PreFajr.BrowserAthan,
 		"ch_friday_kahf_speaker": c.Prayer.Channels.FridayKahf.Speaker, "ch_friday_kahf_local": c.Prayer.Channels.FridayKahf.Local, "ch_friday_kahf_notify": c.Prayer.Channels.FridayKahf.Notify, "ch_friday_kahf_browser": c.Prayer.Channels.FridayKahf.BrowserNotify, "ch_friday_kahf_browser_athan": c.Prayer.Channels.FridayKahf.BrowserAthan,
+		// TV pause
+		"tv_pause_enabled":      c.TVPause.Enabled,
+		"tv_pause_delay_secs":   c.TVPause.ResumeDelaySecs,
+		"tv_pause_devices":      c.TVPause.Devices,
 	}
 }
 

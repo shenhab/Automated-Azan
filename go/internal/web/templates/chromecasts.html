@@ -22,6 +22,8 @@
             <i class="fas fa-layer-group"></i>
           {{else if contains .ModelName "Hub"}}
             <i class="fas fa-tablet-alt"></i>
+          {{else if contains .ModelName "TV"}}
+            <i class="fas fa-tv"></i>
           {{else}}
             <i class="fas fa-speaker"></i>
           {{end}}
@@ -30,6 +32,7 @@
           <div class="device-name text-truncate">{{.Name}}</div>
           <div class="device-model">{{.ModelName}}</div>
           <div class="device-host mt-1">{{.Host}}:{{.Port}}</div>
+          <div class="text-muted mt-1" style="font-size:11px;word-break:break-all">{{.UUID}}</div>
         </div>
         <span class="badge-status badge-upcoming flex-shrink-0">Online</span>
       </div>
@@ -53,10 +56,82 @@
 {{end}}
 
 <div id="discoverMsg" class="mt-3"></div>
+
+<!-- ── TV Pause During Athan ─────────────────────────────────────────── -->
+<div class="card mt-4">
+  <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <div>
+      <h6 class="mb-0"><i class="fas fa-pause-circle me-2 text-success"></i>Pause TVs During Athan</h6>
+      <p class="text-muted mb-0 mt-1" style="font-size:12px">
+        Automatically pause selected Cast devices when Athan plays, then resume them.
+      </p>
+    </div>
+    <div id="tvPauseStatusBadge">
+      {{if .tv_paused}}
+        <span class="badge bg-warning text-dark"><i class="fas fa-pause me-1"></i>Paused ({{.tv_paused_n}} device{{if gt .tv_paused_n 1}}s{{end}})</span>
+      {{else}}
+        <span class="badge bg-secondary"><i class="fas fa-play me-1"></i>Not paused</span>
+      {{end}}
+    </div>
+  </div>
+
+  <div class="card-body">
+    <!-- Enable + delay row -->
+    <div class="d-flex flex-wrap align-items-center gap-4 mb-4">
+      <div class="form-check form-switch mb-0">
+        <input class="form-check-input" type="checkbox" role="switch" id="tvPauseEnabled" style="cursor:pointer">
+        <label class="form-check-label" for="tvPauseEnabled" style="cursor:pointer">Enable during Athan</label>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <label class="text-muted mb-0" style="font-size:13px;white-space:nowrap">Resume after</label>
+        <input type="number" id="tvResumeDelay" min="1" max="60" value="5"
+               class="form-control form-control-sm" style="width:70px">
+        <span class="text-muted" style="font-size:13px">minutes</span>
+      </div>
+    </div>
+
+    <!-- Device selection -->
+    <div class="mb-3">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <label class="fw-medium mb-0" style="font-size:13px">Devices to pause</label>
+        <div class="d-flex gap-2">
+          <button class="btn btn-outline-secondary btn-sm py-0 px-2" onclick="selectAllDevices(true)" style="font-size:12px">All</button>
+          <button class="btn btn-outline-secondary btn-sm py-0 px-2" onclick="selectAllDevices(false)" style="font-size:12px">None</button>
+        </div>
+      </div>
+      <div id="tvDeviceList" class="row g-2">
+        <div class="col-12 text-muted" style="font-size:13px">
+          <i class="fas fa-spinner fa-spin me-1"></i>Loading devices…
+        </div>
+      </div>
+      <p class="text-muted mt-2 mb-0" style="font-size:12px">
+        Leave all unchecked to pause <em>every</em> discovered Cast device (except the Athan speaker).
+        Scan the network first if your TV doesn't appear here.
+      </p>
+    </div>
+
+    <!-- Action buttons -->
+    <div class="d-flex flex-wrap gap-2 mt-3 pt-3 border-top">
+      <button class="btn btn-success btn-sm" onclick="saveTVPauseConfig()">
+        <i class="fas fa-save me-1"></i>Save Settings
+      </button>
+      <button class="btn btn-outline-secondary btn-sm" onclick="testPause()">
+        <i class="fas fa-pause me-1"></i>Test Pause Now
+      </button>
+      <button class="btn btn-outline-secondary btn-sm" id="resumeNowBtn" onclick="testResume()">
+        <i class="fas fa-play me-1"></i>Resume Now
+      </button>
+    </div>
+  </div>
+</div>
 {{end}}
 
 {{define "scripts"}}
 <script>
+// ── Cast device list and current TV pause config ──────────────────────────────
+var allDevices   = [];   // [{uuid, name, modelName, host, port}, ...]
+var pausedUUIDs  = [];   // UUIDs currently in config
+
 function discoverDevices() {
   document.getElementById("statusBar").innerHTML =
     '<div class="d-flex align-items-center gap-2 text-muted" style="font-size:13px">' +
@@ -74,5 +149,147 @@ function discoverDevices() {
       }
     });
 }
+
+// ── TV Pause ─────────────────────────────────────────────────────────────────
+
+function loadTVPauseConfig() {
+  fetch("/api/tv-pause/status")
+    .then(r => r.json())
+    .then(d => {
+      if (!d.success) return;
+      document.getElementById("tvPauseEnabled").checked = d.enabled;
+      document.getElementById("tvResumeDelay").value    = Math.round(d.resume_delay_secs / 60) || 5;
+      pausedUUIDs = d.devices || [];
+      renderPauseStatus(d.paused, d.paused_count);
+    });
+}
+
+function loadDevices() {
+  fetch("/api/devices")
+    .then(r => r.json())
+    .then(d => {
+      if (!d.success) return;
+      allDevices = d.devices || [];
+      renderDeviceCheckboxes();
+    });
+}
+
+function renderDeviceCheckboxes() {
+  var container = document.getElementById("tvDeviceList");
+  if (allDevices.length === 0) {
+    container.innerHTML =
+      '<div class="col-12 text-muted" style="font-size:13px">' +
+      '<i class="fas fa-exclamation-circle me-1"></i>No devices found — click Scan Network above.</div>';
+    return;
+  }
+  container.innerHTML = allDevices.map(function(dev) {
+    var isChecked = pausedUUIDs.indexOf(dev.uuid) >= 0;
+    var model = dev.model_name || "";
+    var icon = model.toLowerCase().indexOf("tv") >= 0
+      ? "fas fa-tv" : (model.toLowerCase().indexOf("hub") >= 0
+      ? "fas fa-tablet-alt" : "fas fa-speaker");
+    return '<div class="col-md-4 col-sm-6">' +
+      '<label class="d-flex align-items-center gap-2 p-2 border rounded" style="cursor:pointer;font-size:13px;background:#fff">' +
+        '<input type="checkbox" class="tv-device-cb" value="' + escHtml(dev.uuid) + '"' + (isChecked ? ' checked' : '') + '>' +
+        '<i class="' + icon + ' text-success" style="font-size:15px;flex-shrink:0"></i>' +
+        '<div class="min-w-0">' +
+          '<div class="fw-medium text-truncate">' + escHtml(dev.name) + '</div>' +
+          '<div class="text-muted" style="font-size:11px">' + escHtml(model) + '</div>' +
+        '</div>' +
+      '</label>' +
+    '</div>';
+  }).join("");
+}
+
+function selectAllDevices(all) {
+  document.querySelectorAll(".tv-device-cb").forEach(function(cb) {
+    cb.checked = all;
+  });
+}
+
+function getCheckedUUIDs() {
+  return Array.from(document.querySelectorAll(".tv-device-cb:checked")).map(function(cb) {
+    return cb.value;
+  });
+}
+
+function saveTVPauseConfig() {
+  var delaySecs = parseInt(document.getElementById("tvResumeDelay").value, 10) * 60;
+  var payload = {
+    enabled:          document.getElementById("tvPauseEnabled").checked,
+    resume_delay_secs: isNaN(delaySecs) ? 300 : delaySecs,
+    devices:          getCheckedUUIDs()
+  };
+  fetch("/api/tv-pause/config", {
+    method:  "POST",
+    headers: {"Content-Type": "application/json"},
+    body:    JSON.stringify(payload)
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.success) {
+      showToast("TV pause settings saved", "success");
+      pausedUUIDs = payload.devices;
+    } else {
+      showToast("Save failed: " + d.error, "danger");
+    }
+  });
+}
+
+function testPause() {
+  fetch("/api/tv-pause/pause", {method: "POST"})
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        showToast("Pause command sent — check your TVs", "success");
+        setTimeout(refreshPauseStatus, 2000);
+      } else {
+        showToast("Pause failed: " + d.error, "danger");
+      }
+    });
+}
+
+function testResume() {
+  fetch("/api/tv-pause/resume", {method: "POST"})
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        showToast("Resume command sent", "success");
+        setTimeout(refreshPauseStatus, 2000);
+      } else {
+        showToast("Resume failed: " + d.error, "danger");
+      }
+    });
+}
+
+function refreshPauseStatus() {
+  fetch("/api/tv-pause/status")
+    .then(r => r.json())
+    .then(d => { if (d.success) renderPauseStatus(d.paused, d.paused_count); });
+}
+
+function renderPauseStatus(paused, count) {
+  var badge = document.getElementById("tvPauseStatusBadge");
+  if (!badge) return;
+  if (paused && count > 0) {
+    badge.innerHTML = '<span class="badge bg-warning text-dark">' +
+      '<i class="fas fa-pause me-1"></i>Paused (' + count + ' device' + (count !== 1 ? 's' : '') + ')</span>';
+  } else {
+    badge.innerHTML = '<span class="badge bg-secondary">' +
+      '<i class="fas fa-play me-1"></i>Not paused</span>';
+  }
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// Init on page load
+loadTVPauseConfig();
+loadDevices();
+// Refresh pause status every 15 s while the page is open
+setInterval(refreshPauseStatus, 15000);
 </script>
 {{end}}

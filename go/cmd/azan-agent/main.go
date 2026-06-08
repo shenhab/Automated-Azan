@@ -57,6 +57,7 @@ type program struct {
 	castMgr    *chromecast.Manager
 	quranCtrl  *quran.Controller
 	cfgWatcher *config.Watcher
+	tvPause    *chromecast.TVPauseManager
 }
 
 func (p *program) Start(s service.Service) error {
@@ -76,6 +77,10 @@ func (p *program) Stop(s service.Service) error {
 	}
 	if p.scheduler != nil {
 		p.scheduler.Stop()
+	}
+	// Resume any paused TVs so they don't stay frozen after the agent exits.
+	if p.tvPause != nil {
+		p.tvPause.ResumeAfterAthan()
 	}
 	return nil
 }
@@ -140,6 +145,10 @@ func (p *program) run() {
 	p.castMgr = castMgr
 	log.Printf("[main] chromecast media base URL: %s", mediaSrv.BaseURL())
 
+	// TV pause manager — pauses Cast screens during Athan
+	tvPauseMgr := chromecast.NewTVPauseManager(castMgr)
+	p.tvPause = tvPauseMgr
+
 	// Trigger background discovery (non-blocking)
 	go func() {
 		devs, err := castMgr.Discover(false)
@@ -162,6 +171,20 @@ func (p *program) run() {
 
 	playAthan := func(prayerName, filename string) error {
 		ch := cfg.Prayer.Channels.ForPrayer(prayerName)
+
+		// Pause configured Cast TVs before Athan starts.
+		if cfg.TVPause.Enabled {
+			delay := time.Duration(cfg.TVPause.ResumeDelaySecs) * time.Second
+			if delay == 0 {
+				delay = 5 * time.Minute
+			}
+			excludeSpeaker := cfg.Speaker.Resolve("athan")
+			go func() {
+				tvPauseMgr.PauseForAthan(cfg.TVPause.Devices, excludeSpeaker)
+				tvPauseMgr.ScheduleResume(delay)
+			}()
+		}
+
 		if ch.Notify {
 			go fireNotify("Automated Azan", prayerName+" prayer time")
 		}
@@ -240,7 +263,7 @@ func (p *program) run() {
 	}
 
 	// Web server
-	webSrv, err := web.NewServer(cfg, fetcher, sched, castMgr, quranCtrl, resolvedMediaDir)
+	webSrv, err := web.NewServer(cfg, fetcher, sched, castMgr, quranCtrl, tvPauseMgr, resolvedMediaDir)
 	if err != nil {
 		log.Fatalf("[main] web server init: %v", err)
 	}

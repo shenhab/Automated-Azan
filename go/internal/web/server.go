@@ -56,6 +56,7 @@ type Server struct {
 	scheduler *prayer.Scheduler
 	castMgr   *chromecast.Manager
 	quranCtrl QuranController
+	tvPause   *chromecast.TVPauseManager
 	mediaDir  string // local directory for user media files
 	port      int
 
@@ -79,6 +80,7 @@ func NewServer(
 	scheduler *prayer.Scheduler,
 	castMgr *chromecast.Manager,
 	quranCtrl QuranController,
+	tvPause *chromecast.TVPauseManager,
 	mediaDir string,
 ) (*Server, error) {
 	srv := &Server{
@@ -87,6 +89,7 @@ func NewServer(
 		scheduler:   scheduler,
 		castMgr:     castMgr,
 		quranCtrl:   quranCtrl,
+		tvPause:     tvPause,
 		mediaDir:    mediaDir,
 		clients:     make(map[*websocket.Conn]struct{}),
 		geoCities:   make(map[string][]string),
@@ -149,6 +152,10 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/aladhan/methods", s.requireAPIAuth(s.handleAPIAladhanMethods))
 	mux.HandleFunc("/api/geo/countries", s.requireAPIAuth(s.handleAPIGeoCountries))
 	mux.HandleFunc("/api/geo/cities", s.requireAPIAuth(s.handleAPIGeoCities))
+	mux.HandleFunc("/api/tv-pause/status", s.requireAPIAuth(s.handleAPITVPauseStatus))
+	mux.HandleFunc("/api/tv-pause/config", s.requireAPIAuth(s.handleAPITVPauseConfig))
+	mux.HandleFunc("/api/tv-pause/pause", s.requireAPIAuth(s.handleAPITVPausePause))
+	mux.HandleFunc("/api/tv-pause/resume", s.requireAPIAuth(s.handleAPITVPauseResume))
 
 	// Static files served from ../static relative to binary
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
@@ -256,9 +263,11 @@ func (s *Server) handleScheduler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleChromecasts(w http.ResponseWriter, r *http.Request) {
 	devs := s.castMgr.Devices()
 	s.renderPage(w, "chromecasts.html", map[string]interface{}{
-		"page":    "devices",
-		"config":  s.cfg.AsWebDict(),
-		"devices": devs,
+		"page":         "devices",
+		"config":       s.cfg.AsWebDict(),
+		"devices":      devs,
+		"tv_paused":    s.tvPause.IsPaused(),
+		"tv_paused_n":  s.tvPause.PausedCount(),
 	})
 }
 
@@ -901,6 +910,71 @@ func (s *Server) handleAPINextPrayer(w http.ResponseWriter, r *http.Request) {
 		"prayer":  name,
 		"time":    at.Format("15:04"),
 	})
+}
+
+// --- TV pause API ---
+
+func (s *Server) handleAPITVPauseStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]interface{}{
+		"success":          true,
+		"enabled":          s.cfg.TVPause.Enabled,
+		"paused":           s.tvPause.IsPaused(),
+		"paused_count":     s.tvPause.PausedCount(),
+		"resume_delay_secs": s.cfg.TVPause.ResumeDelaySecs,
+		"devices":          s.cfg.TVPause.Devices,
+	})
+}
+
+func (s *Server) handleAPITVPauseConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Enabled         bool     `json:"enabled"`
+		ResumeDelaySecs int      `json:"resume_delay_secs"`
+		Devices         []string `json:"devices"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, errResp(err))
+		return
+	}
+	s.cfg.TVPause.Enabled = body.Enabled
+	if body.ResumeDelaySecs > 0 {
+		s.cfg.TVPause.ResumeDelaySecs = body.ResumeDelaySecs
+	}
+	s.cfg.TVPause.Devices = body.Devices
+	if err := s.cfg.Save(); err != nil {
+		writeJSON(w, errResp(err))
+		return
+	}
+	writeJSON(w, map[string]interface{}{"success": true})
+}
+
+func (s *Server) handleAPITVPausePause(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	delay := time.Duration(s.cfg.TVPause.ResumeDelaySecs) * time.Second
+	if delay == 0 {
+		delay = 5 * time.Minute
+	}
+	excludeSpeaker := s.cfg.Speaker.Resolve("athan")
+	go func() {
+		s.tvPause.PauseForAthan(s.cfg.TVPause.Devices, excludeSpeaker)
+		s.tvPause.ScheduleResume(delay)
+	}()
+	writeJSON(w, map[string]interface{}{"success": true})
+}
+
+func (s *Server) handleAPITVPauseResume(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	go s.tvPause.ResumeAfterAthan()
+	writeJSON(w, map[string]interface{}{"success": true})
 }
 
 // --- helpers ---
