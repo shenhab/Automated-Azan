@@ -278,9 +278,9 @@ func (s *Scheduler) scheduleTodayLocked() error {
 		s.timers = append(s.timers, timer)
 		log.Printf("[scheduler] scheduled %s at %s (in %.0f min)", j.label, j.at.Format("15:04"), delay.Minutes())
 
-		// Schedule a pre-connect warmup warmupLeadTime before each Athan so
-		// the speaker connection is already established when the prayer fires.
-		if s.warmup != nil && (j.kind == "fajr_athan" || j.kind == "regular_athan") {
+		// Schedule a pre-connect warmup warmupLeadTime before every job so
+		// the speaker connection is already established when the event fires.
+		if s.warmup != nil {
 			if warmupDelay := delay - warmupLeadTime; warmupDelay > 0 {
 				warmupLabel := label
 				warmupTimer := time.AfterFunc(warmupDelay, func() {
