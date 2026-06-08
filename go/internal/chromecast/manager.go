@@ -13,9 +13,11 @@ import (
 )
 
 const (
-	discoveryCooldown = 60 * time.Second
-	connectTimeout    = 10 * time.Second
-	maxRetries        = 3
+	discoveryCooldown    = 60 * time.Second
+	connectTimeout       = 10 * time.Second
+	maxRetries           = 3
+	backoffRetryInterval = 30 * time.Second // wait between backoff attempts
+	backoffMaxWait       = 3 * time.Minute  // total time to keep retrying
 )
 
 // QuranStation is the default live Quran recitation stream.
@@ -353,16 +355,17 @@ func (m *Manager) playURL(url, contentType string) error {
 
 	app, err := m.connectWithRetry(dev)
 	if err != nil {
-		// Cast Group ports are dynamic — force rediscovery and retry once.
-		log.Printf("[chromecast] connect to %q failed, rediscovering...", dev.Name)
-		if fresh, ferr := m.rediscoverByName(dev.Name); ferr == nil {
-			log.Printf("[chromecast] retrying %q at %s:%d", fresh.Name, fresh.Host, fresh.Port)
-			app, err = m.connectWithRetry(fresh)
-			dev = fresh
-		}
+		// Cast Group ports are dynamic and can go stale. Enter a backoff retry
+		// loop with forced rediscovery between attempts so the Athan plays on
+		// the full group once the group's port recovers (usually within 1–2 min).
+		log.Printf("[chromecast] connect to %q failed — entering backoff retry loop (max %v)",
+			dev.Name, backoffMaxWait)
+		var backoffDev Device
+		app, backoffDev, err = m.connectWithBackoff(dev.Name)
 		if err != nil {
 			return fmt.Errorf("connect to %s: %w", dev.Name, err)
 		}
+		dev = backoffDev
 	}
 
 	m.mu.Lock()
@@ -376,6 +379,47 @@ func (m *Manager) playURL(url, contentType string) error {
 	}
 	log.Printf("[chromecast] Load command accepted by %s", dev.Name)
 	return nil
+}
+
+// connectWithBackoff retries connecting to the named device with forced mDNS
+// rediscovery between each attempt, blocking for up to backoffMaxWait. Used
+// when Cast Group dynamic ports go stale and refuse connections — the group
+// typically recovers within 1–2 minutes.
+func (m *Manager) connectWithBackoff(name string) (*application.Application, Device, error) {
+	deadline := time.Now().Add(backoffMaxWait)
+	for attempt := 1; ; attempt++ {
+		devs, err := m.Discover(true)
+		if err != nil {
+			log.Printf("[chromecast] backoff attempt %d: discover error: %v", attempt, err)
+		} else {
+			for _, d := range devs {
+				if equalFold(d.Name, name) {
+					app, err := m.connectWithRetry(d)
+					if err == nil {
+						log.Printf("[chromecast] backoff attempt %d: connected to %q at %s:%d",
+							attempt, d.Name, d.Host, d.Port)
+						return app, d, nil
+					}
+					log.Printf("[chromecast] backoff attempt %d: %q at %s:%d unreachable: %v",
+						attempt, d.Name, d.Host, d.Port, err)
+					break
+				}
+			}
+		}
+
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		wait := backoffRetryInterval
+		if wait > remaining {
+			wait = remaining
+		}
+		log.Printf("[chromecast] backoff: waiting %v before attempt %d (%.0fs remaining)",
+			wait, attempt+1, remaining.Seconds())
+		time.Sleep(wait)
+	}
+	return nil, Device{}, fmt.Errorf("could not connect to %q after %v", name, backoffMaxWait)
 }
 
 // rediscoverByName forces a fresh mDNS scan and returns the device matching
