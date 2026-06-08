@@ -1,6 +1,7 @@
 package chromecast
 
 import (
+	"errors"
 	"log"
 	"sync"
 	"time"
@@ -19,8 +20,9 @@ type TVPauseManager struct {
 }
 
 type pausedDevice struct {
-	device Device
-	app    *application.Application
+	device  Device
+	app     *application.Application
+	stopped bool // true when Stop() was used instead of Pause() — cannot Unpause()
 }
 
 // NewTVPauseManager returns a manager backed by the given Chromecast manager.
@@ -85,13 +87,25 @@ func (t *TVPauseManager) PauseForAthan(uuids []string, excludeName string) {
 				log.Printf("[tv-pause] connect to %q failed: %v", dev.Name, err)
 				return
 			}
+			pd := pausedDevice{device: dev, app: app}
 			if err := app.Pause(); err != nil {
-				log.Printf("[tv-pause] pause %q skipped (likely idle): %v", dev.Name, err)
-				return
+				if !errors.Is(err, application.ErrNoMediaPause) {
+					log.Printf("[tv-pause] pause %q failed: %v", dev.Name, err)
+					return
+				}
+				// No active Cast session — stop the receiver instead so the TV
+				// stops playing whatever it was showing natively.
+				if err2 := app.Stop(); err2 != nil {
+					log.Printf("[tv-pause] stop %q failed: %v", dev.Name, err2)
+					return
+				}
+				pd.stopped = true
+				log.Printf("[tv-pause] stopped %q (%s) — no active cast session", dev.Name, dev.ModelName)
+			} else {
+				log.Printf("[tv-pause] paused %q (%s)", dev.Name, dev.ModelName)
 			}
-			log.Printf("[tv-pause] paused %q (%s)", dev.Name, dev.ModelName)
 			mu.Lock()
-			paused = append(paused, pausedDevice{device: dev, app: app})
+			paused = append(paused, pd)
 			mu.Unlock()
 		}()
 	}
@@ -122,6 +136,11 @@ func (t *TVPauseManager) ResumeAfterAthan() {
 	for _, pd := range paused {
 		pd := pd
 		go func() {
+			if pd.stopped {
+				// Device was stopped (not paused) — nothing to resume.
+				log.Printf("[tv-pause] skipping resume for %q (was stopped, not paused)", pd.device.Name)
+				return
+			}
 			if err := pd.app.Unpause(); err != nil {
 				// Connection may have dropped during Athan — reconnect and retry.
 				log.Printf("[tv-pause] unpause %q failed, reconnecting: %v", pd.device.Name, err)
