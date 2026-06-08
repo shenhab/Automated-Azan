@@ -178,17 +178,15 @@ func (p *program) run() {
 	playAthan := func(prayerName, filename string) error {
 		ch := cfg.Prayer.Channels.ForPrayer(prayerName)
 
-		// Pause configured Cast TVs before Athan starts.
+		// Mute TVs first (blocking) so they're silent before Athan starts.
 		if cfg.TVPause.Enabled {
 			delay := time.Duration(cfg.TVPause.ResumeDelaySecs) * time.Second
 			if delay == 0 {
 				delay = 5 * time.Minute
 			}
 			excludeSpeaker := cfg.Speaker.Resolve("athan")
-			go func() {
-				tvPauseMgr.PauseForAthan(cfg.TVPause.Devices, excludeSpeaker)
-				tvPauseMgr.ScheduleResume(delay)
-			}()
+			tvPauseMgr.PauseForAthan(cfg.TVPause.Devices, excludeSpeaker)
+			tvPauseMgr.ScheduleResume(delay)
 		}
 
 		if ch.Notify {
