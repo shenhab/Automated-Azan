@@ -410,9 +410,6 @@
           <button class="btn btn-success btn-sm" onclick="saveTVPauseConfig()">
             <i class="fas fa-save me-1"></i>Save Settings
           </button>
-          <button class="btn btn-outline-secondary btn-sm" onclick="testPause()">
-            <i class="fas fa-volume-mute me-1"></i>Test Mute Now
-          </button>
           <button class="btn btn-outline-secondary btn-sm" id="resumeNowBtn" onclick="testResume()">
             <i class="fas fa-volume-up me-1"></i>Unmute Now
           </button>
@@ -916,18 +913,6 @@ function saveTVPauseConfig() {
   });
 }
 
-function testPause() {
-  fetch("/api/tv-pause/pause", {method: "POST"})
-    .then(r => r.json())
-    .then(d => {
-      if (d.success) {
-        showToast("Mute command sent — check your TVs", "success");
-        setTimeout(refreshPauseStatus, 2000);
-      } else {
-        showToast("Mute failed: " + d.error, "danger");
-      }
-    });
-}
 
 function testResume() {
   fetch("/api/tv-pause/resume", {method: "POST"})
@@ -985,7 +970,6 @@ window.toggleLocationSource          = toggleLocationSource;
 window.onCountryChange               = onCountryChange;
 window.selectAllTVDevices            = selectAllTVDevices;
 window.saveTVPauseConfig             = saveTVPauseConfig;
-window.testPause                     = testPause;
 window.testResume                    = testResume;
 })();
 </script>

@@ -155,7 +155,6 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/geo/cities", s.requireAPIAuth(s.handleAPIGeoCities))
 	mux.HandleFunc("/api/tv-pause/status", s.requireAPIAuth(s.handleAPITVPauseStatus))
 	mux.HandleFunc("/api/tv-pause/config", s.requireAPIAuth(s.handleAPITVPauseConfig))
-	mux.HandleFunc("/api/tv-pause/pause", s.requireAPIAuth(s.handleAPITVPausePause))
 	mux.HandleFunc("/api/tv-pause/resume", s.requireAPIAuth(s.handleAPITVPauseResume))
 
 	// Static files served from ../static relative to binary
@@ -1010,22 +1009,6 @@ func (s *Server) handleAPITVPauseConfig(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, map[string]interface{}{"success": true})
 }
 
-func (s *Server) handleAPITVPausePause(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	delay := time.Duration(s.cfg.TVPause.ResumeDelaySecs) * time.Second
-	if delay == 0 {
-		delay = 5 * time.Minute
-	}
-	excludeSpeaker := s.cfg.Speaker.Resolve("athan")
-	go func() {
-		s.tvPause.PauseForAthan(s.cfg.TVPause.Devices, excludeSpeaker)
-		s.tvPause.ScheduleResume(delay)
-	}()
-	writeJSON(w, map[string]interface{}{"success": true})
-}
 
 func (s *Server) handleAPITVPauseResume(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
