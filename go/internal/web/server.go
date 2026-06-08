@@ -138,6 +138,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/devices", s.requireAPIAuth(s.handleAPIDevices))
 	mux.HandleFunc("/api/discover-devices", s.requireAPIAuth(s.handleAPIDiscoverDevices))
 	mux.HandleFunc("/api/play-athan", s.requireAPIAuth(s.handleAPIPlayAthan))
+	mux.HandleFunc("/api/test-workflow", s.requireAPIAuth(s.handleAPITestWorkflow))
 	mux.HandleFunc("/api/stop-playback", s.requireAPIAuth(s.handleAPIStopPlayback))
 	mux.HandleFunc("/api/next-prayer", s.requireAPIAuth(s.handleAPINextPrayer))
 	mux.HandleFunc("/api/quran/status", s.requireAPIAuth(s.handleAPIQuranStatus))
@@ -545,6 +546,62 @@ func (s *Server) handleAPIPlayAthan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]interface{}{"success": true, "prayer": body.Prayer, "filename": body.Filename})
+}
+
+func (s *Server) handleAPITestWorkflow(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Prayer string `json:"prayer"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if body.Prayer == "" {
+		body.Prayer = "Dhuhr"
+	}
+
+	log.Printf("[test-workflow] starting full workflow test for %s", body.Prayer)
+
+	// Step 1 — pre-connect warmup (same as the scheduler does 60 s before prayer)
+	log.Printf("[test-workflow] step 1/3: pre-connect warmup")
+	if err := s.castMgr.PreConnect(); err != nil {
+		log.Printf("[test-workflow] warmup error (continuing): %v", err)
+	}
+
+	// Step 2 — mute TVs if the feature is enabled
+	tvMuted := false
+	if s.cfg.TVPause.Enabled {
+		log.Printf("[test-workflow] step 2/3: muting TVs")
+		delay := time.Duration(s.cfg.TVPause.ResumeDelaySecs) * time.Second
+		if delay == 0 {
+			delay = 5 * time.Minute
+		}
+		excludeSpeaker := s.cfg.Speaker.Resolve("athan")
+		go func() {
+			s.tvPause.PauseForAthan(s.cfg.TVPause.Devices, excludeSpeaker)
+			s.tvPause.ScheduleResume(delay)
+		}()
+		tvMuted = true
+	} else {
+		log.Printf("[test-workflow] step 2/3: TV mute disabled — skipping")
+	}
+
+	// Step 3 — play Athan (uses pre-connected session if still alive)
+	log.Printf("[test-workflow] step 3/3: playing %s Athan", body.Prayer)
+	filename := s.cfg.Prayer.Media.FileFor(body.Prayer)
+	if err := s.castMgr.PlayAthan(body.Prayer, filename); err != nil {
+		writeJSON(w, errResp(err))
+		return
+	}
+
+	log.Printf("[test-workflow] complete — prayer=%s tv_muted=%v", body.Prayer, tvMuted)
+	writeJSON(w, map[string]interface{}{
+		"success":   true,
+		"prayer":    body.Prayer,
+		"filename":  filename,
+		"tv_muted":  tvMuted,
+	})
 }
 
 func (s *Server) handleAPIStopPlayback(w http.ResponseWriter, r *http.Request) {
