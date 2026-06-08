@@ -1,0 +1,389 @@
+{{template "base.html" .}}
+{{define "title"}}Dashboard — Automated Azan{{end}}
+{{define "page_title"}}Dashboard{{end}}
+{{define "page_sub"}}Live prayer schedule overview{{end}}
+{{define "topbar_actions"}}
+  <button class="btn btn-outline-secondary btn-sm btn-icon" onclick="location.reload()" title="Refresh">
+    <i class="fas fa-sync-alt"></i>
+  </button>
+{{end}}
+
+{{define "content"}}
+
+{{if .hijri}}
+  {{with .hijri.SpecialDay}}
+  <div class="alert alert-special mb-4" role="alert">
+    <i class="fas fa-star me-2"></i><strong>{{.}}</strong>
+    <span class="ms-2 text-muted" style="font-size:13px">{{$.hijri.String}}</span>
+  </div>
+  {{end}}
+{{end}}
+
+<div class="row g-3 mb-4">
+
+  <!-- Next prayer hero -->
+  <div class="col-md-4">
+    <div class="next-prayer-hero h-100">
+      <div class="label"><i class="fas fa-clock me-1"></i>Up Next</div>
+      {{if index .next_prayer "name"}}
+        <div class="prayer-name">{{index .next_prayer "name"}}</div>
+        <div class="prayer-time">at {{index .next_prayer "time"}}</div>
+        <div class="countdown" id="countdown">calculating...</div>
+      {{else}}
+        <div class="prayer-name">All done</div>
+        <div class="prayer-time">No remaining prayers today</div>
+      {{end}}
+    </div>
+  </div>
+
+  <!-- Speaker -->
+  <div class="col-md-4">
+    <div class="stat-card h-100">
+      <div class="stat-icon icon-green"><i class="fas fa-volume-up"></i></div>
+      <div class="stat-label">Active Speaker</div>
+      <div class="stat-value">{{index .config "speakers_group_name"}}</div>
+      <div class="stat-sub">{{index .config "location_label"}} timetable</div>
+    </div>
+  </div>
+
+  <!-- Scheduler -->
+  <div class="col-md-4">
+    <div class="stat-card h-100">
+      <div class="stat-icon icon-blue"><i class="fas fa-calendar-check"></i></div>
+      <div class="stat-label">Scheduler</div>
+      <div class="stat-value d-flex align-items-center gap-2">
+        Running
+        <span style="width:8px;height:8px;border-radius:50%;background:#22C55E;
+                     box-shadow:0 0 0 3px rgba(34,197,94,.2);display:inline-block"></span>
+      </div>
+      <div class="stat-sub" id="nextJobLabel">—</div>
+    </div>
+  </div>
+</div>
+
+<!-- Prayer times pills -->
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span><i class="fas fa-sun me-2" style="color:#F59E0B"></i>Today's Prayer Times</span>
+    <div class="d-flex flex-column align-items-end gap-0">
+      <small class="text-muted" id="todayDate"></small>
+      {{if .hijri}}<small class="hijri-date">{{.hijri.String}}</small>{{end}}
+    </div>
+  </div>
+  <div class="card-body">
+    {{with .prayer_times}}
+    <div class="d-flex gap-2 flex-wrap">
+      <div class="prayer-pill" id="pill-fajr">
+        <div class="p-name">Fajr</div>
+        <div class="p-time">{{.Fajr}}</div>
+      </div>
+      <div class="prayer-pill" id="pill-dhuhr">
+        <div class="p-name">Dhuhr</div>
+        <div class="p-time">{{.Dhuhr}}</div>
+      </div>
+      <div class="prayer-pill" id="pill-asr">
+        <div class="p-name">Asr</div>
+        <div class="p-time">{{.Asr}}</div>
+      </div>
+      <div class="prayer-pill" id="pill-maghrib">
+        <div class="p-name">Maghrib</div>
+        <div class="p-time">{{.Maghrib}}</div>
+      </div>
+      <div class="prayer-pill" id="pill-isha">
+        <div class="p-name">Isha</div>
+        <div class="p-time">{{.Isha}}</div>
+      </div>
+    </div>
+    {{end}}
+  </div>
+</div>
+
+<!-- Quran & controls row -->
+<div class="row g-3 mb-4">
+  <!-- Quran playback -->
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header"><i class="fas fa-quran me-2" style="color:#40916C"></i>Quran Recitation</div>
+      <div class="card-body">
+        <p class="text-muted mb-2" style="font-size:12px">
+          Live stream — Mahmoud Khalil Al-Hussary (Warsh)
+        </p>
+        <!-- Target selector -->
+        <div class="mb-2">
+          <select class="form-select form-select-sm" id="quranTargetSelect" onchange="onQuranTargetChange()">
+            <option value="browser">🔊 In this browser</option>
+            <option value="speaker">📡 Default speaker ({{index .config "speakers_group_name"}})</option>
+          </select>
+          <div id="quranDeviceLoading" style="display:none;font-size:11px" class="text-muted mt-1">
+            <i class="fas fa-spinner fa-spin me-1"></i>Looking for devices…
+          </div>
+        </div>
+        <!-- Controls -->
+        <div class="d-flex gap-2">
+          <button class="btn btn-success flex-fill" id="quranPlayBtn" onclick="playQuran()">
+            <i class="fas fa-play me-2"></i>Play
+          </button>
+          <button class="btn btn-outline-secondary" onclick="stopQuran()" title="Stop">
+            <i class="fas fa-stop"></i>
+          </button>
+        </div>
+        <div id="quranMsg" class="mt-2" style="font-size:12px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Test Athan -->
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header"><i class="fas fa-play-circle me-2" style="color:#22C55E"></i>Test Athan</div>
+      <div class="card-body">
+        <div class="mb-3">
+          <select id="testPrayerSelect" class="form-select">
+            <option value="Fajr">Fajr</option>
+            <option value="Dhuhr" selected>Dhuhr</option>
+            <option value="Asr">Asr</option>
+            <option value="Maghrib">Maghrib</option>
+            <option value="Isha">Isha</option>
+          </select>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-success flex-fill" id="athanPlayBtn" onclick="playAthan()">
+            <i class="fas fa-play me-2"></i>Play Athan
+          </button>
+          <button class="btn btn-outline-secondary" onclick="stopAll()" title="Stop">
+            <i class="fas fa-stop"></i>
+          </button>
+        </div>
+        <div id="athanMsg" class="mt-2" style="font-size:12px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Today's schedule -->
+<div class="card">
+  <div class="card-header"><i class="fas fa-list-ul me-2" style="color:#8A97A8"></i>Today's Schedule</div>
+  <div class="card-body py-2">
+    {{range .jobs}}
+    <div class="job-row">
+      <div class="job-dot
+        {{if eq .Status "upcoming"}}dot-upcoming{{else if eq .Status "done"}}dot-done{{else}}dot-skipped{{end}}">
+      </div>
+      <div class="job-label">{{.Label}}</div>
+      <div class="job-time">{{.Time}}</div>
+      <div>
+        {{if eq .Status "upcoming"}}
+          <span class="badge-status badge-upcoming">Upcoming</span>
+        {{else if eq .Status "done"}}
+          <span class="badge-status badge-done">Done</span>
+        {{else}}
+          <span class="badge-status badge-skipped">Skipped</span>
+        {{end}}
+      </div>
+    </div>
+    {{else}}
+    <p class="text-muted text-center py-3 mb-0">No jobs scheduled yet.</p>
+    {{end}}
+  </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+  // ── Quran device dropdown ─────────────────────────────────────────────────
+  // Fetch discovered Chromecast devices and add them to the target dropdown.
+  (function loadQuranDevices() {
+    const sel = document.getElementById("quranTargetSelect");
+    const spinner = document.getElementById("quranDeviceLoading");
+    spinner.style.display = "";
+    fetch("/api/devices")
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && d.devices && d.devices.length) {
+          d.devices.forEach(dev => {
+            const opt = document.createElement("option");
+            opt.value = "device:" + dev.name;
+            opt.textContent = "📻 " + dev.name;
+            sel.appendChild(opt);
+          });
+        }
+      })
+      .catch(() => {}) // silently ignore if no devices
+      .finally(() => { spinner.style.display = "none"; });
+  })();
+
+  function onQuranTargetChange() {
+    const val = document.getElementById("quranTargetSelect").value;
+    const msg = document.getElementById("quranMsg");
+    if (val === "browser") {
+      // If something is playing on speaker, don't auto-stop it.
+      msg.innerHTML = "";
+    }
+  }
+
+  // ── Quran play / stop ─────────────────────────────────────────────────────
+  // Callback from the global player (base.html) to sync dashboard button state.
+  window.onQuranBrowserState = function(state, err) {
+    const btn = document.getElementById("quranPlayBtn");
+    const msg = document.getElementById("quranMsg");
+    if (!btn) return;
+    if (state === "playing") {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-pause me-2"></i>Pause';
+      btn.onclick = function() { window.quranBrowserPause(); };
+      msg.innerHTML = '<span style="color:#40916C"><i class="fas fa-broadcast-tower me-1"></i>Streaming in browser</span>';
+    } else if (state === "paused") {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-play me-2"></i>Play';
+      btn.onclick = playQuran;
+      msg.innerHTML = '<span class="text-muted">Paused</span>';
+    } else if (state === "stopped" || state === "ended") {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-play me-2"></i>Play';
+      btn.onclick = playQuran;
+      msg.innerHTML = "";
+    } else if (state === "error") {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-play me-2"></i>Play';
+      msg.innerHTML = '<span class="text-danger">Playback failed: ' + ((err && err.message) || err) + '</span>';
+    }
+  };
+
+  // Sync dashboard button with current global player state.
+  (function() {
+    var audio = document.getElementById("quranAudio");
+    if (!audio) return;
+    var btn = document.getElementById("quranPlayBtn");
+    var msg = document.getElementById("quranMsg");
+    if (!audio.paused && audio.src) {
+      btn.innerHTML = '<i class="fas fa-pause me-2"></i>Pause';
+      btn.onclick = function() { window.quranBrowserPause(); };
+      msg.innerHTML = '<span style="color:#40916C"><i class="fas fa-broadcast-tower me-1"></i>Streaming in browser</span>';
+    } else if (audio.src && audio.paused) {
+      msg.innerHTML = '<span class="text-muted">Paused</span>';
+    }
+  })();
+
+  function playQuran() {
+    const btn = document.getElementById("quranPlayBtn");
+    const sel = document.getElementById("quranTargetSelect");
+    const val = sel.value;
+    const msg = document.getElementById("quranMsg");
+
+    // Browser playback: delegate to persistent global player in base.html.
+    if (val === "browser") {
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Loading…';
+      window.quranBrowserPlay("/api/quran/stream");
+      showToast("Quran streaming in browser", "success");
+      return;
+    }
+
+    // Speaker / device playback: call the API.
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Starting…';
+
+    let body;
+    if (val === "speaker") {
+      body = {target: "speaker"};
+    } else {
+      body = {target: "device", device: val.substring(7)};
+    }
+
+    fetch("/api/quran/play", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body)
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        const label = val === "speaker" ? sel.options[sel.selectedIndex].textContent : body.device;
+        showToast("Quran streaming on " + label, "success");
+        msg.innerHTML = '<span style="color:#40916C"><i class="fas fa-broadcast-tower me-1"></i>Streaming on ' + label + '</span>';
+      } else {
+        showToast("Error: " + d.error, "danger");
+        msg.innerHTML = '<span class="text-danger">' + d.error + '</span>';
+      }
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-play me-2"></i>Play';
+    });
+  }
+
+  function stopQuran() {
+    window.quranBrowserStop();
+    fetch("/api/quran/stop", {method: "POST"})
+      .then(r => r.json())
+      .then(() => showToast("Quran stopped", "secondary"));
+  }
+
+  function playAthan() {
+    const prayer = document.getElementById("testPrayerSelect").value;
+    const btn = document.getElementById("athanPlayBtn");
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Loading...';
+    fetch("/api/play-athan", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({prayer})
+    })
+    .then(r => r.json())
+    .then(d => {
+      showToast(d.success ? "Playing " + prayer + " Athan" : "Error: " + d.error, d.success ? "success" : "danger");
+      document.getElementById("athanMsg").innerHTML = d.success ? "" : '<span class="text-danger">' + d.error + '</span>';
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-play me-2"></i>Play Athan';
+    });
+  }
+
+  function stopAll() {
+    fetch("/api/stop-playback", {method:"POST"})
+      .then(r => r.json())
+      .then(d => showToast(d.success ? "Playback stopped" : d.error, "secondary"));
+  }
+
+  // Show today's date
+  document.getElementById("todayDate").textContent =
+    new Date().toLocaleDateString('en-IE', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+
+  // Set next job label from injected data
+  const nextPrayerName = "{{index .next_prayer "name"}}";
+  const nextPrayerTime = "{{index .next_prayer "time"}}";
+  if (nextPrayerName && nextPrayerTime) {
+    document.getElementById("nextJobLabel").textContent = nextPrayerName + " at " + nextPrayerTime;
+  } else {
+    document.getElementById("nextJobLabel").textContent = "No upcoming jobs";
+  }
+
+  // Countdown to next prayer
+  if (nextPrayerTime) {
+    function updateCountdown() {
+      const now = new Date();
+      const [h, m] = nextPrayerTime.split(":").map(Number);
+      const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
+      const diff = target - now;
+      if (diff <= 0) { document.getElementById("countdown").textContent = "Now"; return; }
+      const hh = Math.floor(diff / 3600000);
+      const mm = Math.floor((diff % 3600000) / 60000);
+      const ss = Math.floor((diff % 60000) / 1000);
+      document.getElementById("countdown").textContent =
+        (hh > 0 ? hh + "h " : "") + mm + "m " + ss + "s away";
+    }
+    updateCountdown();
+    setInterval(updateCountdown, 1000);
+
+    // Highlight active prayer pill
+    const prayerPills = {
+      "Fajr": "pill-fajr", "Dhuhr": "pill-dhuhr", "Asr": "pill-asr",
+      "Maghrib": "pill-maghrib", "Isha": "pill-isha"
+    };
+    if (prayerPills[nextPrayerName]) {
+      document.getElementById(prayerPills[nextPrayerName])?.classList.add("active");
+    }
+  }
+</script>
+{{end}}

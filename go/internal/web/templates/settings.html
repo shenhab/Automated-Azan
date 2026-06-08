@@ -1,0 +1,972 @@
+{{template "base.html" .}}
+{{define "title"}}Settings - Automated Azan{{end}}
+{{define "page_title"}}Settings{{end}}
+{{define "page_sub"}}Configure speaker, location and prayer options{{end}}
+{{define "topbar_actions"}}{{end}}
+{{define "content"}}
+<div class="d-flex justify-content-between align-items-center pb-2 mb-3 border-bottom">
+  <h2><i class="fas fa-cog islamic-icon me-2"></i>Settings</h2>
+</div>
+
+<div class="row">
+  <div class="col-md-8">
+
+    <!-- ── Prayer Configuration ────────────────────────────────────────── -->
+    <div class="card mb-4">
+      <div class="card-header">
+        <h5 class="mb-0"><i class="fas fa-sliders-h me-2"></i>Prayer Configuration</h5>
+      </div>
+      <div class="card-body">
+        <form id="settingsForm">
+
+          <!-- Default speaker -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">
+              <i class="fas fa-volume-up me-2"></i>Default Speaker / Group
+            </label>
+            <div class="input-group">
+              <select class="form-select" id="speakerSelect" name="speakers_group_name">
+                <option value="" disabled>Loading devices...</option>
+              </select>
+              <button class="btn btn-outline-secondary" type="button" onclick="refreshAll(this)" title="Rescan network">
+                <i class="fas fa-sync-alt" id="mainRefreshIcon"></i>
+              </button>
+            </div>
+            <small class="text-muted">Used for all audio types unless overridden below.</small>
+            <div id="deviceStatus" class="mt-1"></div>
+          </div>
+
+          <!-- Location -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">
+              <i class="fas fa-map-marker-alt me-2"></i>Prayer Times Source
+            </label>
+
+            <!-- Source toggle -->
+            <div class="d-flex gap-3 mb-3">
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="prayer_source" id="srcIreland" value="ireland"
+                  {{if ne (index .config "location") "aladhan"}}checked{{end}}
+                  onchange="toggleLocationSource(this.value)">
+                <label class="form-check-label" for="srcIreland">
+                  <strong>Ireland Mosque Timetable</strong>
+                  <span class="text-muted d-block" style="font-size:11px">Recommended for Ireland</span>
+                </label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="prayer_source" id="srcAladhan" value="aladhan"
+                  {{if eq (index .config "location") "aladhan"}}checked{{end}}
+                  onchange="toggleLocationSource(this.value)">
+                <label class="form-check-label" for="srcAladhan">
+                  <strong>Aladhan API</strong>
+                  <span class="text-muted d-block" style="font-size:11px">Any city worldwide</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Ireland mosque picker -->
+            <div id="irelandSection" {{if eq (index .config "location") "aladhan"}}style="display:none"{{end}}>
+              <input type="hidden" name="location" id="locationHidden"
+                value="{{if ne (index .config "location") "aladhan"}}{{index .config "location"}}{{else}}naas{{end}}">
+              <select class="form-select" id="irelandSelect"
+                onchange="document.getElementById('locationHidden').value=this.value">
+                <optgroup label="Ireland">
+                  <option value="naas"      {{if eq (index .config "location") "naas"}}selected{{end}}>Naas</option>
+                  <option value="icci"      {{if eq (index .config "location") "icci"}}selected{{end}}>Dublin (ICCI)</option>
+                  <option value="newbridge" {{if eq (index .config "location") "newbridge"}}selected{{end}}>Newbridge</option>
+                  <option value="cork"      {{if eq (index .config "location") "cork"}}selected{{end}}>Cork</option>
+                  <option value="galway"    {{if eq (index .config "location") "galway"}}selected{{end}}>Galway</option>
+                </optgroup>
+              </select>
+            </div>
+
+            <!-- Aladhan API picker -->
+            <div id="aladhanSection" {{if ne (index .config "location") "aladhan"}}style="display:none"{{end}}>
+              <div class="alert-info-pill mb-2">
+                <i class="fas fa-wifi me-1"></i>
+                Requires internet. A full-year backup is downloaded automatically for offline use.
+              </div>
+              <div class="row g-2 mb-2">
+                <div class="col-sm-6">
+                  <label class="form-label small fw-semibold">Country</label>
+                  <select class="form-select form-select-sm" name="aladhan_country"
+                    id="aladhanCountry" onchange="onCountryChange(this.value)">
+                    <option value="">— select country —</option>
+                    {{if index .config "aladhan_country"}}
+                    <option value="{{index .config "aladhan_country"}}" selected>
+                      {{index .config "aladhan_country"}}
+                    </option>
+                    {{end}}
+                  </select>
+                  <div id="countryLoading" class="text-muted mt-1" style="font-size:11px;display:none">
+                    <i class="fas fa-spinner fa-spin me-1"></i>Loading countries…
+                  </div>
+                </div>
+                <div class="col-sm-6">
+                  <label class="form-label small fw-semibold">City</label>
+                  <select class="form-select form-select-sm" name="aladhan_city" id="aladhanCity">
+                    <option value="">— select city —</option>
+                    {{if index .config "aladhan_city"}}
+                    <option value="{{index .config "aladhan_city"}}" selected>
+                      {{index .config "aladhan_city"}}
+                    </option>
+                    {{end}}
+                  </select>
+                  <div id="cityLoading" class="text-muted mt-1" style="font-size:11px;display:none">
+                    <i class="fas fa-spinner fa-spin me-1"></i>Loading cities…
+                  </div>
+                </div>
+              </div>
+              <div class="mb-2">
+                <label class="form-label small fw-semibold">Calculation Method</label>
+                <select class="form-select form-select-sm" name="aladhan_method">
+                  {{range .aladhan_methods}}
+                  <option value="{{.ID}}"
+                    {{if eq .ID (index $.config "aladhan_method")}}selected{{end}}>
+                    {{.Name}}{{if eq .ID 3}} — default{{end}}
+                  </option>
+                  {{end}}
+                </select>
+              </div>
+              <!-- Warning: Aladhan + Ireland -->
+              <div id="irelandAladhanWarn" class="alert-warning-pill"
+                {{if not (index .config "aladhan_ireland_warn")}}style="display:none"{{end}}>
+                <i class="fas fa-exclamation-triangle me-1"></i>
+                For Ireland, the mosque timetables (Naas / Dublin / Newbridge) are more accurate
+                than any calculated method — they reflect what your local mosque actually uses.
+                Aladhan times may differ from actual prayer times in your mosque.
+              </div>
+            </div>
+          </div>
+
+          <!-- Pre-Fajr -->
+          <div class="mb-3">
+            <label class="form-label fw-bold"><i class="fas fa-moon me-2"></i>Pre-Fajr Quran</label>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="pre_fajr_enabled" id="preFajrEnabled"
+                     {{if index .config "pre_fajr_enabled"}}checked{{end}}>
+              <label class="form-check-label" for="preFajrEnabled">Enable Quran recitation before Fajr</label>
+            </div>
+            <div class="mt-2">
+              <label class="form-label small">Minutes before Fajr</label>
+              <input type="number" class="form-control form-control-sm w-25" name="pre_fajr_minutes"
+                     min="1" max="60" value="{{index .config "pre_fajr_minutes"}}">
+            </div>
+          </div>
+
+          <!-- Friday Kahf -->
+          <div class="mb-3">
+            <label class="form-label fw-bold"><i class="fas fa-book-open me-2"></i>Friday Surah Al-Kahf</label>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="friday_kahf_enabled" id="fridayKahf"
+                     {{if index .config "friday_kahf_enabled"}}checked{{end}}>
+              <label class="form-check-label" for="fridayKahf">Enable Friday Surah Al-Kahf (2h before Dhuhr)</label>
+            </div>
+          </div>
+
+          <div class="d-flex justify-content-end">
+            <button type="button" class="btn btn-success" onclick="saveSettings()">
+              <i class="fas fa-save me-1"></i>Save Configuration
+            </button>
+          </div>
+          <div id="saveMsg" class="mt-2 text-end"></div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ── Speaker Assignment ──────────────────────────────────────────── -->
+    <div class="card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-broadcast-tower me-2"></i>Speaker Assignment</h5>
+        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="refreshAll(this)">
+          <i class="fas fa-sync-alt me-1"></i>Refresh Devices
+        </button>
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          Assign a specific speaker for each audio type.
+          Leave as <em>Use default speaker</em> to fall back to the device configured above.
+        </p>
+
+        <div class="row g-3 mb-3">
+          <div class="col-sm-6">
+            <label class="form-label small fw-semibold">
+              <i class="fas fa-broadcast-tower me-1 text-muted"></i>Athan
+            </label>
+            <select class="form-select form-select-sm speaker-override"
+                    id="select-athan_speaker" data-field="athan_speaker"
+                    data-saved="{{index .config "athan_speaker"}}">
+              <option value="">Use default speaker</option>
+            </select>
+          </div>
+
+          <div class="col-sm-6">
+            <label class="form-label small fw-semibold">
+              <i class="fas fa-moon me-1 text-muted"></i>Pre-Fajr Quran
+            </label>
+            <select class="form-select form-select-sm speaker-override"
+                    id="select-pre_fajr_speaker" data-field="pre_fajr_speaker"
+                    data-saved="{{index .config "pre_fajr_speaker"}}">
+              <option value="">Use default speaker</option>
+            </select>
+          </div>
+
+          <div class="col-sm-6">
+            <label class="form-label small fw-semibold">
+              <i class="fas fa-book-open me-1 text-muted"></i>Friday Surah Al-Kahf
+            </label>
+            <select class="form-select form-select-sm speaker-override"
+                    id="select-friday_kahf_speaker" data-field="friday_kahf_speaker"
+                    data-saved="{{index .config "friday_kahf_speaker"}}">
+              <option value="">Use default speaker</option>
+            </select>
+          </div>
+
+          <div class="col-sm-6">
+            <label class="form-label small fw-semibold">
+              <i class="fas fa-music me-1 text-muted"></i>Manual Quran
+            </label>
+            <select class="form-select form-select-sm speaker-override"
+                    id="select-quran_speaker" data-field="quran_speaker"
+                    data-saved="{{index .config "quran_speaker"}}">
+              <option value="">Use default speaker</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="d-flex justify-content-end">
+          <button class="btn btn-success btn-sm" onclick="saveSpeakerAssignment()">
+            <i class="fas fa-save me-1"></i>Save Speaker Assignment
+          </button>
+        </div>
+        <div id="assignMsg" class="mt-2 text-end"></div>
+      </div>
+    </div>
+
+    <!-- ── Prayer Notifications ──────────────────────────────────────── -->
+    <div class="card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-bell me-2"></i>Prayer Notifications</h5>
+        <button class="btn btn-outline-secondary btn-sm" onclick="refreshMediaFiles()">
+          <i class="fas fa-sync-alt me-1"></i>Refresh Files
+        </button>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+        <table class="table table-hover mb-0 align-middle" style="font-size:13px">
+          <thead style="background:#F8FAFC">
+            <tr>
+              <th class="ps-3" style="min-width:110px">Prayer / Job</th>
+              <th style="width:70px">Active</th>
+              <th style="width:80px" title="Play on Google/Chromecast speaker">
+                <i class="fas fa-broadcast-tower text-muted me-1"></i>Speaker
+              </th>
+              <th style="width:90px" title="Play audio on the server machine running the agent — not in your browser">
+                <i class="fas fa-server text-muted me-1"></i>Server Audio
+              </th>
+              <th style="width:80px" title="Show an OS desktop notification on the server machine running the agent — not in your browser">
+                <i class="fas fa-desktop text-muted me-1"></i>Server Notify
+              </th>
+              <th style="width:95px" title="Show a browser notification in this tab when prayer time fires">
+                <i class="fas fa-globe text-muted me-1"></i>Browser Alert
+                <button class="btn btn-link p-0 ms-1" style="font-size:10px;vertical-align:middle"
+                  onclick="requestBrowserNotifyPermission()" title="Grant browser notification permission" id="notifPermBtn">
+                  <i class="fas fa-key"></i>
+                </button>
+              </th>
+              <th style="width:100px" title="Play the Athan audio in your browser tab when prayer time fires">
+                <i class="fas fa-volume-up text-muted me-1"></i>Browser Athan
+              </th>
+              <th style="min-width:160px">Audio File</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range $row := .notifRows}}
+            <tr>
+              <td class="ps-3 fw-medium">{{$row.Label}}</td>
+              <td>
+                {{if $row.HasEnabled}}
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input prayer-enabled-toggle" type="checkbox"
+                         data-prayer="{{$row.Key}}" id="enabled-{{$row.Key}}"
+                         {{if index $.config (print $row.Key "_enabled")}}checked{{end}}>
+                </div>
+                {{else}}
+                <span class="text-muted small">—</span>
+                {{end}}
+              </td>
+              <td class="text-center">
+                <input class="form-check-input channel-cb" type="checkbox"
+                       data-prayer="{{$row.Key}}" data-ch="speaker"
+                       {{if index $.config (print "ch_" $row.Key "_speaker")}}checked{{end}}>
+              </td>
+              <td class="text-center">
+                <input class="form-check-input channel-cb" type="checkbox"
+                       data-prayer="{{$row.Key}}" data-ch="local"
+                       {{if index $.config (print "ch_" $row.Key "_local")}}checked{{end}}>
+              </td>
+              <td class="text-center">
+                <input class="form-check-input channel-cb" type="checkbox"
+                       data-prayer="{{$row.Key}}" data-ch="notify"
+                       {{if index $.config (print "ch_" $row.Key "_notify")}}checked{{end}}>
+              </td>
+              <td class="text-center">
+                <input class="form-check-input channel-cb" type="checkbox"
+                       data-prayer="{{$row.Key}}" data-ch="browser"
+                       {{if index $.config (print "ch_" $row.Key "_browser")}}checked{{end}}>
+              </td>
+              <td class="text-center">
+                <input class="form-check-input channel-cb" type="checkbox"
+                       data-prayer="{{$row.Key}}" data-ch="browser_athan"
+                       {{if index $.config (print "ch_" $row.Key "_browser_athan")}}checked{{end}}>
+              </td>
+              <td>
+                {{if $row.HasMedia}}
+                <select class="form-select form-select-sm prayer-media-select"
+                        data-prayer="{{$row.Key}}"
+                        data-saved="{{index $.config (print $row.Key "_media")}}">
+                  <option value="">Loading...</option>
+                </select>
+                {{else}}
+                <span class="text-muted small">{{$row.AudioLabel}}</span>
+                {{end}}
+              </td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div class="card-body pt-2 border-top d-flex justify-content-between align-items-center">
+        <div>
+          <label class="btn btn-outline-secondary btn-sm mb-0">
+            <i class="fas fa-upload me-1"></i>Upload MP3
+            <input type="file" accept=".mp3,.m4a" hidden onchange="uploadMedia(this)">
+          </label>
+          <span id="uploadMsg" class="ms-2" style="font-size:12px"></span>
+        </div>
+        <button class="btn btn-success btn-sm" onclick="savePrayerNotifications()">
+          <i class="fas fa-save me-1"></i>Save Notifications
+        </button>
+      </div>
+      <div id="notifMsg" class="px-3 pb-2 text-end" style="font-size:12px"></div>
+    </div>
+
+    <!-- ── Mute TVs During Athan ───────────────────────────────────────── -->
+    <div class="card mb-4">
+      <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div>
+          <h5 class="mb-0"><i class="fas fa-volume-mute me-2"></i>Mute TVs During Athan</h5>
+          <p class="text-muted mb-0 mt-1" style="font-size:12px">
+            Automatically mute selected Cast devices when Athan plays, then unmute them.
+          </p>
+        </div>
+        <div id="tvPauseStatusBadge">
+          {{if .tv_paused}}
+            <span class="badge bg-warning text-dark"><i class="fas fa-volume-mute me-1"></i>Muted ({{.tv_paused_n}} device{{if gt .tv_paused_n 1}}s{{end}})</span>
+          {{else}}
+            <span class="badge bg-secondary"><i class="fas fa-volume-up me-1"></i>Not muted</span>
+          {{end}}
+        </div>
+      </div>
+
+      <div class="card-body">
+        <!-- Enable + delay row -->
+        <div class="d-flex flex-wrap align-items-center gap-4 mb-4">
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch" id="tvPauseEnabled" style="cursor:pointer">
+            <label class="form-check-label" for="tvPauseEnabled" style="cursor:pointer">Enable during Athan</label>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <label class="text-muted mb-0" style="font-size:13px;white-space:nowrap">Unmute after</label>
+            <input type="number" id="tvResumeDelay" min="1" max="60" value="5"
+                   class="form-control form-control-sm" style="width:70px">
+            <span class="text-muted" style="font-size:13px">minutes</span>
+          </div>
+        </div>
+
+        <!-- Device selection -->
+        <div class="mb-3">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <label class="fw-medium mb-0" style="font-size:13px">Devices to mute</label>
+            <div class="d-flex gap-2">
+              <button class="btn btn-outline-secondary btn-sm py-0 px-2" onclick="selectAllTVDevices(true)" style="font-size:12px">All</button>
+              <button class="btn btn-outline-secondary btn-sm py-0 px-2" onclick="selectAllTVDevices(false)" style="font-size:12px">None</button>
+            </div>
+          </div>
+          <div id="tvDeviceList" class="row g-2">
+            <div class="col-12 text-muted" style="font-size:13px">
+              <i class="fas fa-spinner fa-spin me-1"></i>Loading devices…
+            </div>
+          </div>
+          <p class="text-muted mt-2 mb-0" style="font-size:12px">
+            Leave all unchecked to mute <em>every</em> discovered Cast device (except the Athan speaker).
+            Go to Devices and scan the network first if your TV doesn't appear here.
+          </p>
+        </div>
+
+        <!-- Action buttons -->
+        <div class="d-flex flex-wrap gap-2 mt-3 pt-3 border-top">
+          <button class="btn btn-success btn-sm" onclick="saveTVPauseConfig()">
+            <i class="fas fa-save me-1"></i>Save Settings
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" onclick="testPause()">
+            <i class="fas fa-volume-mute me-1"></i>Test Mute Now
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" id="resumeNowBtn" onclick="testResume()">
+            <i class="fas fa-volume-up me-1"></i>Unmute Now
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Sidebar: status + tips ──────────────────────────────────────── -->
+  <div class="col-md-4">
+    <div class="card mb-4">
+      <div class="card-header"><h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Current Status</h5></div>
+      <div class="card-body">
+        <div class="mb-2">
+          <strong>Default Speaker:</strong><br>
+          <span class="text-muted">{{index .config "speakers_group_name" | html}}{{if not (index .config "speakers_group_name")}}<em>Not configured</em>{{end}}</span>
+        </div>
+        <div class="mb-2">
+          <strong>Location:</strong><br>
+          <span class="text-muted">{{index .config "location_label"}}</span>
+        </div>
+        <div class="mb-2">
+          <strong>Pre-Fajr Quran:</strong>
+          {{if index .config "pre_fajr_enabled"}}
+            <span class="badge bg-success">Enabled</span>
+          {{else}}
+            <span class="badge bg-secondary">Disabled</span>
+          {{end}}
+        </div>
+        <div class="mb-2">
+          <strong>Friday Surah Al-Kahf:</strong>
+          {{if index .config "friday_kahf_enabled"}}
+            <span class="badge bg-success">Enabled</span>
+          {{else}}
+            <span class="badge bg-secondary">Disabled</span>
+          {{end}}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h5 class="mb-0"><i class="fas fa-lightbulb me-2"></i>Tips</h5></div>
+      <div class="card-body">
+        <ul class="list-unstyled small mb-0">
+          <li class="mb-2"><i class="fas fa-check-circle text-success me-2"></i>Device must be on the same network</li>
+          <li class="mb-2"><i class="fas fa-check-circle text-success me-2"></i>Use the refresh button if devices are missing</li>
+          <li class="mb-2"><i class="fas fa-check-circle text-success me-2"></i>Speaker groups play on all assigned devices at once</li>
+          <li><i class="fas fa-check-circle text-success me-2"></i>Check the Logs page if Athan isn't playing</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+const currentSpeaker = "{{index .config "speakers_group_name"}}";
+
+// ── Device loading ────────────────────────────────────────────────────────
+function loadDevices(forceRefresh) {
+  const icon    = document.getElementById("mainRefreshIcon");
+  const status  = document.getElementById("deviceStatus");
+  const mainSel = document.getElementById("speakerSelect");
+
+  icon.classList.add("fa-spin");
+  status.innerHTML = '<small class="text-muted">Scanning...</small>';
+
+  const url    = forceRefresh ? "/api/discover-devices" : "/api/devices";
+  const method = forceRefresh ? "POST" : "GET";
+
+  fetch(url, { method })
+    .then(r => r.json())
+    .then(data => {
+      const devices = (data.devices || []).map(d => d.name);
+      populateMainSelect(mainSel, devices);
+      populateOverrideSelects(devices);
+
+      if (devices.length === 0) {
+        status.innerHTML = '<small class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>No devices found — click refresh</small>';
+      } else {
+        status.innerHTML = '<small class="text-success"><i class="fas fa-check me-1"></i>' + devices.length + ' device(s) found</small>';
+      }
+    })
+    .catch(err => {
+      status.innerHTML = '<small class="text-danger">Error: ' + err + '</small>';
+    })
+    .finally(() => icon.classList.remove("fa-spin"));
+}
+
+function populateMainSelect(sel, names) {
+  sel.innerHTML = "";
+  if (names.length === 0) {
+    sel.innerHTML = '<option value="" disabled>No devices found — click refresh</option>';
+    return;
+  }
+  names.forEach(name => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    if (name === currentSpeaker) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  // Add current value if not in list
+  if (currentSpeaker && !names.includes(currentSpeaker)) {
+    const opt = document.createElement("option");
+    opt.value = currentSpeaker;
+    opt.textContent = "⚠️ " + currentSpeaker + " (not found)";
+    opt.selected = true;
+    sel.insertBefore(opt, sel.firstChild);
+  }
+}
+
+function populateOverrideSelects(names) {
+  document.querySelectorAll(".speaker-override").forEach(sel => {
+    const saved = sel.dataset.saved || "";
+    sel.innerHTML = '<option value="">Use default speaker</option>';
+    names.forEach(name => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      if (name === saved) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    if (saved && !names.includes(saved)) {
+      const opt = document.createElement("option");
+      opt.value = saved;
+      opt.textContent = "⚠️ " + saved + " (not found)";
+      opt.selected = true;
+      opt.style.color = "#999";
+      sel.appendChild(opt);
+    }
+  });
+}
+
+function refreshAll(btn) {
+  if (btn) { btn.disabled = true; }
+  loadDevices(true);
+  if (btn) { setTimeout(() => btn.disabled = false, 3000); }
+}
+
+// ── Save settings ─────────────────────────────────────────────────────────
+function saveSettings() {
+  const form = document.getElementById("settingsForm");
+  const speaker = document.getElementById("speakerSelect").value;
+
+  if (!speaker) {
+    document.getElementById("saveMsg").innerHTML =
+      '<span class="text-danger">Please select a speaker first</span>';
+    return;
+  }
+
+  // Determine active location value
+  const useAladhan = document.getElementById("srcAladhan").checked;
+  const locationVal = useAladhan ? "aladhan" : document.getElementById("locationHidden").value;
+
+  const data = {
+    speakers_group_name: speaker,
+    location:            locationVal,
+    aladhan_city:        (form.aladhan_city    || {value:""}).value.trim(),
+    aladhan_country:     (form.aladhan_country || {value:""}).value.trim(),
+    aladhan_method:      parseInt((form.aladhan_method || {value:"3"}).value) || 3,
+    pre_fajr_enabled:    form.pre_fajr_enabled.checked,
+    pre_fajr_minutes:    parseInt(form.pre_fajr_minutes.value),
+    friday_kahf_enabled: form.friday_kahf_enabled.checked,
+  };
+
+  fetch("/api/config", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(data)
+  }).then(r => r.json()).then(d => {
+    document.getElementById("saveMsg").innerHTML = d.success
+      ? '<span class="text-success"><i class="fas fa-check me-1"></i>Saved!</span>'
+      : '<span class="text-danger">Error: ' + (d.error || "unknown") + '</span>';
+  });
+}
+
+// ── Save speaker assignment ───────────────────────────────────────────────
+function saveSpeakerAssignment() {
+  const payload = {};
+  document.querySelectorAll(".speaker-override").forEach(sel => {
+    payload[sel.dataset.field] = sel.value;
+  });
+
+  fetch("/api/config", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload)
+  }).then(r => r.json()).then(d => {
+    document.getElementById("assignMsg").innerHTML = d.success
+      ? '<span class="text-success"><i class="fas fa-check me-1"></i>Speaker assignment saved!</span>'
+      : '<span class="text-danger">Error: ' + d.error + '</span>';
+    if (d.success) {
+      // Update saved markers so refresh re-selects correctly
+      document.querySelectorAll(".speaker-override").forEach(sel => {
+        sel.dataset.saved = sel.value;
+      });
+    }
+  });
+}
+
+// Load on page open
+loadDevices(false);
+loadMediaFiles();
+
+// ── Media files ───────────────────────────────────────────────────────────
+function loadMediaFiles() {
+  fetch("/api/media/files")
+    .then(r => r.json())
+    .then(d => populateMediaSelects(d.files || []));
+}
+
+function refreshMediaFiles() {
+  loadMediaFiles();
+  showToast("Media files refreshed", "secondary");
+}
+
+function populateMediaSelects(files) {
+  document.querySelectorAll(".prayer-media-select").forEach(sel => {
+    const saved = sel.dataset.saved || "";
+    sel.innerHTML = '<option value="">Use default</option>';
+    files.forEach(f => {
+      const opt = document.createElement("option");
+      opt.value = f;
+      opt.textContent = f;
+      if (f === saved) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  });
+}
+
+function uploadMedia(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const msg = document.getElementById("uploadMsg");
+  msg.innerHTML = '<span class="text-muted"><i class="fas fa-spinner fa-spin me-1"></i>Uploading...</span>';
+
+  const fd = new FormData();
+  fd.append("file", file);
+
+  fetch("/api/media/upload", {method: "POST", body: fd})
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        msg.innerHTML = '<span class="text-success"><i class="fas fa-check me-1"></i>' + d.filename + ' uploaded</span>';
+        loadMediaFiles();
+      } else {
+        msg.innerHTML = '<span class="text-danger">' + d.error + '</span>';
+      }
+    });
+  input.value = "";
+}
+
+// ── Prayer notifications ──────────────────────────────────────────────────
+function savePrayerNotifications() {
+  const payload = {};
+  document.querySelectorAll(".prayer-enabled-toggle").forEach(el => {
+    payload[el.dataset.prayer + "_enabled"] = el.checked;
+  });
+  document.querySelectorAll(".channel-cb").forEach(el => {
+    payload["ch_" + el.dataset.prayer + "_" + el.dataset.ch] = el.checked;
+  });
+  document.querySelectorAll(".prayer-media-select").forEach(sel => {
+    payload[sel.dataset.prayer + "_media"] = sel.value;
+  });
+
+  fetch("/api/config", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload)
+  }).then(r => r.json()).then(d => {
+    document.getElementById("notifMsg").innerHTML = d.success
+      ? '<span class="text-success"><i class="fas fa-check me-1"></i>Saved!</span>'
+      : '<span class="text-danger">' + (d.error || "error") + '</span>';
+    if (d.success) showToast("Prayer notifications saved", "success");
+  });
+}
+
+// ── Browser notification permission ──────────────────────────────────────
+function requestBrowserNotifyPermission() {
+  if (!("Notification" in window)) {
+    showToast("Browser notifications not supported in this browser", "warning");
+    return;
+  }
+  Notification.requestPermission().then(perm => {
+    updatePermBtn(perm);
+    if (perm === "granted") {
+      showToast("Browser notifications granted", "success");
+      new Notification("Automated Azan", {
+        body: "Browser alerts are now enabled.",
+        icon: "/favicon.ico"
+      });
+    } else {
+      showToast("Permission " + perm + " — browser alerts won't fire", "warning");
+    }
+  });
+}
+
+function updatePermBtn(perm) {
+  const btn = document.getElementById("notifPermBtn");
+  if (!btn) return;
+  if (perm === "granted") {
+    btn.innerHTML = '<i class="fas fa-check-circle text-success"></i>';
+    btn.title = "Permission granted";
+  } else if (perm === "denied") {
+    btn.innerHTML = '<i class="fas fa-times-circle text-danger"></i>';
+    btn.title = "Permission denied — change in browser settings";
+  } else {
+    btn.innerHTML = '<i class="fas fa-key"></i>';
+    btn.title = "Click to grant browser notification permission";
+  }
+}
+
+// Reflect current permission state on load
+if ("Notification" in window) updatePermBtn(Notification.permission);
+
+// ── Location source toggle ────────────────────────────────────────────────
+function toggleLocationSource(val) {
+  const irelandEl = document.getElementById("irelandSection");
+  const aladhanEl = document.getElementById("aladhanSection");
+  const hiddenLoc = document.getElementById("locationHidden");
+  if (val === "aladhan") {
+    irelandEl.style.display = "none";
+    aladhanEl.style.display = "";
+    hiddenLoc.value = "aladhan";
+    loadCountries(); // populate on first activation
+  } else {
+    irelandEl.style.display = "";
+    aladhanEl.style.display = "none";
+    hiddenLoc.value = document.getElementById("irelandSelect").value;
+  }
+  checkIrelandAladhanWarn();
+}
+
+// ── Countries / Cities dropdowns ─────────────────────────────────────────
+let countriesLoaded = false;
+
+async function loadCountries() {
+  if (countriesLoaded) return;
+  const sel = document.getElementById("aladhanCountry");
+  const spinner = document.getElementById("countryLoading");
+  const savedCountry = sel.value; // preserve currently selected value
+  spinner.style.display = "";
+  try {
+    const resp = await fetch("/api/geo/countries");
+    const json = await resp.json();
+    if (!json.success) throw new Error(json.error);
+    // Rebuild options preserving current selection
+    sel.innerHTML = '<option value="">— select country —</option>';
+    json.data.forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = c.name;
+      opt.textContent = c.name;
+      if (c.name === savedCountry) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    countriesLoaded = true;
+    // If a country is already selected, auto-load its cities
+    if (savedCountry) loadCities(savedCountry);
+  } catch(e) {
+    console.error("Countries load failed:", e);
+    showToast("Could not load country list — check internet connection", "danger");
+  } finally {
+    spinner.style.display = "none";
+  }
+}
+
+async function onCountryChange(country) {
+  checkIrelandAladhanWarn();
+  if (!country) return;
+  loadCities(country);
+}
+
+async function loadCities(country) {
+  const sel = document.getElementById("aladhanCity");
+  const spinner = document.getElementById("cityLoading");
+  const savedCity = sel.value;
+  sel.innerHTML = '<option value="">— loading… —</option>';
+  sel.disabled = true;
+  spinner.style.display = "";
+  try {
+    const resp = await fetch("/api/geo/cities?country=" + encodeURIComponent(country));
+    const json = await resp.json();
+    if (!json.success) throw new Error(json.error);
+    sel.innerHTML = '<option value="">— select city —</option>';
+    json.data.forEach(city => {
+      const opt = document.createElement("option");
+      opt.value = city;
+      opt.textContent = city;
+      if (city === savedCity) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } catch(e) {
+    sel.innerHTML = '<option value="">— failed to load —</option>';
+    console.error("Cities load failed:", e);
+  } finally {
+    sel.disabled = false;
+    spinner.style.display = "none";
+  }
+}
+
+// ── Ireland + Aladhan warning ─────────────────────────────────────────────
+function checkIrelandAladhanWarn() {
+  const warn      = document.getElementById("irelandAladhanWarn");
+  const country   = (document.getElementById("aladhanCountry")?.value || "").toLowerCase().trim();
+  const isAladhan = document.getElementById("srcAladhan")?.checked;
+  const isIreland = ["ireland", "ie", "irl", "republic of ireland"].includes(country);
+  if (warn) warn.style.display = (isAladhan && isIreland) ? "" : "none";
+}
+
+// Auto-load countries if Aladhan is already the active source on page load
+if (document.getElementById("srcAladhan")?.checked) {
+  loadCountries();
+}
+
+// ── TV Pause ──────────────────────────────────────────────────────────────────
+var tvAllDevices  = [];
+var tvPausedUUIDs = [];
+
+function loadTVPauseConfig() {
+  fetch("/api/tv-pause/status")
+    .then(r => r.json())
+    .then(d => {
+      if (!d.success) return;
+      document.getElementById("tvPauseEnabled").checked = d.enabled;
+      document.getElementById("tvResumeDelay").value    = Math.round(d.resume_delay_secs / 60) || 5;
+      tvPausedUUIDs = d.devices || [];
+      renderPauseStatus(d.paused, d.paused_count);
+      renderTVDeviceCheckboxes();
+    });
+}
+
+function loadTVDevices() {
+  fetch("/api/devices")
+    .then(r => r.json())
+    .then(d => {
+      if (!d.success) return;
+      tvAllDevices = d.devices || [];
+      renderTVDeviceCheckboxes();
+    });
+}
+
+function renderTVDeviceCheckboxes() {
+  var container = document.getElementById("tvDeviceList");
+  if (tvAllDevices.length === 0) {
+    container.innerHTML =
+      '<div class="col-12 text-muted" style="font-size:13px">' +
+      '<i class="fas fa-exclamation-circle me-1"></i>No devices found — go to Devices and scan the network.</div>';
+    return;
+  }
+  container.innerHTML = tvAllDevices.map(function(dev) {
+    var isChecked = tvPausedUUIDs.indexOf(dev.uuid) >= 0;
+    var model = dev.model_name || "";
+    var icon = model.toLowerCase().indexOf("tv") >= 0
+      ? "fas fa-tv" : (model.toLowerCase().indexOf("hub") >= 0
+      ? "fas fa-tablet-alt" : "fas fa-speaker");
+    return '<div class="col-md-4 col-sm-6">' +
+      '<label class="d-flex align-items-center gap-2 p-2 border rounded" style="cursor:pointer;font-size:13px;background:#fff">' +
+        '<input type="checkbox" class="tv-device-cb" value="' + escHtml(dev.uuid) + '"' + (isChecked ? ' checked' : '') + '>' +
+        '<i class="' + icon + ' text-success" style="font-size:15px;flex-shrink:0"></i>' +
+        '<div class="min-w-0">' +
+          '<div class="fw-medium text-truncate">' + escHtml(dev.name) + '</div>' +
+          '<div class="text-muted" style="font-size:11px">' + escHtml(model) + '</div>' +
+        '</div>' +
+      '</label>' +
+    '</div>';
+  }).join("");
+}
+
+function selectAllTVDevices(all) {
+  document.querySelectorAll(".tv-device-cb").forEach(function(cb) { cb.checked = all; });
+}
+
+function getCheckedUUIDs() {
+  return Array.from(document.querySelectorAll(".tv-device-cb:checked")).map(function(cb) { return cb.value; });
+}
+
+function saveTVPauseConfig() {
+  var delaySecs = parseInt(document.getElementById("tvResumeDelay").value, 10) * 60;
+  var payload = {
+    enabled:           document.getElementById("tvPauseEnabled").checked,
+    resume_delay_secs: isNaN(delaySecs) ? 300 : delaySecs,
+    devices:           getCheckedUUIDs()
+  };
+  fetch("/api/tv-pause/config", {
+    method:  "POST",
+    headers: {"Content-Type": "application/json"},
+    body:    JSON.stringify(payload)
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.success) {
+      showToast("TV mute settings saved", "success");
+      tvPausedUUIDs = payload.devices;
+    } else {
+      showToast("Save failed: " + d.error, "danger");
+    }
+  });
+}
+
+function testPause() {
+  fetch("/api/tv-pause/pause", {method: "POST"})
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        showToast("Mute command sent — check your TVs", "success");
+        setTimeout(refreshPauseStatus, 2000);
+      } else {
+        showToast("Mute failed: " + d.error, "danger");
+      }
+    });
+}
+
+function testResume() {
+  fetch("/api/tv-pause/resume", {method: "POST"})
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        showToast("Unmute command sent", "success");
+        setTimeout(refreshPauseStatus, 2000);
+      } else {
+        showToast("Unmute failed: " + d.error, "danger");
+      }
+    });
+}
+
+function refreshPauseStatus() {
+  fetch("/api/tv-pause/status")
+    .then(r => r.json())
+    .then(d => { if (d.success) renderPauseStatus(d.paused, d.paused_count); });
+}
+
+function renderPauseStatus(paused, count) {
+  var badge = document.getElementById("tvPauseStatusBadge");
+  if (!badge) return;
+  if (paused && count > 0) {
+    badge.innerHTML = '<span class="badge bg-warning text-dark">' +
+      '<i class="fas fa-volume-mute me-1"></i>Muted (' + count + ' device' + (count !== 1 ? 's' : '') + ')</span>';
+  } else {
+    badge.innerHTML = '<span class="badge bg-secondary">' +
+      '<i class="fas fa-volume-up me-1"></i>Not muted</span>';
+  }
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+loadTVPauseConfig();
+loadTVDevices();
+setInterval(refreshPauseStatus, 15000);
+</script>
+{{end}}

@@ -1,0 +1,48 @@
+{{template "base.html" .}}
+{{define "title"}}Logs — Automated Azan{{end}}
+{{define "page_title"}}Logs{{end}}
+{{define "page_sub"}}Live application output{{end}}
+{{define "topbar_actions"}}
+  <button class="btn btn-outline-secondary btn-sm btn-icon" onclick="location.reload()" title="Refresh">
+    <i class="fas fa-sync-alt"></i>
+  </button>
+{{end}}
+
+{{define "content"}}
+<div class="card">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span><i class="fas fa-terminal me-2"></i>Application Log</span>
+    <div class="d-flex gap-2">
+      <button class="btn btn-outline-secondary btn-sm" onclick="scrollToBottom()">
+        <i class="fas fa-arrow-down me-1"></i>Bottom
+      </button>
+      <button class="btn btn-outline-secondary btn-sm" id="wrapBtn" onclick="toggleWrap()">
+        <i class="fas fa-align-left me-1"></i>Wrap
+      </button>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="log-viewer" id="logViewer">{{colorize .logs}}</div>
+  </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+  function scrollToBottom() {
+    const v = document.getElementById("logViewer");
+    v.scrollTop = v.scrollHeight;
+  }
+
+  let wrapped = false;
+  function toggleWrap() {
+    const v = document.getElementById("logViewer");
+    wrapped = !wrapped;
+    v.style.whiteSpace = wrapped ? "pre-wrap" : "pre";
+    document.getElementById("wrapBtn").classList.toggle("btn-success", wrapped);
+  }
+
+  // Auto-scroll on load
+  scrollToBottom();
+</script>
+{{end}}

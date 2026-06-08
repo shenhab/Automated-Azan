@@ -122,8 +122,10 @@ docker-restart:
 	@echo "� Restarting Docker container..."
 	@$(DOCKER_COMPOSE) restart
 
-docker-rebuild: docker-stop docker-build docker-run
-	@echo "� Rebuilt and restarted Docker container"
+docker-rebuild:
+	@echo "🐳 Rebuilding and restarting Docker container..."
+	@$(DOCKER_COMPOSE) up -d --build
+	@echo "✅ Rebuilt and restarted Docker container"
 
 #=============================================================================
 # UTILITIES

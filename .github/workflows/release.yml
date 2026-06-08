@@ -1,0 +1,310 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"          # triggers on any tag like v1.0.0, v1.2.3-go, etc.
+  workflow_dispatch:  # allow manual trigger from GitHub UI
+
+permissions:
+  contents: write   # needed to create/upload releases
+
+jobs:
+  # ── Create the GitHub Release first so build jobs can upload directly ─────
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3.0.0
+        with:
+          tag_name:   ${{ github.ref_name }}
+          name:       "Automated Azan ${{ github.ref_name }}"
+          body: |
+            ## Automated Azan — ${{ github.ref_name }}
+
+            Cross-platform Go agent. Single binary, no runtime required.
+
+            ### Downloads
+
+            | File | Platform | Tray |
+            |---|---|---|
+            | `azan-agent-linux-amd64` | Linux x86-64 | ✅ native GTK |
+            | `azan-agent-linux-arm64` | Raspberry Pi 4/5 | — headless |
+            | `azan-agent-linux-arm` | Raspberry Pi 3 | — headless |
+            | `azan-agent-windows-amd64.exe` | Windows 64-bit | ✅ native Win32 |
+            | `azan-agent-darwin-amd64.dmg` | macOS Intel | ✅ native NSStatusBar |
+            | `azan-agent-darwin-arm64.dmg` | macOS Apple Silicon (M1/M2/M3) | ✅ native NSStatusBar |
+
+            ### Quick start
+            1. Download the binary/bundle for your platform
+            2. Run it — it installs itself as a background service automatically
+            3. Dashboard: `http://localhost:28426`
+
+            ### Docker
+            ```
+            docker pull shenhab/athan:${{ github.ref_name }}
+            ```
+
+            ### macOS — install
+            1. Download and open the `.dmg`
+            2. Double-click **"Install Automated Azan"** inside the DMG
+            3. Look for the icon in your **menu bar** (top-right)
+
+            > **Alternative:** `xattr -rd com.apple.quarantine /Applications/AzanAgent.app`
+
+            ### Windows — first run
+            Right-click → **Run as administrator** once to register the Windows Service.
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Build matrix: each OS builds its own native binary (CGO = real tray) ──
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: create-release
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── Linux amd64 ───────────────────────────────────────────────────
+          - runner:  ubuntu-latest
+            goos:    linux
+            goarch:  amd64
+            cgo:     "1"
+            asset:   azan-agent-linux-amd64
+
+          # ── Linux arm64 (Raspberry Pi 4/5) ───────────────────────────────
+          - runner:  ubuntu-latest
+            goos:    linux
+            goarch:  arm64
+            cgo:     "0"          # cross-compile; GTK not available for ARM on ubuntu runner
+            asset:   azan-agent-linux-arm64
+
+          # ── Linux arm (Raspberry Pi 3) ────────────────────────────────────
+          - runner:  ubuntu-latest
+            goos:    linux
+            goarch:  arm
+            cgo:     "0"
+            asset:   azan-agent-linux-arm
+
+          # ── Windows amd64 ─────────────────────────────────────────────────
+          - runner:  windows-latest
+            goos:    windows
+            goarch:  amd64
+            cgo:     "1"          # Win32 tray is pure-Go but CGO=1 is safe on Windows
+            asset:   azan-agent-windows-amd64.exe
+
+          # ── macOS Intel (cross-compiled from Apple Silicon runner) ──────────
+          # macos-13 Intel runners are scarce and slow to pick up jobs.
+          # macOS Xcode SDK supports both architectures, so CGO cross-compile
+          # works fine from an M-series runner.
+          - runner:  macos-latest
+            goos:    darwin
+            goarch:  amd64
+            cgo:     "1"
+            asset:   azan-agent-darwin-amd64.dmg
+
+          # ── macOS Apple Silicon ───────────────────────────────────────────
+          - runner:  macos-latest
+            goos:    darwin
+            goarch:  arm64
+            cgo:     "1"
+            asset:   azan-agent-darwin-arm64.dmg
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.4.0
+        with:
+          go-version-file: go/go.mod   # always matches what go.mod requires
+          cache: true
+          cache-dependency-path: go/go.sum
+
+      # Linux only: install GTK3 + AppIndicator (tray) + ALSA (local audio via oto)
+      - name: Install tray dependencies (Linux)
+        if: matrix.goos == 'linux' && matrix.cgo == '1'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y pkg-config libgtk-3-dev libayatana-appindicator3-dev libasound2-dev
+
+      - name: Build
+        working-directory: go
+        shell: bash   # force bash on all runners (Git Bash on Windows) so the conditional works
+        env:
+          GOOS:        ${{ matrix.goos }}
+          GOARCH:      ${{ matrix.goarch }}
+          CGO_ENABLED: ${{ matrix.cgo }}
+        # -H windowsgui suppresses the console window on Windows.
+        # macOS assets are .dmg (bundle step below); strip suffix for go build -o.
+        # -X main.version embeds the release tag into the binary.
+        run: |
+          EXTRA=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then EXTRA="-H windowsgui"; fi
+          OUT="${{ matrix.asset }}"
+          if [ "${{ matrix.goos }}" = "darwin" ]; then OUT="${OUT%.dmg}"; fi
+          go build -ldflags="-s -w $EXTRA -X main.version=${{ github.ref_name }}" -o "$OUT" ./cmd/azan-agent
+
+      # macOS only: wrap the binary in a proper .app bundle with icon, then
+      # package as a .dmg with a drag-to-Applications shortcut.
+      # Uses sips + iconutil (ship with Xcode on macOS runners) for the icon.
+      - name: Package as .app + .dmg (macOS)
+        if: matrix.goos == 'darwin'
+        working-directory: go
+        shell: bash
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          BINARY="${{ matrix.asset }}"
+          BINARY="${BINARY%.dmg}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$VERSION" =~ ^[0-9] ]] || VERSION="0.0.0"
+          APP="AzanAgent.app"
+
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp "$BINARY" "$APP/Contents/MacOS/AzanAgent"
+          chmod +x "$APP/Contents/MacOS/AzanAgent"
+
+          # Info.plist — inject version into the committed template
+          sed "s/__VERSION__/${VERSION}/g" packaging/macos/Info.plist > "$APP/Contents/Info.plist"
+
+          # Icon: ico → png → iconset → icns
+          sips -s format png internal/tray/azan.ico --out /tmp/azan_icon.png 2>/dev/null || true
+          mkdir AppIcon.iconset
+          for SIZE in 16 32 128 256 512; do
+            sips -z $SIZE $SIZE /tmp/azan_icon.png --out "AppIcon.iconset/icon_${SIZE}x${SIZE}.png" 2>/dev/null
+            DOUBLE=$((SIZE * 2))
+            sips -z $DOUBLE $DOUBLE /tmp/azan_icon.png --out "AppIcon.iconset/icon_${SIZE}x${SIZE}@2x.png" 2>/dev/null
+          done
+          iconutil -c icns AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
+          rm -rf AppIcon.iconset
+
+          # Ad-hoc sign: changes Gatekeeper error from "damaged" (no bypass)
+          # to "unverified developer" (Open Anyway in System Settings).
+          codesign --sign - --force --deep "$APP" 2>/dev/null || true
+
+          # DMG staging: app + Applications symlink + README + Terminal shortcut
+          mkdir dmg_staging
+          cp -r "$APP" dmg_staging/
+          ln -s /Applications dmg_staging/Applications
+
+          # README with install steps and the one-time xattr command
+          sed "s/__VERSION__/${VERSION}/g" packaging/macos/README.txt \
+            > dmg_staging/README.txt
+
+          # Shortcut to Terminal so users can open it straight from the DMG
+          # window and paste the xattr command shown in README.txt
+          ln -s /System/Applications/Utilities/Terminal.app \
+            dmg_staging/Terminal.app
+
+          hdiutil create \
+            -volname "Automated Azan ${VERSION}" \
+            -srcfolder dmg_staging \
+            -ov -format UDZO \
+            -imagekey zlib-level=9 \
+            "${{ matrix.asset }}"
+          rm -rf dmg_staging "$APP"
+          # Keep $BINARY for the self-update artifact upload below.
+
+      # Rename artifacts to include the version tag in the filename.
+      # e.g. azan-agent-linux-amd64 → azan-agent-linux-amd64-v1.1.4
+      #      azan-agent-darwin-arm64.dmg → azan-agent-darwin-arm64-v1.1.4.dmg
+      - name: Add version suffix to artifact names
+        id: versioned
+        working-directory: go
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+          ASSET: ${{ matrix.asset }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          EXT=""
+          [[ "$ASSET" == *.dmg ]] && EXT=".dmg"
+          [[ "$ASSET" == *.exe ]] && EXT=".exe"
+          BASE="${ASSET%${EXT}}"
+          VERSIONED="${BASE}-${TAG}${EXT}"
+          mv "$ASSET" "$VERSIONED"
+          echo "asset=${VERSIONED}" >> "$GITHUB_OUTPUT"
+
+          # macOS: also rename the raw binary kept for the self-updater
+          if [[ "$GOOS" == "darwin" ]]; then
+            RAW="azan-agent-darwin-${GOARCH}"
+            RAW_V="${RAW}-${TAG}"
+            mv "$RAW" "$RAW_V"
+            echo "raw_binary=${RAW_V}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload to GitHub Release
+        shell: bash
+        run: |
+          if [[ "${{ matrix.goos }}" == "linux" ]]; then
+            chmod +x go/${{ steps.versioned.outputs.asset }}
+          fi
+          gh release upload ${{ github.ref_name }} \
+            go/${{ steps.versioned.outputs.asset }} \
+            --repo ${{ github.repository }} \
+            --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # macOS: also upload the raw binary so the in-app self-updater can
+      # download it directly (programmatic downloads are never quarantined).
+      - name: Upload raw binary for self-update (macOS)
+        if: matrix.goos == 'darwin'
+        shell: bash
+        run: |
+          gh release upload ${{ github.ref_name }} \
+            go/${{ steps.versioned.outputs.raw_binary }} \
+            --repo ${{ github.repository }} \
+            --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Build headless Docker image and push to Docker Hub ───────────────────
+  docker:
+    name: Push Docker image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.4.0
+        with:
+          go-version-file: go/go.mod
+          cache: true
+          cache-dependency-path: go/go.sum
+
+      - name: Build headless binary (linux/amd64)
+        working-directory: go
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
+            -o azan-agent ./cmd/azan-agent
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4.2.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7.2.0
+        with:
+          context: go
+          file: go/Dockerfile.headless
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/athan:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/athan:${{ github.ref_name }}
+

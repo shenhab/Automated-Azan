@@ -3,7 +3,8 @@ FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS deps
 WORKDIR /app
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml uv.lock ./
-RUN uv sync --no-dev --frozen --no-install-project && \
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev --frozen --no-install-project && \
     uv pip install --upgrade pip wheel
 
 # Stage 2: runtime image
@@ -22,15 +23,18 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 # Upgrade system Python pip/wheel/setuptools to clear scanner findings
 RUN python3 -m pip install --upgrade pip wheel setuptools --break-system-packages
 
-RUN mkdir -p /var/log /app/data /app/logs /app/config && \
-    chmod 755 /var/log /app/data /app/logs /app/config
+# Create user early so COPY --chown places files with correct ownership,
+# avoiding an expensive chown -R over the entire /app tree at the end.
+RUN useradd -m -u 1000 appuser
+
+RUN install -d -o appuser -g appuser /var/log /app/data /app/logs /app/config
 
 # Pull the pre-built venv from the deps stage
-COPY --from=deps /app/.venv /app/.venv
+COPY --chown=appuser:appuser --from=deps /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
-COPY . .
+COPY --chown=appuser:appuser . .
 
 RUN chmod +x docker-entrypoint.sh
 
@@ -39,11 +43,6 @@ RUN if [ ! -f "azan.toml" ]; then \
     fi
 
 RUN touch /app/data/.gitkeep /app/logs/.gitkeep
-
-RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app && \
-    chown -R appuser:appuser /var/log && \
-    chown -R appuser:appuser /app/config
 
 USER appuser
 

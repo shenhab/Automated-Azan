@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{template "title" .}}</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    :root {
+      --green-900: #1B4332;
+      --green-800: #2D6A4F;
+      --green-600: #40916C;
+      --green-400: #74C69D;
+      --green-100: #D8F3DC;
+      --sidebar-w: 240px;
+      --radius: 12px;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+      --shadow:    0 4px 12px rgba(0,0,0,.08), 0 2px 4px rgba(0,0,0,.04);
+      --shadow-lg: 0 10px 30px rgba(0,0,0,.12), 0 4px 8px rgba(0,0,0,.06);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 14px;
+      background: #F0F4F8;
+      color: #1A2332;
+      min-height: 100vh;
+    }
+
+    /* ── Sidebar ─────────────────────────────────────────────────────── */
+    .sidebar {
+      position: fixed;
+      top: 0; left: 0;
+      width: var(--sidebar-w);
+      height: 100vh;
+      background: linear-gradient(160deg, var(--green-900) 0%, #143829 100%);
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+      z-index: 100;
+      box-shadow: 2px 0 20px rgba(0,0,0,.2);
+    }
+
+    .sidebar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 20px 20px 16px;
+      color: #fff;
+      text-decoration: none;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      margin-bottom: 8px;
+    }
+    .sidebar-brand .brand-icon {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--green-600), var(--green-400));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+      box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    }
+    .sidebar-brand .brand-text { font-weight: 700; font-size: 15px; line-height: 1.2; }
+    .sidebar-brand .brand-sub  { font-size: 10px; color: rgba(255,255,255,.5); font-weight: 400; }
+
+    .sidebar-nav { padding: 0 10px; flex: 1; }
+    .sidebar-nav .nav-item { margin-bottom: 2px; }
+    .sidebar-nav .nav-link {
+      color: rgba(255,255,255,.65);
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 13.5px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: all .15s ease;
+      text-decoration: none;
+    }
+    .sidebar-nav .nav-link i { width: 18px; text-align: center; font-size: 14px; }
+    .sidebar-nav .nav-link:hover  { color: #fff; background: rgba(255,255,255,.1); }
+    .sidebar-nav .nav-link.active { color: #fff; background: rgba(255,255,255,.15);
+                                    box-shadow: inset 3px 0 0 var(--green-400); }
+
+    .sidebar-footer {
+      padding: 12px 16px;
+      border-top: 1px solid rgba(255,255,255,.08);
+      color: rgba(255,255,255,.35);
+      font-size: 11px;
+    }
+
+    /* ── Main layout ─────────────────────────────────────────────────── */
+    .main-wrap {
+      margin-left: var(--sidebar-w);
+      min-height: 100vh;
+    }
+
+    .topbar {
+      background: #fff;
+      border-bottom: 1px solid #E8EDF2;
+      padding: 0 28px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      box-shadow: var(--shadow-sm);
+    }
+    .topbar-title { font-size: 16px; font-weight: 600; color: #1A2332; }
+    .topbar-sub   { font-size: 12px; color: #8A97A8; margin-top: 1px; }
+
+    .page-body { padding: 24px 28px; }
+
+    /* ── Cards ───────────────────────────────────────────────────────── */
+    .card {
+      background: #fff;
+      border: none;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow .2s ease;
+    }
+    .card:hover { box-shadow: var(--shadow); }
+    .card-header {
+      background: transparent;
+      border-bottom: 1px solid #F0F4F8;
+      padding: 14px 18px;
+      font-weight: 600;
+      font-size: 13.5px;
+      color: #1A2332;
+      border-radius: var(--radius) var(--radius) 0 0 !important;
+    }
+    .card-body { padding: 18px; }
+
+    /* ── Stat cards ──────────────────────────────────────────────────── */
+    .stat-card {
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      background: #fff;
+      box-shadow: var(--shadow-sm);
+      transition: all .2s ease;
+    }
+    .stat-card:hover { box-shadow: var(--shadow); transform: translateY(-1px); }
+    .stat-card .stat-icon {
+      width: 42px; height: 42px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      margin-bottom: 12px;
+    }
+    .stat-card .stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase;
+                              letter-spacing: .6px; color: #8A97A8; margin-bottom: 4px; }
+    .stat-card .stat-value { font-size: 20px; font-weight: 700; color: #1A2332; line-height: 1.2; }
+    .stat-card .stat-sub   { font-size: 12px; color: #8A97A8; margin-top: 2px; }
+
+    .icon-green  { background: #D8F3DC; color: var(--green-600); }
+    .icon-blue   { background: #DBEAFE; color: #2563EB; }
+    .icon-amber  { background: #FEF3C7; color: #D97706; }
+    .icon-purple { background: #EDE9FE; color: #7C3AED; }
+
+    /* ── Next prayer hero ────────────────────────────────────────────── */
+    .next-prayer-hero {
+      background: linear-gradient(135deg, var(--green-900) 0%, var(--green-800) 100%);
+      border-radius: var(--radius);
+      padding: 22px 24px;
+      color: #fff;
+      box-shadow: var(--shadow);
+      position: relative;
+      overflow: hidden;
+    }
+    .next-prayer-hero::before {
+      content: '';
+      position: absolute;
+      top: -30px; right: -30px;
+      width: 120px; height: 120px;
+      background: rgba(255,255,255,.05);
+      border-radius: 50%;
+    }
+    .next-prayer-hero::after {
+      content: '';
+      position: absolute;
+      bottom: -20px; right: 40px;
+      width: 80px; height: 80px;
+      background: rgba(255,255,255,.04);
+      border-radius: 50%;
+    }
+    .next-prayer-hero .label { font-size: 11px; font-weight: 600; text-transform: uppercase;
+                                letter-spacing: .8px; color: var(--green-400); margin-bottom: 6px; }
+    .next-prayer-hero .prayer-name { font-size: 26px; font-weight: 700; margin-bottom: 2px; }
+    .next-prayer-hero .prayer-time { font-size: 14px; color: rgba(255,255,255,.7); }
+    .next-prayer-hero .countdown   { font-size: 13px; color: var(--green-400); margin-top: 8px;
+                                      font-weight: 500; }
+
+    /* ── Prayer time pills ───────────────────────────────────────────── */
+    .prayer-pill {
+      flex: 1;
+      text-align: center;
+      padding: 14px 8px;
+      border-radius: 10px;
+      background: #F8FAFC;
+      transition: all .2s ease;
+      cursor: default;
+    }
+    .prayer-pill:hover { background: var(--green-100); }
+    .prayer-pill.active {
+      background: var(--green-900);
+      color: #fff;
+      box-shadow: var(--shadow);
+    }
+    .prayer-pill .p-name { font-size: 11px; font-weight: 600; text-transform: uppercase;
+                            letter-spacing: .5px; color: #8A97A8; margin-bottom: 4px; }
+    .prayer-pill.active .p-name { color: var(--green-400); }
+    .prayer-pill .p-time { font-size: 16px; font-weight: 700; color: #1A2332; }
+    .prayer-pill.active .p-time { color: #fff; }
+
+    /* ── Job timeline ────────────────────────────────────────────────── */
+    .job-row {
+      display: flex;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #F4F6F8;
+      gap: 12px;
+    }
+    .job-row:last-child { border-bottom: none; }
+    .job-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot-done     { background: #CBD5E1; }
+    .dot-upcoming { background: var(--green-600); box-shadow: 0 0 0 3px var(--green-100); }
+    .dot-skipped  { background: #FCD34D; }
+    .job-label    { flex: 1; font-weight: 500; font-size: 13.5px; }
+    .job-time     { font-size: 13px; color: #8A97A8; font-variant-numeric: tabular-nums; }
+
+    /* ── Status badge ────────────────────────────────────────────────── */
+    .badge-status {
+      font-size: 11px; font-weight: 600; padding: 3px 8px;
+      border-radius: 20px; letter-spacing: .3px;
+    }
+    .badge-upcoming { background: var(--green-100); color: var(--green-800); }
+    .badge-done     { background: #F1F5F9; color: #94A3B8; }
+    .badge-skipped  { background: #FEF3C7; color: #92400E; }
+
+    /* ── Buttons ─────────────────────────────────────────────────────── */
+    .btn {
+      font-size: 13.5px; font-weight: 500;
+      border-radius: 8px;
+      padding: 7px 16px;
+      transition: all .15s ease;
+    }
+    .btn-primary   { background: var(--green-800); border-color: var(--green-800); }
+    .btn-primary:hover { background: var(--green-900); border-color: var(--green-900); }
+    .btn-success   { background: var(--green-600); border-color: var(--green-600); }
+    .btn-success:hover { background: var(--green-800); border-color: var(--green-800); }
+    .btn-outline-secondary { border-color: #E2E8F0; color: #64748B; }
+    .btn-outline-secondary:hover { background: #F8FAFC; border-color: #CBD5E1; color: #1A2332; }
+    .btn-sm { padding: 5px 12px; font-size: 12.5px; }
+    .btn-icon { width: 34px; height: 34px; padding: 0; border-radius: 8px;
+                display:inline-flex; align-items:center; justify-content:center; }
+
+    /* ── Forms ───────────────────────────────────────────────────────── */
+    .form-control, .form-select {
+      border: 1.5px solid #E2E8F0;
+      border-radius: 8px;
+      font-size: 13.5px;
+      padding: 8px 12px;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .form-control:focus, .form-select:focus {
+      border-color: var(--green-600);
+      box-shadow: 0 0 0 3px rgba(64,145,108,.12);
+    }
+    .form-label { font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 6px; }
+    .form-text  { font-size: 12px; color: #8A97A8; }
+
+    .form-check-input:checked {
+      background-color: var(--green-600);
+      border-color: var(--green-600);
+    }
+    .form-switch .form-check-input { width: 2.2em; }
+
+    /* ── Section heading ─────────────────────────────────────────────── */
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .8px;
+      color: #8A97A8;
+      margin-bottom: 12px;
+    }
+
+    /* ── Device card ─────────────────────────────────────────────────── */
+    .device-card {
+      border: 1.5px solid #EEF2F7;
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      background: #fff;
+      transition: all .2s ease;
+    }
+    .device-card:hover { border-color: var(--green-400); box-shadow: var(--shadow); }
+    .device-card .device-name  { font-weight: 600; font-size: 14px; }
+    .device-card .device-model { font-size: 12px; color: #8A97A8; }
+    .device-card .device-host  { font-size: 11px; color: #B0BAC5; font-family: monospace; }
+
+    /* ── Log viewer ──────────────────────────────────────────────────── */
+    .log-viewer {
+      background: #0F172A;
+      color: #94A3B8;
+      border-radius: var(--radius);
+      padding: 16px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.7;
+      max-height: 72vh;
+      overflow-y: auto;
+      overflow-x: auto;
+      white-space: pre;
+    }
+    .log-viewer .log-info    { color: #7DD3FC; }
+    .log-viewer .log-warn    { color: #FCD34D; }
+    .log-viewer .log-error   { color: #FCA5A5; }
+    .log-viewer .log-success { color: #86EFAC; }
+
+    /* ── Inline alert pills (settings) ─────────────────────────────── */
+    .alert-info-pill {
+      background: rgba(56,189,248,.12);
+      border: 1px solid rgba(56,189,248,.3);
+      border-radius: 8px;
+      color: #7DD3FC;
+      font-size: 12px;
+      padding: 8px 12px;
+    }
+    .alert-warning-pill {
+      background: rgba(251,191,36,.1);
+      border: 1px solid rgba(251,191,36,.3);
+      border-radius: 8px;
+      color: #FCD34D;
+      font-size: 12px;
+      padding: 8px 12px;
+    }
+
+    /* ── Hijri date ─────────────────────────────────────────────────── */
+    .hijri-date {
+      color: #8B5CF6;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+    }
+    .alert-special {
+      background: linear-gradient(135deg, rgba(139,92,246,.15), rgba(236,72,153,.1));
+      border: 1px solid rgba(139,92,246,.35);
+      border-radius: var(--radius);
+      color: #E2E8F0;
+      display: flex;
+      align-items: center;
+      padding: 12px 16px;
+    }
+    .alert-special strong { color: #C4B5FD; font-size: 15px; }
+
+    /* ── Toast ───────────────────────────────────────────────────────── */
+    .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; }
+    .toast { border-radius: 10px; box-shadow: var(--shadow-lg); border: none; min-width: 280px; }
+
+    /* ── Misc ────────────────────────────────────────────────────────── */
+    .divider { border-top: 1px solid #F0F4F8; margin: 16px 0; }
+    .text-muted { color: #8A97A8 !important; }
+    a { color: var(--green-800); }
+    a:hover { color: var(--green-900); }
+
+    /* ── Scrollbar ───────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
+
+    /* ── Responsive ──────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .sidebar { width: 100%; height: auto; position: relative; }
+      .main-wrap { margin-left: 0; }
+      .topbar { padding: 0 16px; }
+      .page-body { padding: 16px; }
+    }
+    /* ── Quran mini-player ─────────────────────────────────────────────── */
+    #quranMiniPlayer {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: var(--green-900); color: #fff;
+      padding: 8px 20px 8px calc(var(--sidebar-w) + 20px);
+      display: none; align-items: center; gap: 10px;
+      z-index: 1050; font-size: 13px; box-shadow: 0 -2px 8px rgba(0,0,0,.2);
+    }
+    #quranMiniPlayer.visible { display: flex; }
+    body.quran-playing .page-body { padding-bottom: 56px; }
+  </style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <a class="sidebar-brand" href="/">
+    <div class="brand-icon" style="background:#fff;padding:4px">
+      <img src="/favicon.ico" alt="Azan" style="width:100%;height:100%;object-fit:contain">
+    </div>
+    <div>
+      <div class="brand-text">Azan Agent</div>
+      <div class="brand-sub">Prayer Scheduler</div>
+    </div>
+  </a>
+
+  <nav class="sidebar-nav">
+    <ul class="nav flex-column">
+      <li class="nav-item">
+        <a class="nav-link {{if eq .page "dashboard"}}active{{end}}" href="/">
+          <i class="fas fa-th-large"></i>Dashboard
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {{if eq .page "scheduler"}}active{{end}}" href="/scheduler">
+          <i class="fas fa-clock"></i>Scheduler
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {{if eq .page "devices"}}active{{end}}" href="/chromecasts">
+          <i class="fas fa-broadcast-tower"></i>Devices
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {{if eq .page "settings"}}active{{end}}" href="/settings">
+          <i class="fas fa-sliders-h"></i>Settings
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {{if eq .page "logs"}}active{{end}}" href="/logs">
+          <i class="fas fa-terminal"></i>Logs
+        </a>
+      </li>
+    </ul>
+  </nav>
+
+  <div class="sidebar-footer" style="display:flex;flex-direction:column;gap:8px">
+    <div>
+      <i class="fas fa-circle text-success me-1" style="font-size:8px"></i>
+      Agent running
+    </div>
+    {{if index .config "auth_enabled"}}
+    <a href="/logout" style="color:rgba(255,255,255,.5);font-size:12px;text-decoration:none;display:flex;align-items:center;gap:6px">
+      <i class="fas fa-sign-out-alt"></i>Sign out
+    </a>
+    {{end}}
+  </div>
+</aside>
+
+<!-- Main -->
+<div class="main-wrap">
+  <header class="topbar">
+    <div>
+      <div class="topbar-title">{{template "page_title" .}}</div>
+      <div class="topbar-sub">{{template "page_sub" .}}</div>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      {{template "topbar_actions" .}}
+    </div>
+  </header>
+
+  <div class="page-body">
+    {{template "content" .}}
+  </div>
+</div>
+
+<!-- Persistent Quran browser player -->
+<audio id="quranAudio" preload="none"></audio>
+<div id="quranMiniPlayer">
+  <i class="fas fa-music" style="color:#74C69D"></i>
+  <span style="flex:1">Quran Recitation — Playing in browser</span>
+  <button id="miniPauseBtn" class="btn btn-sm btn-outline-light py-0 px-2">
+    <i class="fas fa-pause"></i>
+  </button>
+  <button onclick="window.quranBrowserStop()" class="btn btn-sm btn-outline-light py-0 px-2 ms-1" title="Stop">
+    <i class="fas fa-stop"></i>
+  </button>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container">
+  <div id="globalToast" class="toast align-items-center" role="alert" aria-live="assertive">
+    <div class="d-flex">
+      <div class="toast-body" id="toastMsg"></div>
+      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  // WebSocket
+  const wsProto = location.protocol === "https:" ? "wss://" : "ws://";
+  const ws = new WebSocket(wsProto + location.host + "/ws");
+  ws.onmessage = function(e) {
+    try {
+      const msg = JSON.parse(e.data);
+      document.dispatchEvent(new CustomEvent(msg.event, {detail: msg.data}));
+    } catch(_) {}
+  };
+
+  // ── Persistent Quran browser player ──────────────────────────────────────
+  (function() {
+    var audio    = document.getElementById("quranAudio");
+    var player   = document.getElementById("quranMiniPlayer");
+    var pauseBtn = document.getElementById("miniPauseBtn");
+
+    function showPlayer() { player.classList.add("visible"); document.body.classList.add("quran-playing"); }
+    function hidePlayer() { player.classList.remove("visible"); document.body.classList.remove("quran-playing"); }
+
+    function setMiniBtn(isPaused) {
+      if (isPaused) {
+        pauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+        pauseBtn.onclick = window.quranBrowserResume;
+      } else {
+        pauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+        pauseBtn.onclick = window.quranBrowserPause;
+      }
+    }
+
+    function notify(state, err) {
+      if (typeof window.onQuranBrowserState === "function") window.onQuranBrowserState(state, err);
+    }
+
+    window.quranBrowserPlay = function(url) {
+      url = url || "/api/quran/stream";
+      audio.src = url; audio.load();
+      audio.play().then(function() {
+        showPlayer(); setMiniBtn(false); notify("playing");
+      }).catch(function(e) {
+        notify("error", e);
+      });
+    };
+
+    window.quranBrowserPause = function() {
+      audio.pause();
+      setMiniBtn(true); notify("paused");
+    };
+
+    window.quranBrowserResume = function() {
+      audio.play().then(function() {
+        setMiniBtn(false); notify("playing");
+      });
+    };
+
+    window.quranBrowserStop = function() {
+      audio.pause(); audio.src = "";
+      hidePlayer(); notify("stopped");
+    };
+
+    audio.addEventListener("ended", function() {
+      sessionStorage.removeItem("quranPlaying");
+      hidePlayer(); notify("ended");
+    });
+  })();
+
+  // Browser alert + browser Athan: fires when the server broadcasts a prayer_fired event.
+  var _athanAudio = null;
+  document.addEventListener("prayer_fired", function(e) {
+    const d = e.detail || {};
+    if (d.browser_notify) {
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("Prayer Time — " + d.prayer, {
+          body: "It is time for " + d.prayer + " prayer.",
+          icon: "/favicon.ico",
+          tag:  "azan-" + d.prayer
+        });
+      }
+    }
+    if (d.browser_athan && d.audio_url) {
+      if (_athanAudio) { _athanAudio.pause(); _athanAudio = null; }
+      _athanAudio = new Audio(d.audio_url);
+      _athanAudio.play().catch(function() {});
+    }
+  });
+
+  // Toast helper
+  function showToast(msg, type) {
+    const el = document.getElementById("globalToast");
+    const body = document.getElementById("toastMsg");
+    body.innerHTML = msg;
+    el.className = "toast align-items-center text-bg-" + (type || "success") + " border-0";
+    bootstrap.Toast.getOrCreateInstance(el, {delay: 3000}).show();
+  }
+
+  // Active sidebar link
+  function updateSidebarActive(path) {
+    document.querySelectorAll(".sidebar-nav .nav-link").forEach(function(a) {
+      a.classList.toggle("active", a.getAttribute("href") === path);
+    });
+  }
+  updateSidebarActive(location.pathname);
+
+  // ── AJAX navigation — keeps audio, WebSocket and mini-player alive ────────
+  (function() {
+    function swapPage(url) {
+      fetch(url)
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+          var doc = new DOMParser().parseFromString(html, "text/html");
+          document.querySelector(".topbar").innerHTML  = doc.querySelector(".topbar").innerHTML;
+          document.querySelector(".page-body").innerHTML = doc.querySelector(".page-body").innerHTML;
+          document.title = doc.title;
+          updateSidebarActive(new URL(url, location.href).pathname);
+          // Swap page-specific scripts so per-page JS re-initialises.
+          var oldC = document.getElementById("page-scripts-container");
+          if (oldC) oldC.remove();
+          var newC = doc.getElementById("page-scripts-container");
+          if (newC) {
+            var div = document.createElement("div");
+            div.id = "page-scripts-container";
+            newC.querySelectorAll("script").forEach(function(s) {
+              var el = document.createElement("script");
+              if (s.src) { el.src = s.src; } else { el.textContent = s.textContent; }
+              div.appendChild(el);
+            });
+            document.body.appendChild(div);
+          }
+          window.scrollTo(0, 0);
+        })
+        .catch(function() { location.href = url; });
+    }
+
+    document.addEventListener("click", function(e) {
+      var link = e.target.closest(".sidebar-nav .nav-link");
+      if (!link) return;
+      var href = link.getAttribute("href");
+      if (!href || href.charAt(0) !== "/") return;
+      e.preventDefault();
+      if (location.pathname === href) return;
+      history.pushState({url: href}, "", href);
+      swapPage(href);
+    });
+
+    window.addEventListener("popstate", function() { swapPage(location.pathname); });
+  })();
+</script>
+<div id="page-scripts-container">{{template "scripts" .}}</div>
+</body>
+</html>

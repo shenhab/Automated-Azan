@@ -1,0 +1,81 @@
+{{template "base.html" .}}
+{{define "title"}}Devices — Automated Azan{{end}}
+{{define "page_title"}}Chromecast Devices{{end}}
+{{define "page_sub"}}Discovered speakers and groups on your network{{end}}
+{{define "topbar_actions"}}
+  <button class="btn btn-success btn-sm" onclick="discoverDevices()">
+    <i class="fas fa-search me-2"></i>Scan Network
+  </button>
+{{end}}
+
+{{define "content"}}
+<div id="statusBar" class="mb-3"></div>
+
+{{if .devices}}
+<div class="row g-3" id="deviceGrid">
+  {{range .devices}}
+  <div class="col-md-4 col-sm-6">
+    <div class="device-card">
+      <div class="d-flex align-items-start gap-3">
+        <div class="stat-icon icon-green flex-shrink-0" style="width:38px;height:38px;border-radius:9px;font-size:16px">
+          {{if contains .ModelName "Group"}}
+            <i class="fas fa-layer-group"></i>
+          {{else if contains .ModelName "Hub"}}
+            <i class="fas fa-tablet-alt"></i>
+          {{else if contains .ModelName "TV"}}
+            <i class="fas fa-tv"></i>
+          {{else}}
+            <i class="fas fa-speaker"></i>
+          {{end}}
+        </div>
+        <div class="flex-fill min-w-0">
+          <div class="device-name text-truncate">{{.Name}}</div>
+          <div class="device-model">{{.ModelName}}</div>
+          <div class="device-host mt-1">{{.Host}}:{{.Port}}</div>
+          <div class="text-muted mt-1" style="font-size:11px;word-break:break-all">{{.UUID}}</div>
+        </div>
+        <span class="badge-status badge-upcoming flex-shrink-0">Online</span>
+      </div>
+    </div>
+  </div>
+  {{end}}
+</div>
+{{else}}
+<div class="card">
+  <div class="card-body text-center py-5">
+    <div class="stat-icon icon-amber mx-auto mb-3" style="width:52px;height:52px;font-size:22px">
+      <i class="fas fa-search"></i>
+    </div>
+    <h6 class="mb-1">No devices found</h6>
+    <p class="text-muted mb-3" style="font-size:13px">Make sure your Chromecast is on the same network, then scan.</p>
+    <button class="btn btn-success" onclick="discoverDevices()">
+      <i class="fas fa-search me-2"></i>Scan Network
+    </button>
+  </div>
+</div>
+{{end}}
+
+<div id="discoverMsg" class="mt-3"></div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+function discoverDevices() {
+  document.getElementById("statusBar").innerHTML =
+    '<div class="d-flex align-items-center gap-2 text-muted" style="font-size:13px">' +
+    '<div class="spinner-border spinner-border-sm"></div>Scanning network for Chromecast devices...</div>';
+
+  fetch("/api/discover-devices", {method: "POST"})
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        showToast("Found " + d.count + " device(s)", "success");
+        setTimeout(() => location.reload(), 800);
+      } else {
+        showToast("Scan failed: " + d.error, "danger");
+        document.getElementById("statusBar").innerHTML = "";
+      }
+    });
+}
+</script>
+{{end}}

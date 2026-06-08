@@ -1,0 +1,73 @@
+{{template "base.html" .}}
+{{define "title"}}Scheduler — Automated Azan{{end}}
+{{define "page_title"}}Scheduler{{end}}
+{{define "page_sub"}}Today's prayer jobs and feature status{{end}}
+{{define "topbar_actions"}}{{end}}
+
+{{define "content"}}
+<div class="row g-4">
+
+  <!-- Left: feature status -->
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header"><i class="fas fa-toggle-on me-2" style="color:#8B5CF6"></i>Features</div>
+      <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-center py-2">
+          <div>
+            <div style="font-weight:500">Pre-Fajr Quran</div>
+            <div class="text-muted" style="font-size:12px">Recitation before Fajr</div>
+          </div>
+          <span class="badge-status {{if index .config "pre_fajr_enabled"}}badge-upcoming{{else}}badge-done{{end}}">
+            {{if index .config "pre_fajr_enabled"}}On{{else}}Off{{end}}
+          </span>
+        </div>
+        <div class="divider my-1"></div>
+        <div class="d-flex justify-content-between align-items-center py-2">
+          <div>
+            <div style="font-weight:500">Friday Surah Al-Kahf</div>
+            <div class="text-muted" style="font-size:12px">Quran recitation 2h before Dhuhr on Fridays</div>
+          </div>
+          <span class="badge-status {{if index .config "friday_kahf_enabled"}}badge-upcoming{{else}}badge-done{{end}}">
+            {{if index .config "friday_kahf_enabled"}}On{{else}}Off{{end}}
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: job list -->
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-header"><i class="fas fa-list-ul me-2" style="color:#8A97A8"></i>Today's Jobs</div>
+      <div class="card-body py-2">
+        {{range .jobs}}
+        <div class="job-row">
+          <div class="job-dot
+            {{if eq .Status "upcoming"}}dot-upcoming{{else if eq .Status "done"}}dot-done{{else}}dot-skipped{{end}}">
+          </div>
+          <div class="flex-fill">
+            <div style="font-weight:500;font-size:13.5px">{{.Label}}</div>
+            <div class="text-muted" style="font-size:12px">{{.Type}}</div>
+          </div>
+          <div class="job-time me-3">{{.Time}}</div>
+          <div>
+            {{if eq .Status "upcoming"}}
+              <span class="badge-status badge-upcoming">Upcoming</span>
+            {{else if eq .Status "done"}}
+              <span class="badge-status badge-done">Done</span>
+            {{else}}
+              <span class="badge-status badge-skipped">Skipped</span>
+            {{end}}
+          </div>
+        </div>
+        {{else}}
+        <p class="text-muted text-center py-4 mb-0">No jobs scheduled yet.</p>
+        {{end}}
+      </div>
+    </div>
+  </div>
+
+</div>
+{{end}}
+
+{{define "scripts"}}{{end}}
