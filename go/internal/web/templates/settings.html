@@ -352,20 +352,20 @@
       <div id="notifMsg" class="px-3 pb-2 text-end" style="font-size:12px"></div>
     </div>
 
-    <!-- ── TV Pause During Athan ──────────────────────────────────────── -->
+    <!-- ── Mute TVs During Athan ───────────────────────────────────────── -->
     <div class="card mb-4">
       <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
         <div>
-          <h5 class="mb-0"><i class="fas fa-pause-circle me-2"></i>Pause TVs During Athan</h5>
+          <h5 class="mb-0"><i class="fas fa-volume-mute me-2"></i>Mute TVs During Athan</h5>
           <p class="text-muted mb-0 mt-1" style="font-size:12px">
-            Automatically pause selected Cast devices when Athan plays, then resume them.
+            Automatically mute selected Cast devices when Athan plays, then unmute them.
           </p>
         </div>
         <div id="tvPauseStatusBadge">
           {{if .tv_paused}}
-            <span class="badge bg-warning text-dark"><i class="fas fa-pause me-1"></i>Paused ({{.tv_paused_n}} device{{if gt .tv_paused_n 1}}s{{end}})</span>
+            <span class="badge bg-warning text-dark"><i class="fas fa-volume-mute me-1"></i>Muted ({{.tv_paused_n}} device{{if gt .tv_paused_n 1}}s{{end}})</span>
           {{else}}
-            <span class="badge bg-secondary"><i class="fas fa-play me-1"></i>Not paused</span>
+            <span class="badge bg-secondary"><i class="fas fa-volume-up me-1"></i>Not muted</span>
           {{end}}
         </div>
       </div>
@@ -378,7 +378,7 @@
             <label class="form-check-label" for="tvPauseEnabled" style="cursor:pointer">Enable during Athan</label>
           </div>
           <div class="d-flex align-items-center gap-2">
-            <label class="text-muted mb-0" style="font-size:13px;white-space:nowrap">Resume after</label>
+            <label class="text-muted mb-0" style="font-size:13px;white-space:nowrap">Unmute after</label>
             <input type="number" id="tvResumeDelay" min="1" max="60" value="5"
                    class="form-control form-control-sm" style="width:70px">
             <span class="text-muted" style="font-size:13px">minutes</span>
@@ -388,7 +388,7 @@
         <!-- Device selection -->
         <div class="mb-3">
           <div class="d-flex align-items-center justify-content-between mb-2">
-            <label class="fw-medium mb-0" style="font-size:13px">Devices to pause</label>
+            <label class="fw-medium mb-0" style="font-size:13px">Devices to mute</label>
             <div class="d-flex gap-2">
               <button class="btn btn-outline-secondary btn-sm py-0 px-2" onclick="selectAllTVDevices(true)" style="font-size:12px">All</button>
               <button class="btn btn-outline-secondary btn-sm py-0 px-2" onclick="selectAllTVDevices(false)" style="font-size:12px">None</button>
@@ -400,7 +400,7 @@
             </div>
           </div>
           <p class="text-muted mt-2 mb-0" style="font-size:12px">
-            Leave all unchecked to pause <em>every</em> discovered Cast device (except the Athan speaker).
+            Leave all unchecked to mute <em>every</em> discovered Cast device (except the Athan speaker).
             Go to Devices and scan the network first if your TV doesn't appear here.
           </p>
         </div>
@@ -411,10 +411,10 @@
             <i class="fas fa-save me-1"></i>Save Settings
           </button>
           <button class="btn btn-outline-secondary btn-sm" onclick="testPause()">
-            <i class="fas fa-pause me-1"></i>Test Pause Now
+            <i class="fas fa-volume-mute me-1"></i>Test Mute Now
           </button>
           <button class="btn btn-outline-secondary btn-sm" id="resumeNowBtn" onclick="testResume()">
-            <i class="fas fa-play me-1"></i>Resume Now
+            <i class="fas fa-volume-up me-1"></i>Unmute Now
           </button>
         </div>
       </div>
@@ -907,7 +907,7 @@ function saveTVPauseConfig() {
   .then(r => r.json())
   .then(d => {
     if (d.success) {
-      showToast("TV pause settings saved", "success");
+      showToast("TV mute settings saved", "success");
       tvPausedUUIDs = payload.devices;
     } else {
       showToast("Save failed: " + d.error, "danger");
@@ -920,10 +920,10 @@ function testPause() {
     .then(r => r.json())
     .then(d => {
       if (d.success) {
-        showToast("Pause command sent — check your TVs", "success");
+        showToast("Mute command sent — check your TVs", "success");
         setTimeout(refreshPauseStatus, 2000);
       } else {
-        showToast("Pause failed: " + d.error, "danger");
+        showToast("Mute failed: " + d.error, "danger");
       }
     });
 }
@@ -933,10 +933,10 @@ function testResume() {
     .then(r => r.json())
     .then(d => {
       if (d.success) {
-        showToast("Resume command sent", "success");
+        showToast("Unmute command sent", "success");
         setTimeout(refreshPauseStatus, 2000);
       } else {
-        showToast("Resume failed: " + d.error, "danger");
+        showToast("Unmute failed: " + d.error, "danger");
       }
     });
 }
@@ -952,10 +952,10 @@ function renderPauseStatus(paused, count) {
   if (!badge) return;
   if (paused && count > 0) {
     badge.innerHTML = '<span class="badge bg-warning text-dark">' +
-      '<i class="fas fa-pause me-1"></i>Paused (' + count + ' device' + (count !== 1 ? 's' : '') + ')</span>';
+      '<i class="fas fa-volume-mute me-1"></i>Muted (' + count + ' device' + (count !== 1 ? 's' : '') + ')</span>';
   } else {
     badge.innerHTML = '<span class="badge bg-secondary">' +
-      '<i class="fas fa-play me-1"></i>Not paused</span>';
+      '<i class="fas fa-volume-up me-1"></i>Not muted</span>';
   }
 }
 
