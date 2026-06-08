@@ -27,6 +27,8 @@ type JobStatus struct {
 	NextRunAt string `json:"next_run,omitempty"`
 }
 
+const warmupLeadTime = 60 * time.Second
+
 // Scheduler schedules daily Athan playback and optional Quran/Kahf jobs.
 type Scheduler struct {
 	cfg       *config.Config
@@ -37,6 +39,7 @@ type Scheduler struct {
 	playKahf  func() error
 	stopQuran func()
 	stopKahf  func()
+	warmup    func() error // called warmupLeadTime before each Athan to pre-connect
 
 	mu        sync.Mutex
 	todayJobs []JobStatus
@@ -58,6 +61,7 @@ func NewScheduler(
 	stopQuran func(),
 	playKahf func() error,
 	stopKahf func(),
+	warmup func() error,
 ) *Scheduler {
 	return &Scheduler{
 		cfg:       cfg,
@@ -68,6 +72,7 @@ func NewScheduler(
 		stopQuran: stopQuran,
 		playKahf:  playKahf,
 		stopKahf:  stopKahf,
+		warmup:    warmup,
 	}
 }
 
@@ -272,6 +277,23 @@ func (s *Scheduler) scheduleTodayLocked() error {
 		})
 		s.timers = append(s.timers, timer)
 		log.Printf("[scheduler] scheduled %s at %s (in %.0f min)", j.label, j.at.Format("15:04"), delay.Minutes())
+
+		// Schedule a pre-connect warmup warmupLeadTime before each Athan so
+		// the speaker connection is already established when the prayer fires.
+		if s.warmup != nil && (j.kind == "fajr_athan" || j.kind == "regular_athan") {
+			if warmupDelay := delay - warmupLeadTime; warmupDelay > 0 {
+				warmupLabel := label
+				warmupTimer := time.AfterFunc(warmupDelay, func() {
+					log.Printf("[scheduler] pre-connect warmup for %s", warmupLabel)
+					if err := s.warmup(); err != nil {
+						log.Printf("[scheduler] warmup failed for %s: %v", warmupLabel, err)
+					}
+				})
+				s.timers = append(s.timers, warmupTimer)
+				log.Printf("[scheduler] warmup scheduled for %s at %s",
+					j.label, j.at.Add(-warmupLeadTime).Format("15:04:05"))
+			}
+		}
 	}
 
 	return nil

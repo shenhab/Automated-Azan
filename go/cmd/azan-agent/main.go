@@ -161,6 +161,10 @@ func (p *program) run() {
 		log.Printf("[main] found %d chromecast device(s)", len(devs))
 	}()
 
+	// Health monitor: probes the speaker's port every 3 minutes and
+	// forces mDNS rediscovery when Cast Group dynamic ports go stale.
+	castMgr.StartHealthMonitor(3 * time.Minute)
+
 	// Quran controller — shared by scheduler (pre-Fajr) and tray/API (manual).
 	quranCtrl := quran.New(castMgr)
 	p.quranCtrl = quranCtrl
@@ -253,7 +257,7 @@ func (p *program) run() {
 	}
 
 	// Prayer scheduler
-	sched := prayer.NewScheduler(cfg, fetcher, playAthan, playQuran, stopQuran, playKahf, nil)
+	sched := prayer.NewScheduler(cfg, fetcher, playAthan, playQuran, stopQuran, playKahf, nil, castMgr.PreConnect)
 	if err := sched.Start(); err != nil {
 		log.Fatalf("[main] scheduler start: %v", err)
 	}
