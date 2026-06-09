@@ -9,7 +9,7 @@ require (
 	github.com/getlantern/systray v1.2.2
 	github.com/gorilla/websocket v1.5.1
 	github.com/hajimehoshi/go-mp3 v0.3.4
-	github.com/kardianos/service v1.2.2
+	github.com/kardianos/service v1.2.4
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/vishen/go-chromecast v0.3.3
 	golang.org/x/mod v0.37.0
