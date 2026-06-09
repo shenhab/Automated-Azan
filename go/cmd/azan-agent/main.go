@@ -142,14 +142,16 @@ func (p *program) run() {
 	// Chromecast manager
 	castMgr := chromecast.NewManager(cfg.Speaker.GroupName)
 	castMgr.SetMediaBaseURL(mediaSrv.BaseURL())
+	castMgr.SetCacheDir(resolvedDataDir)
+	castMgr.LoadCache(resolvedDataDir) // seed from last-known devices immediately
 	p.castMgr = castMgr
 	log.Printf("[main] chromecast media base URL: %s", mediaSrv.BaseURL())
 
-	// TV pause manager — pauses Cast screens during Athan
+	// TV pause manager — mutes Cast screens during Athan
 	tvPauseMgr := chromecast.NewTVPauseManager(castMgr)
 	p.tvPause = tvPauseMgr
 
-	// Trigger background discovery (non-blocking)
+	// Trigger background discovery to refresh cache (non-blocking)
 	go func() {
 		devs, err := castMgr.Discover(false)
 		if err != nil {
@@ -158,6 +160,10 @@ func (p *program) run() {
 		}
 		log.Printf("[main] found %d chromecast device(s)", len(devs))
 	}()
+
+	// Health monitor: probes the speaker's port every 3 minutes and
+	// forces mDNS rediscovery when Cast Group dynamic ports go stale.
+	castMgr.StartHealthMonitor(3 * time.Minute)
 
 	// Quran controller — shared by scheduler (pre-Fajr) and tray/API (manual).
 	quranCtrl := quran.New(castMgr)
@@ -169,21 +175,23 @@ func (p *program) run() {
 		}
 	}
 
+	// muteForAthan is called by the scheduler muteLeadTime before each Athan.
+	muteForAthan := func() error {
+		if !cfg.TVPause.Enabled {
+			return nil
+		}
+		delay := time.Duration(cfg.TVPause.ResumeDelaySecs) * time.Second
+		if delay == 0 {
+			delay = 5 * time.Minute
+		}
+		excludeSpeaker := cfg.Speaker.Resolve("athan")
+		tvPauseMgr.PauseForAthan(cfg.TVPause.Devices, excludeSpeaker)
+		tvPauseMgr.ScheduleResume(delay)
+		return nil
+	}
+
 	playAthan := func(prayerName, filename string) error {
 		ch := cfg.Prayer.Channels.ForPrayer(prayerName)
-
-		// Pause configured Cast TVs before Athan starts.
-		if cfg.TVPause.Enabled {
-			delay := time.Duration(cfg.TVPause.ResumeDelaySecs) * time.Second
-			if delay == 0 {
-				delay = 5 * time.Minute
-			}
-			excludeSpeaker := cfg.Speaker.Resolve("athan")
-			go func() {
-				tvPauseMgr.PauseForAthan(cfg.TVPause.Devices, excludeSpeaker)
-				tvPauseMgr.ScheduleResume(delay)
-			}()
-		}
 
 		if ch.Notify {
 			go fireNotify("Automated Azan", prayerName+" prayer time")
@@ -251,7 +259,7 @@ func (p *program) run() {
 	}
 
 	// Prayer scheduler
-	sched := prayer.NewScheduler(cfg, fetcher, playAthan, playQuran, stopQuran, playKahf, nil)
+	sched := prayer.NewScheduler(cfg, fetcher, playAthan, playQuran, stopQuran, playKahf, nil, castMgr.PreConnect, muteForAthan)
 	if err := sched.Start(); err != nil {
 		log.Fatalf("[main] scheduler start: %v", err)
 	}
@@ -282,6 +290,8 @@ func (p *program) run() {
 		if old.Speaker.GroupName != new.Speaker.GroupName {
 			castMgr := chromecast.NewManager(new.Speaker.GroupName)
 			castMgr.SetMediaBaseURL(mediaSrv.BaseURL())
+			castMgr.SetCacheDir(resolvedDataDir)
+			castMgr.LoadCache(resolvedDataDir)
 			p.castMgr = castMgr
 		}
 
