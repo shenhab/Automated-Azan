@@ -3,7 +3,7 @@ module azan-agent
 go 1.25.11
 
 require (
-	github.com/BurntSushi/toml v1.3.2
+	github.com/BurntSushi/toml v1.6.0
 	github.com/ebitengine/oto/v3 v3.4.0
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/getlantern/systray v1.2.2
