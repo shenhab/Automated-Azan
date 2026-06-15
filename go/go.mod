@@ -5,7 +5,7 @@ go 1.25.11
 require (
 	github.com/BurntSushi/toml v1.3.2
 	github.com/ebitengine/oto/v3 v3.4.0
-	github.com/fsnotify/fsnotify v1.7.0
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/getlantern/systray v1.2.2
 	github.com/gorilla/websocket v1.5.1
 	github.com/hajimehoshi/go-mp3 v0.3.4
