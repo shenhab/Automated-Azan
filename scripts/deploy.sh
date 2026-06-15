@@ -2,7 +2,7 @@
 # deploy.sh — Build the headless Go binary, package it into a Docker image,
 # and replace the running 'athan' container on this machine.
 #
-# Usage:  ./go/scripts/deploy.sh [--image IMAGE] [--tz TIMEZONE]
+# Usage:  ./scripts/deploy.sh [--image IMAGE] [--tz TIMEZONE]
 #
 # Re-run this script any time you want to ship a new build.
 set -euo pipefail

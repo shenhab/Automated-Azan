@@ -16,7 +16,7 @@ updates:
 
   # ── Go modules ────────────────────────────────────────────────────────────
   - package-ecosystem: gomod
-    directory: /go
+    directory: /
     schedule:
       interval: weekly
       day: monday

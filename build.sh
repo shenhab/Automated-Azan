@@ -4,7 +4,7 @@ set -euo pipefail
 # ─────────────────────────────────────────────────────────────────────────────
 # Automated Azan — build script
 # Compiles the Go agent for every supported platform.
-# Run from the go/ directory:  ./build.sh
+# Run from the repo root:  ./build.sh
 # ─────────────────────────────────────────────────────────────────────────────
 
 GO_VERSION="1.22.4"
@@ -18,7 +18,7 @@ info()    { echo -e "${GREEN}[build]${NC} $*"; }
 warn()    { echo -e "${YELLOW}[build]${NC} $*"; }
 error()   { echo -e "${RED}[build]${NC} $*" >&2; exit 1; }
 
-# ── ensure we're in the go/ directory ────────────────────────────────────────
+# ── ensure we're in the script's directory (repo root) ───────────────────────
 cd "$(dirname "$0")"
 
 # ── 1. install Go if missing ──────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 # The binary is compiled BEFORE this build step and copied in from the host,
 # so this stage is just packaging — no Go toolchain needed here.
 #
-# Build via go/scripts/deploy.sh, which compiles the binary first.
+# Build via scripts/deploy.sh, which compiles the binary first.
 
 FROM alpine:3.20
 
