@@ -2,8 +2,23 @@
 Test cases for web_interface_api module
 """
 import pytest
+from datetime import datetime as real_datetime
 from unittest.mock import patch, Mock
 from web_interface_api import WebInterfaceAPI
+
+
+def _frozen_datetime(fixed_dt):
+    """Build a datetime subclass whose now() always returns `fixed_dt`."""
+
+    class _Frozen(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(
+                fixed_dt.year, fixed_dt.month, fixed_dt.day,
+                fixed_dt.hour, fixed_dt.minute, fixed_dt.second
+            )
+
+    return _Frozen
 
 
 class TestWebInterfaceAPI:
@@ -60,6 +75,81 @@ class TestWebInterfaceAPI:
         json_response_validator(result, success_expected=False)  # Likely to fail without data
         # Should return some prayer info or error
         assert 'next_prayer' in result or 'error' in result
+
+    @pytest.mark.unit
+    @patch('web_interface_api.datetime', _frozen_datetime(real_datetime(2026, 7, 1, 14, 0, 0)))
+    def test_get_next_prayer_info_non_padded_time_regression(self, json_response_validator):
+        """A passed, non-zero-padded early time must not be picked as 'next'.
+
+        Lexicographic comparison treats '14:00' < '9:05' as True (since '1' <
+        '9'), which would wrongly report an already-passed Fajr as upcoming.
+        With proper minute-based parsing, Asr (still ahead of 14:00) is
+        correctly returned instead.
+        """
+        api = WebInterfaceAPI()
+        api.prayer_times = {
+            'Fajr': '9:05',
+            'Dhuhr': '13:00',
+            'Asr': '15:30',
+            'Maghrib': '19:00',
+            'Isha': '21:00',
+        }
+
+        result = api.get_next_prayer_info()
+
+        json_response_validator(result, success_expected=True)
+        assert result['next_prayer']['name'] == 'Asr'
+        assert result['next_prayer']['time'] == '15:30'
+        assert result['next_prayer']['is_today'] is True
+
+    @pytest.mark.unit
+    @patch('web_interface_api.datetime', _frozen_datetime(real_datetime(2026, 7, 1, 12, 0, 0)))
+    def test_get_next_prayer_info_countdown_fields(self, json_response_validator):
+        """Response includes numeric seconds_until/minutes_until consistent with 'now'."""
+        api = WebInterfaceAPI()
+        api.prayer_times = {
+            'Fajr': '05:30',
+            'Dhuhr': '13:00',
+            'Asr': '16:15',
+            'Maghrib': '19:45',
+            'Isha': '21:15',
+        }
+
+        result = api.get_next_prayer_info()
+
+        json_response_validator(result, success_expected=True)
+        assert result['next_prayer']['name'] == 'Dhuhr'
+        assert isinstance(result['seconds_until'], int)
+        assert isinstance(result['minutes_until'], int)
+        assert result['seconds_until'] > 0
+        assert result['minutes_until'] > 0
+        # Dhuhr at 13:00, now frozen at 12:00:00 -> exactly one hour away.
+        assert result['seconds_until'] == 3600
+        assert result['minutes_until'] == 60
+
+    @pytest.mark.unit
+    @patch('web_interface_api.datetime', _frozen_datetime(real_datetime(2026, 7, 1, 23, 0, 0)))
+    def test_get_next_prayer_info_all_passed_returns_tomorrow_fajr(self, json_response_validator):
+        """When every prayer today has passed, next is tomorrow's Fajr with a countdown."""
+        api = WebInterfaceAPI()
+        api.prayer_times = {
+            'Fajr': '05:30',
+            'Dhuhr': '13:00',
+            'Asr': '16:15',
+            'Maghrib': '19:45',
+            'Isha': '21:15',
+        }
+
+        result = api.get_next_prayer_info()
+
+        json_response_validator(result, success_expected=True)
+        assert result['next_prayer']['name'] == 'Fajr'
+        assert result['next_prayer']['is_today'] is False
+        assert result['seconds_until'] > 0
+        # From 23:00 today to 05:30 tomorrow is 6.5 hours (23400s), well
+        # under 24h and roughly "24h minus elapsed since today's Fajr".
+        assert result['seconds_until'] == 23400
+        assert result['minutes_until'] == 390
 
     @pytest.mark.unit
     @patch('web_interface_api.ChromecastManager')

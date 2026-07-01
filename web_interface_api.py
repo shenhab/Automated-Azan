@@ -10,7 +10,7 @@ All methods return JSON responses for API compatibility.
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from prayer_times_fetcher import PrayerTimesFetcher
 from chromecast_manager import ChromecastManager
 from settings import settings
@@ -184,6 +184,23 @@ class WebInterfaceAPI:
                 "timestamp": datetime.now().isoformat()
             }
 
+    @staticmethod
+    def _parse_prayer_datetime(time_str, now, day_offset=0):
+        """
+        Parse an 'H:MM' or 'HH:MM' prayer time string into a datetime on the
+        same day as `now` (or `day_offset` days later). Returns None if the
+        time string can't be parsed.
+        """
+        try:
+            hour, minute = map(int, str(time_str).split(":"))
+            prayer_dt = datetime(now.year, now.month, now.day, hour, minute)
+            if day_offset:
+                prayer_dt += timedelta(days=day_offset)
+            return prayer_dt
+        except (ValueError, AttributeError) as e:
+            logging.error(f"Error parsing prayer time '{time_str}': {e}")
+            return None
+
     def get_next_prayer_info(self):
         """
         Get information about the next prayer.
@@ -209,7 +226,11 @@ class WebInterfaceAPI:
             for prayer in prayer_order:
                 if prayer in self.prayer_times:
                     prayer_time = self.prayer_times[prayer]
-                    if current_time < prayer_time:
+                    prayer_dt = self._parse_prayer_datetime(prayer_time, now)
+                    if prayer_dt is None:
+                        continue
+                    if prayer_dt > now:
+                        seconds_until = (prayer_dt - now).total_seconds()
                         return {
                             "success": True,
                             "next_prayer": {
@@ -217,6 +238,8 @@ class WebInterfaceAPI:
                                 "time": prayer_time,
                                 "is_today": True
                             },
+                            "seconds_until": int(seconds_until),
+                            "minutes_until": int(seconds_until // 60),
                             "current_time": current_time,
                             "all_prayers": self.prayer_times,
                             "message": f"Next prayer is {prayer} at {prayer_time}",
@@ -225,6 +248,8 @@ class WebInterfaceAPI:
 
             # If no prayer found for today, next is Fajr tomorrow
             fajr_time = self.prayer_times.get('Fajr', 'Unknown')
+            fajr_dt = self._parse_prayer_datetime(fajr_time, now, day_offset=1)
+            seconds_until = (fajr_dt - now).total_seconds() if fajr_dt else None
             return {
                 "success": True,
                 "next_prayer": {
@@ -233,6 +258,8 @@ class WebInterfaceAPI:
                     "is_today": False,
                     "display_time": f"{fajr_time} (Tomorrow)"
                 },
+                "seconds_until": int(seconds_until) if seconds_until is not None else None,
+                "minutes_until": int(seconds_until // 60) if seconds_until is not None else None,
                 "current_time": current_time,
                 "all_prayers": self.prayer_times,
                 "message": f"Next prayer is Fajr tomorrow at {fajr_time}",
