@@ -1,6 +1,7 @@
 """
 Test cases for web_interface_api module
 """
+import importlib
 import pytest
 from datetime import datetime as real_datetime
 from unittest.mock import patch, Mock
@@ -232,3 +233,103 @@ class TestWebInterfaceAPI:
             json_response_validator(result)  # Validates both success/failure
             assert 'success' in result
             assert 'timestamp' in result or 'current_time' in result or 'query_timestamp' in result
+
+
+@pytest.fixture
+def isolated_settings(tmp_path, monkeypatch):
+    """
+    Point AZAN_CONFIG_FILE at a fresh temp file and reload both the
+    `settings` singleton module and `web_interface_api` (which binds
+    `settings` at import time) so save_config() reads/writes an isolated
+    config instead of the real one used by other tests.
+    """
+    target = tmp_path / "azan.toml"
+    monkeypatch.setenv("AZAN_CONFIG_FILE", str(target))
+
+    import settings as settings_mod
+    importlib.reload(settings_mod)
+    import web_interface_api as web_interface_api_mod
+    importlib.reload(web_interface_api_mod)
+
+    yield target, settings_mod, web_interface_api_mod
+
+    # Restore modules to their default (non-isolated) state for later tests.
+    monkeypatch.delenv("AZAN_CONFIG_FILE", raising=False)
+    importlib.reload(settings_mod)
+    importlib.reload(web_interface_api_mod)
+
+
+class TestSaveConfig:
+    """Tests for WebInterfaceAPI.save_config() against an isolated config file."""
+
+    @pytest.mark.unit
+    def test_save_config_new_keys_persist_and_are_returned(self, isolated_settings):
+        target, settings_mod, web_interface_api_mod = isolated_settings
+
+        api = web_interface_api_mod.WebInterfaceAPI()
+        result = api.save_config({
+            "friday_kahf_enabled": True,
+            "pre_fajr_minutes": 20,
+        })
+
+        assert result["success"] is True
+        assert result["config"]["friday_kahf_enabled"] is True
+        assert result["config"]["pre_fajr_minutes"] == 20
+
+        loaded = settings_mod._read_toml(target)
+        assert loaded.prayer.friday_kahf_enabled is True
+        assert loaded.prayer.pre_fajr_minutes == 20
+
+    @pytest.mark.unit
+    def test_save_config_invalid_pre_fajr_minutes_rejected(self, isolated_settings):
+        target, settings_mod, web_interface_api_mod = isolated_settings
+
+        api = web_interface_api_mod.WebInterfaceAPI()
+        baseline = api.save_config({"pre_fajr_minutes": 15})
+        assert baseline["success"] is True
+
+        result = api.save_config({"pre_fajr_minutes": 999})
+
+        assert result["success"] is False
+        assert result.get("error")
+
+        # Persisted config must be unchanged by the rejected update.
+        loaded = settings_mod._read_toml(target)
+        assert loaded.prayer.pre_fajr_minutes == 15
+
+    @pytest.mark.unit
+    def test_save_config_invalid_location_rejected(self, isolated_settings):
+        target, settings_mod, web_interface_api_mod = isolated_settings
+
+        api = web_interface_api_mod.WebInterfaceAPI()
+        baseline = api.save_config({"location": "icci"})
+        assert baseline["success"] is True
+
+        result = api.save_config({"location": "invalid"})
+
+        assert result["success"] is False
+        assert result.get("error")
+
+        loaded = settings_mod._read_toml(target)
+        assert loaded.prayer.location == "icci"
+
+    @pytest.mark.unit
+    def test_save_config_legacy_keys_still_supported(self, isolated_settings):
+        target, settings_mod, web_interface_api_mod = isolated_settings
+
+        api = web_interface_api_mod.WebInterfaceAPI()
+        result = api.save_config({
+            "speakers_group_name": "living-room",
+            "location": "icci",
+            "pre_fajr_enabled": True,
+        })
+
+        assert result["success"] is True
+        assert result["config"]["speakers_group_name"] == "living-room"
+        assert result["config"]["location"] == "icci"
+        assert result["config"]["pre_fajr_enabled"] is True
+
+        loaded = settings_mod._read_toml(target)
+        assert loaded.speaker.group_name == "living-room"
+        assert loaded.prayer.location == "icci"
+        assert loaded.prayer.pre_fajr_enabled is True
