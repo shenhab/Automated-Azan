@@ -98,8 +98,24 @@ func Today() (*Date, error) {
 	return d, nil
 }
 
+// hijriEpoch is 1 Muharram 1 AH on the Gregorian calendar — no Hijri
+// conversion is meaningful before this date.
+var hijriEpoch = time.Date(622, time.July, 16, 0, 0, 0, 0, time.UTC)
+
+// validateGregorian rejects Gregorian dates before the Hijri epoch, which the
+// Aladhan API cannot meaningfully convert.
+func validateGregorian(t time.Time) error {
+	if t.Before(hijriEpoch) {
+		return fmt.Errorf("hijri: date %s predates the Hijri epoch (622-07-16)", t.Format("2006-01-02"))
+	}
+	return nil
+}
+
 // fetch calls the Aladhan gToH endpoint for the given time.
 func fetch(t time.Time) (*Date, error) {
+	if err := validateGregorian(t); err != nil {
+		return nil, err
+	}
 	url := fmt.Sprintf("https://api.aladhan.com/v1/gToH/%s", t.Format("02-01-2006"))
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(url)
