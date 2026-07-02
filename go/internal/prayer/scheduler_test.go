@@ -1,6 +1,9 @@
 package prayer
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseHHMM(t *testing.T) {
 	tests := []struct {
@@ -32,6 +35,17 @@ func TestParseHHMM(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("parseHHMM(%q) = (%d, %d, nil); want error", tt.input, gotHour, gotMinute)
+				}
+				// parseHHMM must own every rejection path (malformed and
+				// out-of-range alike) rather than passing through whatever
+				// fmt.Sscanf happens to produce, so callers get a single,
+				// recognizable validation error and never a partially
+				// populated hour/minute.
+				if !strings.Contains(err.Error(), "parseHHMM") {
+					t.Fatalf("parseHHMM(%q) returned error %q; want an error produced by parseHHMM's own validation", tt.input, err.Error())
+				}
+				if gotHour != 0 || gotMinute != 0 {
+					t.Errorf("parseHHMM(%q) on error = (%d, %d); want zero values", tt.input, gotHour, gotMinute)
 				}
 				return
 			}
