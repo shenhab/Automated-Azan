@@ -232,14 +232,20 @@ func (c *Config) load() error {
 		c.filePath = path
 		return nil
 	}
-	c.filePath = path
+
+	parsed, err := LoadFrom(path)
+	if err != nil {
+		return err
+	}
 
 	c.mu.Lock()
-	_, err := toml.DecodeFile(path, c)
+	c.Speaker = parsed.Speaker
+	c.Prayer = parsed.Prayer
+	c.Web = parsed.Web
+	c.Log = parsed.Log
+	c.TVPause = parsed.TVPause
+	c.filePath = path
 	c.mu.Unlock()
-	if err != nil {
-		return fmt.Errorf("decode %s: %w", path, err)
-	}
 	log.Printf("[config] loaded from %s", path)
 
 	// Write the merged config back so any fields added in a new version
@@ -250,6 +256,48 @@ func (c *Config) load() error {
 		log.Printf("[config] could not update config with new defaults: %v", err)
 	} else if c.Hash() != hashBefore {
 		log.Printf("[config] config updated with new default fields at %s", path)
+	}
+	return nil
+}
+
+// LoadFrom reads and validates the TOML config file at path, returning a
+// fully populated Config. It returns a descriptive error if the file is
+// missing, contains malformed TOML, or has semantically invalid settings
+// (e.g. an unrecognized prayer location).
+func LoadFrom(path string) (*Config, error) {
+	c := &Config{}
+	c.setDefaults()
+	if _, err := toml.DecodeFile(path, c); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", path, err)
+	}
+	if err := c.validate(); err != nil {
+		return nil, fmt.Errorf("invalid config %s: %w", path, err)
+	}
+	c.filePath = path
+	return c, nil
+}
+
+// validLocations are the recognized values for prayer.location: the
+// preloaded timetable keys plus "aladhan" for the Aladhan API source.
+var validLocations = map[string]bool{
+	"naas": true, "icci": true, "newbridge": true, "cork": true, "galway": true,
+	"aladhan": true,
+}
+
+// validate checks that the config contains semantically valid settings,
+// returning a descriptive error for the first problem found.
+func (c *Config) validate() error {
+	if c.Prayer.Location == "" {
+		return fmt.Errorf("prayer.location must not be empty")
+	}
+	if !validLocations[c.Prayer.Location] {
+		return fmt.Errorf("prayer.location %q is not a recognized source (expected one of naas, icci, newbridge, cork, galway, aladhan)", c.Prayer.Location)
+	}
+	if c.Prayer.Location == "aladhan" && (c.Prayer.AladhanCity == "" || c.Prayer.AladhanCountry == "") {
+		return fmt.Errorf("prayer.location is \"aladhan\" but aladhan_city/aladhan_country are not set")
+	}
+	if c.Web.Port < 1 || c.Web.Port > 65535 {
+		return fmt.Errorf("web.port %d is out of range (must be 1-65535)", c.Web.Port)
 	}
 	return nil
 }
@@ -276,6 +324,9 @@ func (c *Config) Reload() error {
 	_, err := toml.DecodeFile(c.filePath, c)
 	if err != nil {
 		return fmt.Errorf("reload %s: %w", c.filePath, err)
+	}
+	if err := c.validate(); err != nil {
+		return fmt.Errorf("invalid config %s: %w", c.filePath, err)
 	}
 	log.Printf("[config] reloaded from %s", c.filePath)
 	return nil
