@@ -5,10 +5,10 @@
         "title": "Islamic Cultural Centre of Ireland",
         "city": "dublin",
         "hijrioffset": "0",
-        "announcement": "Ramadan Kareem!",
+        "announcement": "",
         "text": {
-            "en": "Messenger of Allah (PBUH) said, \\\\\"Allah does not look at your figures, nor at your attire but He looks at your hearts and accomplishments\\\\\" [Muslim].",
-            "ar": "\u0642\u0627\u0644 \u0631\u0633\u0648\u0644 \u0627\u0644\u0644\u0647 \u0635\u0644\u0649  \u0639\u0644\u064a\u0647 \u0648\u0633\u0644\u0645: \u0625\u0646 \u0627\u0644\u0644\u0647 \u0644\u0627 \u064a\u0646\u0638\u0631 \u0625\u0644\u0649 \u0623\u062c\u0633\u0627\u0645\u0643\u0645 \u0648\u0644\u0627 \u0625\u0644\u0649 \u0635\u0648\u0631\u0643\u0645 \u0648\u0644\u0643\u0646 \u064a\u0646\u0638\u0631 \u0625\u0644\u0649 \u0642\u0644\u0648\u0628\u0643\u0645 \u0648\u0623\u0639\u0645\u0627\u0644\u0643\u0645. \u0631\u0648\u0627\u0647 \u0645\u0633\u0644\u0645"
+            "en": "Assalamu Alaikum",
+            "ar": "\u0627\u0644\u0633\u064e\u0651\u0644\u064e\u0627\u0645\u064f \u0639\u064e\u0644\u064e\u064a\u0652\u0643\u064f\u0645\u0652\u200e"
         },
         "jummuahtime": "13:15",
         "join": "0",
@@ -18,37 +18,34 @@
             "fixed",
             "afterthis",
             "afterthis",
-            "afterthis"
+            "fixed"
         ],
         "jamaahoffsets": [
             [
                 0,
-                40
+                15
             ],
-            [
-                "",
-                ""
-            ],
+            [],
             [
                 13,
-                50
+                45
             ],
             [
                 0,
-                10
+                15
             ],
             [
                 0,
-                10
+                15
             ],
             [
-                0,
-                10
+                23,
+                30
             ]
         ],
         "lang": "en",
         "labels": {
-            "jummuah": "",
+            "jummuah": "Jummuah",
             "prayer": "Prayer",
             "adhan": "Adhan",
             "iqamah": "Iqamah",
@@ -63,7 +60,7 @@
                 "isha"
             ]
         },
-        "updated": 1528119190
+        "updated": 1783001748
     },
     "timetable": {
         "1": {

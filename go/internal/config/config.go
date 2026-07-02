@@ -233,6 +233,12 @@ func (c *Config) load() error {
 		return nil
 	}
 
+	// Track the path even if loading below fails, so a config watcher can
+	// still detect and pick up a later fix to the file without a restart.
+	c.mu.Lock()
+	c.filePath = path
+	c.mu.Unlock()
+
 	parsed, err := LoadFrom(path)
 	if err != nil {
 		return err
@@ -244,7 +250,6 @@ func (c *Config) load() error {
 	c.Web = parsed.Web
 	c.Log = parsed.Log
 	c.TVPause = parsed.TVPause
-	c.filePath = path
 	c.mu.Unlock()
 	log.Printf("[config] loaded from %s", path)
 

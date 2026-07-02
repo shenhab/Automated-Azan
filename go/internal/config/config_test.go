@@ -214,3 +214,60 @@ location = "naas"
 		t.Errorf("Speaker.GroupName = %q, want default %q", c.Speaker.GroupName, "athan")
 	}
 }
+
+// TestLoad_TracksFilePathOnValidationError ensures Config.load() records the
+// attempted config path even when the file fails validation. A config
+// watcher relies on FilePath() to know what to watch; if it were left empty
+// after a bad load, the app could never detect a later on-disk fix without a
+// restart.
+func TestLoad_TracksFilePathOnValidationError(t *testing.T) {
+	path := writeTemp(t, `
+[prayer]
+location = "atlantis"
+`)
+	t.Setenv("AZAN_CONFIG_FILE", path)
+
+	c := &Config{}
+	c.setDefaults()
+	err := c.load()
+	if err == nil {
+		t.Fatalf("load() returned nil error, want error for unrecognized location")
+	}
+	if got := c.FilePath(); got != path {
+		t.Errorf("FilePath() = %q, want %q (watcher can't detect a later fix otherwise)", got, path)
+	}
+}
+
+// TestLoad_TracksFilePathOnMalformedTOML is the same regression check as
+// above, but for a decode failure rather than a validation failure.
+func TestLoad_TracksFilePathOnMalformedTOML(t *testing.T) {
+	path := writeTemp(t, `this is not [ valid toml`)
+	t.Setenv("AZAN_CONFIG_FILE", path)
+
+	c := &Config{}
+	c.setDefaults()
+	err := c.load()
+	if err == nil {
+		t.Fatalf("load() returned nil error, want error for malformed TOML")
+	}
+	if got := c.FilePath(); got != path {
+		t.Errorf("FilePath() = %q, want %q (watcher can't detect a later fix otherwise)", got, path)
+	}
+}
+
+func TestLoad_ValidConfigSetsFilePath(t *testing.T) {
+	path := writeTemp(t, validTOML)
+	t.Setenv("AZAN_CONFIG_FILE", path)
+
+	c := &Config{}
+	c.setDefaults()
+	if err := c.load(); err != nil {
+		t.Fatalf("load() returned unexpected error: %v", err)
+	}
+	if got := c.FilePath(); got != path {
+		t.Errorf("FilePath() = %q, want %q", got, path)
+	}
+	if c.Prayer.Location != "icci" {
+		t.Errorf("Prayer.Location = %q, want %q", c.Prayer.Location, "icci")
+	}
+}
