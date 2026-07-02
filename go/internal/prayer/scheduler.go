@@ -361,6 +361,15 @@ func (s *Scheduler) cancelTimersLocked() {
 }
 
 func parseHHMM(t string) (hour, minute int, err error) {
-	_, err = fmt.Sscanf(t, "%d:%d", &hour, &minute)
-	return
+	n, scanErr := fmt.Sscanf(t, "%d:%d", &hour, &minute)
+	if scanErr != nil || n != 2 {
+		return 0, 0, fmt.Errorf("parseHHMM: expected HH:MM, got %q: %v", t, scanErr)
+	}
+	if hour < 0 || hour > 23 {
+		return 0, 0, fmt.Errorf("parseHHMM: hour %d out of range 0-23 in %q", hour, t)
+	}
+	if minute < 0 || minute > 59 {
+		return 0, 0, fmt.Errorf("parseHHMM: minute %d out of range 0-59 in %q", minute, t)
+	}
+	return hour, minute, nil
 }
