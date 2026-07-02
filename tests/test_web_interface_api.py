@@ -29,7 +29,10 @@ class TestWebInterfaceAPI:
     def test_init_default(self):
         """Test initialization with default parameters."""
         api = WebInterfaceAPI()
-        assert hasattr(api, 'config_paths')
+        assert api.current_config == {}
+        assert api.prayer_times == {}
+        assert api.discovered_devices == []
+        assert api.cast_manager is None
 
     @pytest.mark.unit
     def test_get_system_status(self, json_response_validator):
