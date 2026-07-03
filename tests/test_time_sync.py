@@ -18,8 +18,19 @@ class TestTimeSynchronizer:
         assert len(sync.ntp_servers) > 0
 
     @pytest.mark.unit
-    def test_get_system_time_info(self, json_response_validator):
+    @patch('subprocess.run')
+    def test_get_system_time_info(self, mock_run, json_response_validator):
         """Test getting system time information."""
+        mock_result = Mock()
+        mock_result.returncode = 0
+        mock_result.stdout = (
+            "Local time: Mon 2023-01-01 12:00:00 UTC\n"
+            "Universal time: Mon 2023-01-01 12:00:00 UTC\n"
+            "Time zone: UTC (UTC, +0000)\n"
+        )
+        mock_result.stderr = ""
+        mock_run.return_value = mock_result
+
         sync = TimeSynchronizer()
         result = sync.get_system_time_info()
 
