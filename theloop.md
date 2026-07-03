@@ -27,6 +27,12 @@ that implement it. Skills are deterministic code — never prompts.
   mocks, `success`/`error` dict JSON assertions, `go test ./...`). Use for
   any "add unit tests for go/internal/X" work item.
 
+- [`timeout`](theloop-skills/timeout/skill.md) — run a command under a
+  bounded wall-clock timeout that kills its whole process group on expiry,
+  instead of the raw shell `timeout` (which only signals the immediate
+  child). Use whenever a test run or manual app-verification step could
+  hang or leak a background process.
+
 **Agents:** before doing multi-step mechanical work, check the skills listed in
 your briefing — if a skill covers it, RUN THE SKILL instead of improvising.
 When you notice you are repeating mechanizable work, register a new skill:
