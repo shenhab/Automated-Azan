@@ -1,5 +1,9 @@
 [speaker]
 group_name = "athan"
+athan_speaker = ""
+pre_fajr_speaker = ""
+friday_kahf_speaker = ""
+quran_speaker = ""
 
 [prayer]
 location = "naas"
@@ -9,7 +13,7 @@ friday_kahf_enabled = false
 
 [web]
 host = "0.0.0.0"
-port = 28426
+port = 5000
 secret_key = "automated-azan-secret-key"
 
 [log]

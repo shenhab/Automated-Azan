@@ -271,3 +271,90 @@ func TestLoad_ValidConfigSetsFilePath(t *testing.T) {
 		t.Errorf("Prayer.Location = %q, want %q", c.Prayer.Location, "icci")
 	}
 }
+
+func TestReload_ValidConfigUpdatesFields(t *testing.T) {
+	path := writeTemp(t, validTOML)
+
+	c := &Config{}
+	c.setDefaults()
+	c.filePath = path
+
+	if err := c.Reload(); err != nil {
+		t.Fatalf("Reload() returned unexpected error: %v", err)
+	}
+	if c.Prayer.Location != "icci" {
+		t.Errorf("Prayer.Location = %q, want %q", c.Prayer.Location, "icci")
+	}
+	if c.Web.Port != 9090 {
+		t.Errorf("Web.Port = %d, want 9090", c.Web.Port)
+	}
+}
+
+func TestReload_NoFilePathSet(t *testing.T) {
+	c := &Config{}
+	c.setDefaults()
+
+	if err := c.Reload(); err == nil {
+		t.Fatalf("Reload() returned nil error, want error when no file path is set")
+	}
+}
+
+// TestReload_InvalidConfigDoesNotCorruptLiveState ensures a bad on-disk edit
+// is rejected without mutating the already-loaded, valid in-memory config.
+// Reload() used to decode the TOML file directly into the live Config, so a
+// validation failure still left the invalid values applied even though an
+// error was returned.
+func TestReload_InvalidConfigDoesNotCorruptLiveState(t *testing.T) {
+	path := writeTemp(t, validTOML)
+
+	c := &Config{}
+	c.setDefaults()
+	c.filePath = path
+	if err := c.Reload(); err != nil {
+		t.Fatalf("initial Reload() returned unexpected error: %v", err)
+	}
+
+	if err := os.WriteFile(path, []byte(`
+[prayer]
+location = "atlantis"
+
+[web]
+port = 9090
+`), 0o644); err != nil {
+		t.Fatalf("rewrite config: %v", err)
+	}
+
+	err := c.Reload()
+	if err == nil {
+		t.Fatalf("Reload() returned nil error, want error for unrecognized location")
+	}
+	if c.Prayer.Location != "icci" {
+		t.Errorf("Prayer.Location = %q after failed reload, want unchanged %q", c.Prayer.Location, "icci")
+	}
+	if c.Web.Port != 9090 {
+		t.Errorf("Web.Port = %d after failed reload, want unchanged 9090", c.Web.Port)
+	}
+}
+
+func TestReload_MalformedTOMLDoesNotCorruptLiveState(t *testing.T) {
+	path := writeTemp(t, validTOML)
+
+	c := &Config{}
+	c.setDefaults()
+	c.filePath = path
+	if err := c.Reload(); err != nil {
+		t.Fatalf("initial Reload() returned unexpected error: %v", err)
+	}
+
+	if err := os.WriteFile(path, []byte(`this is not [ valid toml`), 0o644); err != nil {
+		t.Fatalf("rewrite config: %v", err)
+	}
+
+	err := c.Reload()
+	if err == nil {
+		t.Fatalf("Reload() returned nil error, want error for malformed TOML")
+	}
+	if c.Prayer.Location != "icci" {
+		t.Errorf("Prayer.Location = %q after failed reload, want unchanged %q", c.Prayer.Location, "icci")
+	}
+}

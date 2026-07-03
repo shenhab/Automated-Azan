@@ -319,21 +319,30 @@ func (c *Config) writeDefaults(path string) error {
 	return toml.NewEncoder(f).Encode(c)
 }
 
-// Reload re-reads the config file from disk.
+// Reload re-reads the config file from disk. The file is decoded and
+// validated into a scratch Config first, so a malformed or invalid file
+// returns a descriptive error without mutating the live config.
 func (c *Config) Reload() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.filePath == "" {
+	c.mu.RLock()
+	path := c.filePath
+	c.mu.RUnlock()
+	if path == "" {
 		return fmt.Errorf("no config file path set")
 	}
-	_, err := toml.DecodeFile(c.filePath, c)
+
+	parsed, err := LoadFrom(path)
 	if err != nil {
-		return fmt.Errorf("reload %s: %w", c.filePath, err)
+		return fmt.Errorf("reload %w", err)
 	}
-	if err := c.validate(); err != nil {
-		return fmt.Errorf("invalid config %s: %w", c.filePath, err)
-	}
-	log.Printf("[config] reloaded from %s", c.filePath)
+
+	c.mu.Lock()
+	c.Speaker = parsed.Speaker
+	c.Prayer = parsed.Prayer
+	c.Web = parsed.Web
+	c.Log = parsed.Log
+	c.TVPause = parsed.TVPause
+	c.mu.Unlock()
+	log.Printf("[config] reloaded from %s", path)
 	return nil
 }
 
