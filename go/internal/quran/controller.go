@@ -16,9 +16,18 @@ import (
 
 const StreamURL = "https://backup.qurango.net/radio/mahmoud_khalil_alhussary_warsh"
 
+// castPlayer is the subset of *chromecast.Manager's behavior Controller
+// depends on. Declaring it as an interface lets tests substitute a fake that
+// never touches the network.
+type castPlayer interface {
+	PlayURL(url, contentType string) error
+	PlayURLOnDevice(deviceName, url, contentType string) error
+	StopPlayback() error
+}
+
 // Controller tracks and controls Quran streaming on speaker and local audio.
 type Controller struct {
-	castMgr *chromecast.Manager
+	castMgr castPlayer
 
 	mu          sync.Mutex
 	speakerGen  uint64 // incremented on every StartSpeaker* call
