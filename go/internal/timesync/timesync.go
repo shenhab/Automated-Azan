@@ -38,6 +38,13 @@ type timeAPIResp struct {
 	DateTime string `json:"dateTime"`
 }
 
+// parseWorldTimeDatetime parses the "datetime" field of a worldtimeapi.org
+// response, which is a full RFC3339 timestamp including a UTC offset (e.g.
+// "2023-01-01T12:30:45.123456+00:00").
+func parseWorldTimeDatetime(datetime string) (time.Time, error) {
+	return time.Parse(time.RFC3339Nano, datetime)
+}
+
 // parseWorldTimeResp decodes a worldtimeapi.org response body and returns
 // the parsed time.
 func parseWorldTimeResp(body io.Reader) (time.Time, error) {
@@ -48,7 +55,7 @@ func parseWorldTimeResp(body io.Reader) (time.Time, error) {
 	if r.Datetime == "" {
 		return time.Time{}, fmt.Errorf("empty datetime")
 	}
-	return time.Parse(time.RFC3339Nano, r.Datetime[:len(r.Datetime)-3]+"Z")
+	return parseWorldTimeDatetime(r.Datetime)
 }
 
 // parseTimeAPIResp decodes a timeapi.io response body and returns the

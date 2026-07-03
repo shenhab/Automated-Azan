@@ -37,10 +37,8 @@ func TestParseNTPTransmitTimestampEpoch(t *testing.T) {
 }
 
 func TestParseWorldTimeResp(t *testing.T) {
-	// The code strips the last 3 characters of Datetime and appends "Z"
-	// before parsing with time.RFC3339Nano, so the fixture is constructed
-	// with 3 trailing filler characters that get discarded.
-	body := strings.NewReader(`{"datetime":"2024-03-15T08:15:30.500000abc"}`)
+	// Realistic worldtimeapi.org response body, including a UTC offset.
+	body := strings.NewReader(`{"datetime":"2024-03-15T08:15:30.500000+00:00"}`)
 
 	got, err := parseWorldTimeResp(body)
 	if err != nil {
@@ -50,6 +48,37 @@ func TestParseWorldTimeResp(t *testing.T) {
 	want := time.Date(2024, time.March, 15, 8, 15, 30, 500000000, time.UTC)
 	if !got.Equal(want) {
 		t.Fatalf("parseWorldTimeResp() = %v, want %v", got, want)
+	}
+}
+
+func TestParseWorldTimeDatetime(t *testing.T) {
+	tests := []struct {
+		name     string
+		datetime string
+		want     time.Time
+	}{
+		{
+			name:     "zero UTC offset",
+			datetime: "2023-01-01T12:30:45.123456+00:00",
+			want:     time.Date(2023, time.January, 1, 12, 30, 45, 123456000, time.UTC),
+		},
+		{
+			name:     "non-zero UTC offset",
+			datetime: "2023-06-15T08:00:00.123456+01:00",
+			want:     time.Date(2023, time.June, 15, 8, 0, 0, 123456000, time.FixedZone("", 3600)),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseWorldTimeDatetime(tt.datetime)
+			if err != nil {
+				t.Fatalf("parseWorldTimeDatetime(%q) error = %v", tt.datetime, err)
+			}
+			if !got.Equal(tt.want) {
+				t.Fatalf("parseWorldTimeDatetime(%q) = %v, want %v", tt.datetime, got, tt.want)
+			}
+		})
 	}
 }
 
