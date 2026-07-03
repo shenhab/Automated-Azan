@@ -106,16 +106,17 @@ class TestTimeSynchronizer:
         """Test time drift checking."""
         mock_get_accurate_time.return_value = {
             'success': True,
-            'ntp_time': 1640995200.0,  # Mock timestamp
-            'source': 'ntp'
+            'accurate_time': '2022-01-01T00:00:00+00:00',
+            'source': 'ntp',
+            'source_type': 'ntp'
         }
 
         sync = TimeSynchronizer()
         result = sync.check_time_drift()
 
-        json_response_validator(result)  # May succeed or fail
-        # check_time_drift should return useful information regardless
-        assert 'drift_seconds' in result or 'error' in result or 'message' in result
+        json_response_validator(result)
+        assert result['success'] is True
+        assert 'drift_seconds' in result
 
     @pytest.mark.unit
     def test_get_all_ntp_servers_status(self, json_response_validator):
