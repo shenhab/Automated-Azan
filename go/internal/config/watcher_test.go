@@ -20,9 +20,9 @@ func TestWatcher_ReloadFiresOnValidChange(t *testing.T) {
 
 	w := NewWatcher(cfg)
 
-	type change struct{ oldC, newC Config }
+	type change struct{ oldC, newC *Config }
 	changes := make(chan change, 1)
-	w.OnChange(func(oldC, newC Config) {
+	w.OnChange(func(oldC, newC *Config) {
 		changes <- change{oldC, newC}
 	})
 
@@ -80,7 +80,7 @@ func TestWatcher_InvalidEditDoesNotCorruptLiveConfig(t *testing.T) {
 
 	var mu sync.Mutex
 	fired := false
-	w.OnChange(func(oldC, newC Config) {
+	w.OnChange(func(oldC, newC *Config) {
 		mu.Lock()
 		fired = true
 		mu.Unlock()

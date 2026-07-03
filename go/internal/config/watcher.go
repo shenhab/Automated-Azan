@@ -8,8 +8,10 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// ChangeHandler is called when the config file changes.
-type ChangeHandler func(oldCfg, newCfg Config)
+// ChangeHandler is called when the config file changes. oldCfg and newCfg
+// are independent snapshots (see Config.Snapshot) rather than the live
+// config, so handlers can read them without holding any lock.
+type ChangeHandler func(oldCfg, newCfg *Config)
 
 // Watcher watches the config file and fires ChangeHandler callbacks on changes.
 type Watcher struct {
@@ -113,7 +115,7 @@ func (w *Watcher) reload() {
 		w.mu.Unlock()
 		return
 	}
-	oldCfg := *w.cfg
+	oldCfg := w.cfg.Snapshot()
 	w.mu.Unlock()
 
 	if err := w.cfg.Reload(); err != nil {
@@ -127,7 +129,7 @@ func (w *Watcher) reload() {
 	copy(handlers, w.handlers)
 	w.mu.Unlock()
 
-	newCfg := *w.cfg
+	newCfg := w.cfg.Snapshot()
 	for _, h := range handlers {
 		h(oldCfg, newCfg)
 	}
