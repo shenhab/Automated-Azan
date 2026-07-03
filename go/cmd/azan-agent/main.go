@@ -283,7 +283,7 @@ func (p *program) run() {
 
 	// Config hot-reload watcher
 	watcher := config.NewWatcher(cfg)
-	watcher.OnChange(func(old, new config.Config) {
+	watcher.OnChange(func(old, new *config.Config) {
 		log.Println("[main] config changed — rescheduling")
 
 		// Update chromecast target if speaker changed

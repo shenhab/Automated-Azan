@@ -430,6 +430,24 @@ func (c *Config) FilePath() string {
 	return c.filePath
 }
 
+// Snapshot returns a new *Config holding a point-in-time copy of c's
+// exported settings. Because it builds a fresh Config from individual
+// fields rather than dereferencing c, it never copies c's embedded
+// sync.RWMutex, so it's safe to pass around and satisfies go vet's
+// copylocks check.
+func (c *Config) Snapshot() *Config {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return &Config{
+		Speaker:  c.Speaker,
+		Prayer:   c.Prayer,
+		Web:      c.Web,
+		Log:      c.Log,
+		TVPause:  c.TVPause,
+		filePath: c.filePath,
+	}
+}
+
 // Hash returns an MD5 of the config file contents (used for change detection).
 func (c *Config) Hash() string {
 	path := c.FilePath()
