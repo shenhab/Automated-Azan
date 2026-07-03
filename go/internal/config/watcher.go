@@ -22,11 +22,16 @@ type Watcher struct {
 	mu       sync.Mutex
 	lastHash string
 	running  bool
+
+	// DebounceInterval is how long to wait for quiet after a file event
+	// before reloading. Defaults to 2s (set by NewWatcher); tests may
+	// shrink it to speed up debounce-dependent assertions.
+	DebounceInterval time.Duration
 }
 
 // NewWatcher creates a Watcher for the given config.
 func NewWatcher(cfg *Config) *Watcher {
-	return &Watcher{cfg: cfg, stopCh: make(chan struct{})}
+	return &Watcher{cfg: cfg, stopCh: make(chan struct{}), DebounceInterval: 2 * time.Second}
 }
 
 // OnChange registers a callback invoked after a config reload.
@@ -93,8 +98,8 @@ func (w *Watcher) loop(fw *fsnotify.Watcher, path string) {
 			if event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
 				continue
 			}
-			// Debounce: wait 2 seconds of quiet before reloading
-			debounce.Reset(2 * time.Second)
+			// Debounce: wait for quiet before reloading
+			debounce.Reset(w.DebounceInterval)
 
 		case err, ok := <-fw.Errors:
 			if !ok {
