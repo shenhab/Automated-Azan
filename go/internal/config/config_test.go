@@ -1,0 +1,360 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+const validTOML = `
+[speaker]
+group_name = "athan"
+athan_speaker = "Living Room speaker"
+pre_fajr_speaker = "Bedroom speaker"
+friday_kahf_speaker = "Living Room speaker"
+quran_speaker = "Kitchen speaker"
+
+[prayer]
+location = "icci"
+pre_fajr_enabled = true
+pre_fajr_minutes = 20
+friday_kahf_enabled = true
+
+[prayer.enabled]
+fajr = true
+dhuhr = true
+asr = false
+maghrib = true
+isha = true
+
+[web]
+host = "127.0.0.1"
+port = 9090
+secret_key = "test-secret"
+
+[web.auth]
+username = "admin"
+password_hash = "hash"
+
+[log]
+level = "DEBUG"
+file_path = "/tmp/azan.log"
+
+[tv_pause]
+enabled = true
+resume_delay_seconds = 120
+devices = ["uuid-1", "uuid-2"]
+`
+
+func writeTemp(t *testing.T, contents string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "azan.toml")
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+	return path
+}
+
+func TestLoadFrom_ValidConfig(t *testing.T) {
+	path := writeTemp(t, validTOML)
+
+	c, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom returned unexpected error: %v", err)
+	}
+
+	if c.Prayer.Location != "icci" {
+		t.Errorf("Prayer.Location = %q, want %q", c.Prayer.Location, "icci")
+	}
+	if c.Prayer.PreFajrMinutes != 20 {
+		t.Errorf("Prayer.PreFajrMinutes = %d, want 20", c.Prayer.PreFajrMinutes)
+	}
+	if !c.Prayer.PreFajrEnabled {
+		t.Errorf("Prayer.PreFajrEnabled = false, want true")
+	}
+	if !c.Prayer.FridayKahfEnabled {
+		t.Errorf("Prayer.FridayKahfEnabled = false, want true")
+	}
+	if c.Prayer.Enabled.Asr {
+		t.Errorf("Prayer.Enabled.Asr = true, want false")
+	}
+	if !c.Prayer.Enabled.Fajr {
+		t.Errorf("Prayer.Enabled.Fajr = false, want true")
+	}
+
+	if c.Speaker.GroupName != "athan" {
+		t.Errorf("Speaker.GroupName = %q, want %q", c.Speaker.GroupName, "athan")
+	}
+	if c.Speaker.AthanSpeaker != "Living Room speaker" {
+		t.Errorf("Speaker.AthanSpeaker = %q, want %q", c.Speaker.AthanSpeaker, "Living Room speaker")
+	}
+	if c.Speaker.QuranSpeaker != "Kitchen speaker" {
+		t.Errorf("Speaker.QuranSpeaker = %q, want %q", c.Speaker.QuranSpeaker, "Kitchen speaker")
+	}
+
+	if c.Web.Host != "127.0.0.1" {
+		t.Errorf("Web.Host = %q, want %q", c.Web.Host, "127.0.0.1")
+	}
+	if c.Web.Port != 9090 {
+		t.Errorf("Web.Port = %d, want 9090", c.Web.Port)
+	}
+	if c.Web.Auth.Username != "admin" {
+		t.Errorf("Web.Auth.Username = %q, want %q", c.Web.Auth.Username, "admin")
+	}
+
+	if c.Log.Level != "DEBUG" {
+		t.Errorf("Log.Level = %q, want %q", c.Log.Level, "DEBUG")
+	}
+
+	if !c.TVPause.Enabled {
+		t.Errorf("TVPause.Enabled = false, want true")
+	}
+	if c.TVPause.ResumeDelaySecs != 120 {
+		t.Errorf("TVPause.ResumeDelaySecs = %d, want 120", c.TVPause.ResumeDelaySecs)
+	}
+	if len(c.TVPause.Devices) != 2 || c.TVPause.Devices[0] != "uuid-1" {
+		t.Errorf("TVPause.Devices = %v, want [uuid-1 uuid-2]", c.TVPause.Devices)
+	}
+
+	if c.filePath != path {
+		t.Errorf("filePath = %q, want %q", c.filePath, path)
+	}
+}
+
+func TestLoadFrom_MissingFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "does-not-exist.toml")
+
+	_, err := LoadFrom(path)
+	if err == nil {
+		t.Fatalf("LoadFrom(%q) returned nil error, want error for missing file", path)
+	}
+}
+
+func TestLoadFrom_MalformedTOML(t *testing.T) {
+	path := writeTemp(t, `this is not [ valid toml`)
+
+	_, err := LoadFrom(path)
+	if err == nil {
+		t.Fatalf("LoadFrom returned nil error, want error for malformed TOML")
+	}
+}
+
+func TestLoadFrom_UnknownLocationRejected(t *testing.T) {
+	path := writeTemp(t, `
+[prayer]
+location = "atlantis"
+`)
+
+	_, err := LoadFrom(path)
+	if err == nil {
+		t.Fatalf("LoadFrom returned nil error, want error for unrecognized location")
+	}
+}
+
+func TestLoadFrom_AladhanRequiresCityAndCountry(t *testing.T) {
+	path := writeTemp(t, `
+[prayer]
+location = "aladhan"
+`)
+
+	_, err := LoadFrom(path)
+	if err == nil {
+		t.Fatalf("LoadFrom returned nil error, want error for aladhan location missing city/country")
+	}
+}
+
+func TestLoadFrom_AladhanWithCityAndCountrySucceeds(t *testing.T) {
+	path := writeTemp(t, `
+[prayer]
+location = "aladhan"
+aladhan_city = "Dublin"
+aladhan_country = "Ireland"
+`)
+
+	c, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom returned unexpected error: %v", err)
+	}
+	if c.Prayer.AladhanCity != "Dublin" {
+		t.Errorf("Prayer.AladhanCity = %q, want %q", c.Prayer.AladhanCity, "Dublin")
+	}
+}
+
+func TestLoadFrom_InvalidPortRejected(t *testing.T) {
+	path := writeTemp(t, `
+[prayer]
+location = "naas"
+
+[web]
+port = 70000
+`)
+
+	_, err := LoadFrom(path)
+	if err == nil {
+		t.Fatalf("LoadFrom returned nil error, want error for out-of-range port")
+	}
+}
+
+func TestLoadFrom_DefaultsAppliedWhenSectionsOmitted(t *testing.T) {
+	path := writeTemp(t, `
+[prayer]
+location = "naas"
+`)
+
+	c, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom returned unexpected error: %v", err)
+	}
+	if c.Web.Port != 28426 {
+		t.Errorf("Web.Port = %d, want default 28426", c.Web.Port)
+	}
+	if c.Speaker.GroupName != "athan" {
+		t.Errorf("Speaker.GroupName = %q, want default %q", c.Speaker.GroupName, "athan")
+	}
+}
+
+// TestLoad_TracksFilePathOnValidationError ensures Config.load() records the
+// attempted config path even when the file fails validation. A config
+// watcher relies on FilePath() to know what to watch; if it were left empty
+// after a bad load, the app could never detect a later on-disk fix without a
+// restart.
+func TestLoad_TracksFilePathOnValidationError(t *testing.T) {
+	path := writeTemp(t, `
+[prayer]
+location = "atlantis"
+`)
+	t.Setenv("AZAN_CONFIG_FILE", path)
+
+	c := &Config{}
+	c.setDefaults()
+	err := c.load()
+	if err == nil {
+		t.Fatalf("load() returned nil error, want error for unrecognized location")
+	}
+	if got := c.FilePath(); got != path {
+		t.Errorf("FilePath() = %q, want %q (watcher can't detect a later fix otherwise)", got, path)
+	}
+}
+
+// TestLoad_TracksFilePathOnMalformedTOML is the same regression check as
+// above, but for a decode failure rather than a validation failure.
+func TestLoad_TracksFilePathOnMalformedTOML(t *testing.T) {
+	path := writeTemp(t, `this is not [ valid toml`)
+	t.Setenv("AZAN_CONFIG_FILE", path)
+
+	c := &Config{}
+	c.setDefaults()
+	err := c.load()
+	if err == nil {
+		t.Fatalf("load() returned nil error, want error for malformed TOML")
+	}
+	if got := c.FilePath(); got != path {
+		t.Errorf("FilePath() = %q, want %q (watcher can't detect a later fix otherwise)", got, path)
+	}
+}
+
+func TestLoad_ValidConfigSetsFilePath(t *testing.T) {
+	path := writeTemp(t, validTOML)
+	t.Setenv("AZAN_CONFIG_FILE", path)
+
+	c := &Config{}
+	c.setDefaults()
+	if err := c.load(); err != nil {
+		t.Fatalf("load() returned unexpected error: %v", err)
+	}
+	if got := c.FilePath(); got != path {
+		t.Errorf("FilePath() = %q, want %q", got, path)
+	}
+	if c.Prayer.Location != "icci" {
+		t.Errorf("Prayer.Location = %q, want %q", c.Prayer.Location, "icci")
+	}
+}
+
+func TestReload_ValidConfigUpdatesFields(t *testing.T) {
+	path := writeTemp(t, validTOML)
+
+	c := &Config{}
+	c.setDefaults()
+	c.filePath = path
+
+	if err := c.Reload(); err != nil {
+		t.Fatalf("Reload() returned unexpected error: %v", err)
+	}
+	if c.Prayer.Location != "icci" {
+		t.Errorf("Prayer.Location = %q, want %q", c.Prayer.Location, "icci")
+	}
+	if c.Web.Port != 9090 {
+		t.Errorf("Web.Port = %d, want 9090", c.Web.Port)
+	}
+}
+
+func TestReload_NoFilePathSet(t *testing.T) {
+	c := &Config{}
+	c.setDefaults()
+
+	if err := c.Reload(); err == nil {
+		t.Fatalf("Reload() returned nil error, want error when no file path is set")
+	}
+}
+
+// TestReload_InvalidConfigDoesNotCorruptLiveState ensures a bad on-disk edit
+// is rejected without mutating the already-loaded, valid in-memory config.
+// Reload() used to decode the TOML file directly into the live Config, so a
+// validation failure still left the invalid values applied even though an
+// error was returned.
+func TestReload_InvalidConfigDoesNotCorruptLiveState(t *testing.T) {
+	path := writeTemp(t, validTOML)
+
+	c := &Config{}
+	c.setDefaults()
+	c.filePath = path
+	if err := c.Reload(); err != nil {
+		t.Fatalf("initial Reload() returned unexpected error: %v", err)
+	}
+
+	if err := os.WriteFile(path, []byte(`
+[prayer]
+location = "atlantis"
+
+[web]
+port = 9090
+`), 0o644); err != nil {
+		t.Fatalf("rewrite config: %v", err)
+	}
+
+	err := c.Reload()
+	if err == nil {
+		t.Fatalf("Reload() returned nil error, want error for unrecognized location")
+	}
+	if c.Prayer.Location != "icci" {
+		t.Errorf("Prayer.Location = %q after failed reload, want unchanged %q", c.Prayer.Location, "icci")
+	}
+	if c.Web.Port != 9090 {
+		t.Errorf("Web.Port = %d after failed reload, want unchanged 9090", c.Web.Port)
+	}
+}
+
+func TestReload_MalformedTOMLDoesNotCorruptLiveState(t *testing.T) {
+	path := writeTemp(t, validTOML)
+
+	c := &Config{}
+	c.setDefaults()
+	c.filePath = path
+	if err := c.Reload(); err != nil {
+		t.Fatalf("initial Reload() returned unexpected error: %v", err)
+	}
+
+	if err := os.WriteFile(path, []byte(`this is not [ valid toml`), 0o644); err != nil {
+		t.Fatalf("rewrite config: %v", err)
+	}
+
+	err := c.Reload()
+	if err == nil {
+		t.Fatalf("Reload() returned nil error, want error for malformed TOML")
+	}
+	if c.Prayer.Location != "icci" {
+		t.Errorf("Prayer.Location = %q after failed reload, want unchanged %q", c.Prayer.Location, "icci")
+	}
+}
