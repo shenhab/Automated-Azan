@@ -125,8 +125,8 @@ class TestTimeSynchronizer:
         result = sync.get_all_ntp_servers_status()
 
         json_response_validator(result, success_expected=True)
-        assert 'servers_status' in result or 'servers' in result
-        assert 'servers_checked' in result or 'total_servers' in result
+        assert 'server_results' in result
+        assert 'servers_tested' in result
 
     @pytest.mark.unit
     def test_sync_status_summary(self, json_response_validator):
