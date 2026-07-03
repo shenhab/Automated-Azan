@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"crypto/md5"
 	"fmt"
 	"log"
@@ -253,16 +254,68 @@ func (c *Config) load() error {
 	c.mu.Unlock()
 	log.Printf("[config] loaded from %s", path)
 
-	// Write the merged config back so any fields added in a new version
-	// get their default values persisted to disk. Compare hashes first to
-	// avoid a spurious config-watcher reload when nothing changed.
-	hashBefore := c.Hash()
-	if err := c.writeDefaults(path); err != nil {
-		log.Printf("[config] could not update config with new defaults: %v", err)
-	} else if c.Hash() != hashBefore {
-		log.Printf("[config] config updated with new default fields at %s", path)
+	// Only write the merged config back when the on-disk file is actually
+	// missing keys that a fresh encode of the in-memory config would add
+	// (e.g. a new field introduced by an upgrade). Otherwise leave the file
+	// untouched so user formatting/comments and any fields unknown to this
+	// version of Config survive a normal load.
+	needsBackfill, err := backfillNeeded(path, c)
+	if err != nil {
+		log.Printf("[config] could not check config for missing defaults: %v", err)
+	} else if needsBackfill {
+		if err := c.writeDefaults(path); err != nil {
+			log.Printf("[config] could not update config with new defaults: %v", err)
+		} else {
+			log.Printf("[config] config updated with new default fields at %s", path)
+		}
 	}
 	return nil
+}
+
+// backfillNeeded reports whether re-encoding c and writing it to path would
+// add keys that aren't already present in the raw on-disk TOML (e.g. a new
+// field introduced by an app upgrade). It compares the raw file's keys
+// against a fresh encode of c, recursing into nested tables, so an
+// already-complete file is left untouched.
+func backfillNeeded(path string, c *Config) (bool, error) {
+	raw := map[string]interface{}{}
+	if _, err := toml.DecodeFile(path, &raw); err != nil {
+		return false, fmt.Errorf("decode raw %s: %w", path, err)
+	}
+
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(c); err != nil {
+		return false, fmt.Errorf("encode config: %w", err)
+	}
+	full := map[string]interface{}{}
+	if _, err := toml.Decode(buf.String(), &full); err != nil {
+		return false, fmt.Errorf("decode encoded config: %w", err)
+	}
+
+	return hasMissingKeys(full, raw), nil
+}
+
+// hasMissingKeys reports whether want contains any key (recursively, for
+// nested tables) that have does not.
+func hasMissingKeys(want, have map[string]interface{}) bool {
+	for k, wantVal := range want {
+		haveVal, ok := have[k]
+		if !ok {
+			return true
+		}
+		wantMap, wantIsMap := wantVal.(map[string]interface{})
+		if !wantIsMap {
+			continue
+		}
+		haveMap, haveIsMap := haveVal.(map[string]interface{})
+		if !haveIsMap {
+			return true
+		}
+		if hasMissingKeys(wantMap, haveMap) {
+			return true
+		}
+	}
+	return false
 }
 
 // LoadFrom reads and validates the TOML config file at path, returning a
