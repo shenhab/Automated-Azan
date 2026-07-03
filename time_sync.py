@@ -487,8 +487,16 @@ def update_ntp_time():
             time_source = drift_result.get('time_source', 'unknown')
             logging.warning(f"Consider synchronizing system time. Accurate time from {time_source}: {accurate_time}")
 
-        return {
-            "success": True,
+        # Overall success requires both the system time info lookup and the
+        # drift check to have actually succeeded, not just the drift check
+        # (get_system_time_info/check_time_drift swallow their own errors,
+        # so this is the only place that can surface a degraded state).
+        drift_success = drift_result.get('success', False)
+        time_info_success = time_info.get('success', False)
+        overall_success = drift_success and time_info_success
+
+        response = {
+            "success": overall_success,
             "synchronized": drift_result.get('is_synchronized', True),
             "drift_seconds": drift_result.get('drift_seconds', 0),
             "time_source": drift_result.get('time_source', 'unknown'),
@@ -497,6 +505,11 @@ def update_ntp_time():
             "message": f"Time sync check completed - {'synchronized' if drift_result.get('is_synchronized', True) else 'not synchronized'}",
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
+
+        if not overall_success:
+            response["error"] = drift_result.get('error') or time_info.get('error') or "Time sync check did not complete successfully"
+
+        return response
 
     except Exception as e:
         logging.error(f"Error during time synchronization check: {e}")
