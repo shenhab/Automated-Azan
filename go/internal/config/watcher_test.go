@@ -19,6 +19,7 @@ func TestWatcher_ReloadFiresOnValidChange(t *testing.T) {
 	}
 
 	w := NewWatcher(cfg)
+	w.DebounceInterval = 20 * time.Millisecond
 
 	type change struct{ oldC, newC *Config }
 	changes := make(chan change, 1)
@@ -77,6 +78,7 @@ func TestWatcher_InvalidEditDoesNotCorruptLiveConfig(t *testing.T) {
 	}
 
 	w := NewWatcher(cfg)
+	w.DebounceInterval = 20 * time.Millisecond
 
 	var mu sync.Mutex
 	fired := false
@@ -98,10 +100,10 @@ location = "atlantis"
 		t.Fatalf("rewrite config: %v", err)
 	}
 
-	// The watcher debounces reloads for 2s of quiet before acting; wait
+	// The watcher debounces reloads for a quiet period before acting; wait
 	// comfortably past that so reload() has a chance to run before we assert
 	// nothing changed.
-	time.Sleep(3 * time.Second)
+	time.Sleep(3 * w.DebounceInterval)
 
 	mu.Lock()
 	defer mu.Unlock()
