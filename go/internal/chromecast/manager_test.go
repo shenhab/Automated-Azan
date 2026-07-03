@@ -1,7 +1,9 @@
 package chromecast
 
 import (
+	"net"
 	"sort"
+	"strconv"
 	"testing"
 )
 
@@ -63,6 +65,66 @@ func TestFoldEqual(t *testing.T) {
 				t.Errorf("foldEqual(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestHostPortAddrIPv6 verifies that hostPortAddr (used to build the dial
+// address for IsAvailable's TCP probe) brackets IPv6 hosts, since net.Dial
+// requires "[host]:port" rather than the "host:port" produced by
+// fmt.Sprintf("%s:%d", ...) for a bare IPv6 address.
+func TestHostPortAddrIPv6(t *testing.T) {
+	got := hostPortAddr("::1", 8009)
+	want := "[::1]:8009"
+	if got != want {
+		t.Fatalf("hostPortAddr(%q, %d) = %q, want %q", "::1", 8009, got, want)
+	}
+
+	if host, port, err := net.SplitHostPort(got); err != nil {
+		t.Fatalf("net.SplitHostPort(%q) failed, address is malformed: %v", got, err)
+	} else if host != "::1" || port != "8009" {
+		t.Fatalf("net.SplitHostPort(%q) = (%q, %q), want (\"::1\", \"8009\")", got, host, port)
+	}
+}
+
+// TestHostPortAddrIPv4 verifies the IPv4 (and hostname) case remains
+// unbracketed "host:port", as before the IPv6 fix.
+func TestHostPortAddrIPv4(t *testing.T) {
+	got := hostPortAddr("192.168.1.10", 8009)
+	want := "192.168.1.10:8009"
+	if got != want {
+		t.Fatalf("hostPortAddr(%q, %d) = %q, want %q", "192.168.1.10", 8009, got, want)
+	}
+}
+
+// TestIsAvailableIPv6Loopback exercises IsAvailable end-to-end against an
+// IPv6 loopback listener, confirming the dial address it builds is valid
+// and connects successfully rather than failing due to malformed
+// "host:port" syntax.
+func TestIsAvailableIPv6Loopback(t *testing.T) {
+	ln, err := net.Listen("tcp", "[::1]:0")
+	if err != nil {
+		t.Skipf("IPv6 loopback unavailable in this environment: %v", err)
+	}
+	defer ln.Close()
+
+	go func() {
+		conn, err := ln.Accept()
+		if err == nil {
+			conn.Close()
+		}
+	}()
+
+	_, portStr, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatalf("failed to parse listener address: %v", err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatalf("failed to parse listener port %q: %v", portStr, err)
+	}
+
+	if !IsAvailable("::1", port) {
+		t.Errorf("IsAvailable(\"::1\", %d) = false, want true (listener is accepting on IPv6 loopback)", port)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -532,13 +533,18 @@ func (m *Manager) deviceList() []Device {
 
 // IsAvailable does a TCP probe to check if a device is reachable.
 func IsAvailable(host string, port int) bool {
-	addr := fmt.Sprintf("%s:%d", host, port)
-	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
+	conn, err := net.DialTimeout("tcp", hostPortAddr(host, port), 3*time.Second)
 	if err != nil {
 		return false
 	}
 	conn.Close()
 	return true
+}
+
+// hostPortAddr builds a dial address that is safe for both IPv4 and IPv6
+// hosts (bracketing IPv6 addresses as net.Dial requires).
+func hostPortAddr(host string, port int) string {
+	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 func equalFold(a, b string) bool {
