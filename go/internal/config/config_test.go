@@ -336,6 +336,147 @@ port = 9090
 	}
 }
 
+// completeTOML mirrors every section and key known to the current Config
+// struct, so loading it should never trigger a defaults backfill.
+const completeTOML = `
+[speaker]
+group_name = "athan"
+athan_speaker = "Living Room speaker"
+pre_fajr_speaker = "Bedroom speaker"
+friday_kahf_speaker = "Living Room speaker"
+quran_speaker = "Kitchen speaker"
+
+[prayer]
+location = "icci"
+aladhan_city = ""
+aladhan_country = ""
+aladhan_method = 3
+pre_fajr_enabled = true
+pre_fajr_minutes = 20
+friday_kahf_enabled = true
+
+[prayer.enabled]
+fajr = true
+dhuhr = true
+asr = false
+maghrib = true
+isha = true
+
+[prayer.media]
+fajr = ""
+dhuhr = ""
+asr = ""
+maghrib = ""
+isha = ""
+
+[prayer.channels.fajr]
+speaker = true
+local = false
+notify = false
+browser_notify = false
+browser_athan = false
+
+[prayer.channels.dhuhr]
+speaker = true
+local = false
+notify = false
+browser_notify = false
+browser_athan = false
+
+[prayer.channels.asr]
+speaker = true
+local = false
+notify = false
+browser_notify = false
+browser_athan = false
+
+[prayer.channels.maghrib]
+speaker = true
+local = false
+notify = false
+browser_notify = false
+browser_athan = false
+
+[prayer.channels.isha]
+speaker = true
+local = false
+notify = false
+browser_notify = false
+browser_athan = false
+
+[prayer.channels.pre_fajr]
+speaker = true
+local = false
+notify = false
+browser_notify = false
+browser_athan = false
+
+[prayer.channels.friday_kahf]
+speaker = true
+local = false
+notify = false
+browser_notify = false
+browser_athan = false
+
+[web]
+host = "127.0.0.1"
+port = 9090
+secret_key = "test-secret"
+
+[web.auth]
+username = "admin"
+password_hash = "hash"
+
+[log]
+level = "DEBUG"
+file_path = "/tmp/azan.log"
+
+[tv_pause]
+enabled = true
+resume_delay_seconds = 120
+devices = ["uuid-1", "uuid-2"]
+`
+
+// TestLoad_DoesNotRewriteCompleteConfigFile is a regression check for a bug
+// where load() unconditionally called writeDefaults() after every successful
+// decode, re-encoding the whole in-memory Config and overwriting the file on
+// every app start. That silently reformatted the file and reverted any field
+// writeDefaults didn't know how to preserve (observed in practice: a custom
+// web.port and speaker names were wiped back to their zero/default values).
+// When the on-disk file already contains every section/key the current
+// Config knows about, load() must leave the file's bytes untouched.
+func TestLoad_DoesNotRewriteCompleteConfigFile(t *testing.T) {
+	path := writeTemp(t, completeTOML)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read temp config: %v", err)
+	}
+
+	t.Setenv("AZAN_CONFIG_FILE", path)
+	c := &Config{}
+	c.setDefaults()
+	if err := c.load(); err != nil {
+		t.Fatalf("load() returned unexpected error: %v", err)
+	}
+
+	// Sanity check the custom values were actually loaded, not just left at
+	// their defaults (which would make the "unchanged file" assertion moot).
+	if c.Web.Port != 9090 {
+		t.Fatalf("Web.Port = %d, want 9090 (custom value from file)", c.Web.Port)
+	}
+	if c.Speaker.AthanSpeaker != "Living Room speaker" {
+		t.Fatalf("Speaker.AthanSpeaker = %q, want %q (custom value from file)", c.Speaker.AthanSpeaker, "Living Room speaker")
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read config after load: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("load() rewrote %s even though it already contained every known key\nbefore:\n%s\nafter:\n%s", path, before, after)
+	}
+}
+
 func TestReload_MalformedTOMLDoesNotCorruptLiveState(t *testing.T) {
 	path := writeTemp(t, validTOML)
 
