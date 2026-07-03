@@ -1,6 +1,7 @@
 """
 Test cases for chromecast_manager module
 """
+import time
 import pytest
 from unittest.mock import patch, Mock, MagicMock
 from chromecast_manager import ChromecastManager
@@ -8,6 +9,27 @@ from chromecast_manager import ChromecastManager
 
 class TestChromecastManager:
     """Test the ChromecastManager class."""
+
+    @pytest.mark.unit
+    @patch('chromecast_manager.time.sleep')
+    @patch('chromecast_manager.ChromecastManager.discover_devices')
+    def test_init_no_sleep_after_last_retry(self, mock_discover, mock_sleep, json_response_validator):
+        """No devices ever discovered: retry loop must not sleep after the final attempt."""
+        mock_discover.return_value = {
+            "success": True,
+            "devices_found": 0,
+            "devices": {},
+            "timestamp": "2023-01-01T00:00:00"
+        }
+        ChromecastManager._shared_chromecasts = {}
+        ChromecastManager._shared_last_discovery = 0
+
+        start = time.monotonic()
+        ChromecastManager(max_retries=2, retry_delay=10)
+        elapsed = time.monotonic() - start
+
+        assert elapsed < 2, f"__init__ took {elapsed:.2f}s, sleep after last retry was not skipped"
+        assert mock_sleep.call_count <= 1  # at most max_retries - 1
 
     @pytest.mark.unit
     @patch('chromecast_manager.ChromecastManager.discover_devices')
