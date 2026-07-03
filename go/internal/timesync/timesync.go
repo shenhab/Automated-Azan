@@ -19,6 +19,51 @@ var ntpServers = []string{
 	"time.cloudflare.com",
 }
 
+// ntpEpochDelta is the number of seconds between the NTP epoch (Jan 1, 1900)
+// and the Unix epoch (Jan 1, 1970).
+const ntpEpochDelta = 2208988800
+
+// parseNTPTransmitTimestamp extracts the transmit timestamp (bytes 40-43 of
+// a 48-byte NTP response) and converts it from the NTP epoch to a Unix time.
+func parseNTPTransmitTimestamp(resp []byte) time.Time {
+	secs := binary.BigEndian.Uint32(resp[40:44])
+	return time.Unix(int64(secs)-ntpEpochDelta, 0)
+}
+
+type worldTimeResp struct {
+	Datetime string `json:"datetime"`
+}
+
+type timeAPIResp struct {
+	DateTime string `json:"dateTime"`
+}
+
+// parseWorldTimeResp decodes a worldtimeapi.org response body and returns
+// the parsed time.
+func parseWorldTimeResp(body io.Reader) (time.Time, error) {
+	var r worldTimeResp
+	if err := json.NewDecoder(body).Decode(&r); err != nil {
+		return time.Time{}, err
+	}
+	if r.Datetime == "" {
+		return time.Time{}, fmt.Errorf("empty datetime")
+	}
+	return time.Parse(time.RFC3339Nano, r.Datetime[:len(r.Datetime)-3]+"Z")
+}
+
+// parseTimeAPIResp decodes a timeapi.io response body and returns the
+// parsed time.
+func parseTimeAPIResp(body io.Reader) (time.Time, error) {
+	var r timeAPIResp
+	if err := json.NewDecoder(body).Decode(&r); err != nil {
+		return time.Time{}, err
+	}
+	if r.DateTime == "" {
+		return time.Time{}, fmt.Errorf("empty dateTime")
+	}
+	return time.Parse("2006-01-02T15:04:05.9999999", r.DateTime)
+}
+
 // GetNTPTime queries a single NTP server and returns the current time.
 func GetNTPTime(server string, timeout time.Duration) (time.Time, error) {
 	conn, err := net.DialTimeout("udp", fmt.Sprintf("%s:123", server), timeout)
@@ -41,44 +86,26 @@ func GetNTPTime(server string, timeout time.Duration) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("read: %w", err)
 	}
 
-	// Transmit timestamp is at bytes 40-47
-	secs := binary.BigEndian.Uint32(resp[40:44])
-	// NTP epoch is Jan 1, 1900; Unix epoch is Jan 1, 1970
-	const ntpDelta = 2208988800
-	t := time.Unix(int64(secs)-ntpDelta, 0)
-	return t, nil
+	return parseNTPTransmitTimestamp(resp), nil
 }
 
 // GetHTTPTime tries world time APIs as fallback.
 func GetHTTPTime() (time.Time, error) {
-	type worldTimeResp struct {
-		Datetime string `json:"datetime"`
-	}
-	type timeAPIResp struct {
-		DateTime string `json:"dateTime"`
-	}
-
 	client := &http.Client{Timeout: 5 * time.Second}
 
 	// Try worldtimeapi.org
 	if resp, err := client.Get("http://worldtimeapi.org/api/timezone/Europe/Dublin"); err == nil {
 		defer resp.Body.Close()
-		var r worldTimeResp
-		if json.NewDecoder(resp.Body).Decode(&r) == nil && r.Datetime != "" {
-			if t, err := time.Parse(time.RFC3339Nano, r.Datetime[:len(r.Datetime)-3]+"Z"); err == nil {
-				return t, nil
-			}
+		if t, err := parseWorldTimeResp(resp.Body); err == nil {
+			return t, nil
 		}
 	}
 
 	// Try timeapi.io
 	if resp, err := client.Get("https://timeapi.io/api/Time/current/zone?timeZone=Europe/Dublin"); err == nil {
 		defer resp.Body.Close()
-		var r timeAPIResp
-		if json.NewDecoder(resp.Body).Decode(&r) == nil && r.DateTime != "" {
-			if t, err := time.Parse("2006-01-02T15:04:05.9999999", r.DateTime); err == nil {
-				return t, nil
-			}
+		if t, err := parseTimeAPIResp(resp.Body); err == nil {
+			return t, nil
 		}
 	}
 
