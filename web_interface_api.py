@@ -58,6 +58,10 @@ class WebInterfaceAPI:
                 updates.setdefault("prayer", {})["location"] = config_data["location"]
             if "pre_fajr_enabled" in config_data:
                 updates.setdefault("prayer", {})["pre_fajr_enabled"] = config_data["pre_fajr_enabled"]
+            if "pre_fajr_minutes" in config_data:
+                updates.setdefault("prayer", {})["pre_fajr_minutes"] = config_data["pre_fajr_minutes"]
+            if "friday_kahf_enabled" in config_data:
+                updates.setdefault("prayer", {})["friday_kahf_enabled"] = config_data["friday_kahf_enabled"]
 
             if updates:
                 settings.update(**updates)
