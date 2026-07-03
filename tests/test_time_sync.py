@@ -171,6 +171,61 @@ class TestUpdateNtpTime:
         json_response_validator(result, success_expected=False)
         assert 'error' in result
 
+    @pytest.mark.unit
+    @patch('time_sync.TimeSynchronizer.get_accurate_time')
+    @patch('subprocess.run')
+    def test_update_ntp_time_timedatectl_failure_is_not_masked_by_good_drift(
+        self, mock_run, mock_get_accurate_time, json_response_validator
+    ):
+        """
+        Even if the drift check succeeds (accurate time was fetched fine),
+        a failing timedatectl call must still surface as a top-level failure
+        instead of being silently swallowed inside system_info only.
+        """
+        mock_result = Mock()
+        mock_result.returncode = 1
+        mock_result.stdout = ""
+        mock_result.stderr = "Permission denied"
+        mock_run.return_value = mock_result
+
+        mock_get_accurate_time.return_value = {
+            'success': True,
+            'accurate_time': '2024-01-01T00:00:00+00:00',
+            'source': 'ntp',
+            'source_type': 'ntp'
+        }
+
+        result = update_ntp_time()
+
+        assert result['system_info']['success'] is False
+        json_response_validator(result, success_expected=False)
+        assert 'error' in result
+
+    @pytest.mark.unit
+    @patch('time_sync.TimeSynchronizer.get_accurate_time')
+    @patch('subprocess.run')
+    def test_update_ntp_time_timedatectl_exception_is_not_masked_by_good_drift(
+        self, mock_run, mock_get_accurate_time, json_response_validator
+    ):
+        """
+        Same as above, but timedatectl raises instead of returning a
+        non-zero exit code.
+        """
+        mock_run.side_effect = Exception("Command not found")
+
+        mock_get_accurate_time.return_value = {
+            'success': True,
+            'accurate_time': '2024-01-01T00:00:00+00:00',
+            'source': 'ntp',
+            'source_type': 'ntp'
+        }
+
+        result = update_ntp_time()
+
+        assert result['system_info']['success'] is False
+        json_response_validator(result, success_expected=False)
+        assert 'error' in result
+
     @pytest.mark.integration
     def test_full_workflow(self, json_response_validator):
         """Test complete time sync workflow."""
