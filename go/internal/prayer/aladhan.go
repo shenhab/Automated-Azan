@@ -13,7 +13,9 @@ import (
 	"time"
 )
 
-const aladhanBase = "https://api.aladhan.com/v1"
+// aladhanBase is the Aladhan API base URL. It is a var (not a const) so
+// tests can point it at an httptest.Server.
+var aladhanBase = "https://api.aladhan.com/v1"
 
 // AladhanMethod represents a single Aladhan prayer calculation method.
 type AladhanMethod struct {
