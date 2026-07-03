@@ -232,8 +232,14 @@ def load_settings() -> Settings:
     """Load settings from disk, auto-migrating adahn.config if needed."""
     path = _find_config_file()
     if path is None:
-        # Attempt one-time migration from legacy INI format
-        target = _search_paths()[-1]  # azan.toml (local)
+        # Attempt one-time migration from legacy INI format.
+        # Honor AZAN_CONFIG_FILE even if it doesn't exist yet, so migration
+        # (and any subsequent writes) never fall back to the cwd-relative
+        # "azan.toml" default when the caller explicitly pinned a path.
+        if env := os.environ.get("AZAN_CONFIG_FILE", ""):
+            target = Path(env)
+        else:
+            target = _search_paths()[-1]  # azan.toml (local)
         if _migrate_legacy(target):
             path = target
         else:

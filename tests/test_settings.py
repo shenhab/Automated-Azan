@@ -2,6 +2,8 @@
 Tests for the settings module (Pydantic + TOML config system).
 """
 import os
+import subprocess
+import sys
 import pytest
 import tempfile
 from pathlib import Path
@@ -196,6 +198,62 @@ class TestAsWebDict:
         assert d["speakers_group_name"] == "hall"
         assert d["location"] == "icci"
         assert d["pre_fajr_enabled"] is True
+
+
+class TestNoRealConfigMutation:
+    """
+    Regression test: reload-triggering tests must never write to the repo's
+    real azan.toml. Several tests below monkeypatch AZAN_CONFIG_FILE to a
+    not-yet-existing tmp path and then importlib.reload(settings) — which
+    re-runs the module-level `load_settings()` singleton init and, on a
+    missing config file, falls into the auto-migration path. Without
+    monkeypatch.chdir(), that path used to resolve relative to the real
+    process cwd (the repo root) instead of the monkeypatched tmp location,
+    silently overwriting the real azan.toml with migrated defaults.
+
+    Run in a subprocess (not just in-process reload) so the real cwd/env
+    resolution matches what actually happens when the suite executes.
+    """
+
+    # The specific tests known to trigger a module-level reload with a
+    # not-yet-existing AZAN_CONFIG_FILE target. Deliberately scoped to these
+    # rather than the whole file (or test_web_interface_api.py, whose
+    # network/hardware-touching tests are unrelated and can hang) so this
+    # regression test stays fast and focused on the actual root cause.
+    RELOAD_TRIGGERING_TESTS = [
+        "tests/test_settings.py::TestSettingsSaveReload::test_save_creates_valid_toml",
+        "tests/test_settings.py::TestLoadSettings::test_load_from_valid_toml",
+        "tests/test_settings.py::TestLegacyMigration::test_migrates_adahn_config",
+    ]
+
+    @pytest.mark.unit
+    def test_reload_triggering_tests_do_not_mutate_real_azan_toml(self):
+        repo_root = Path(__file__).resolve().parent.parent
+        real_config = repo_root / "azan.toml"
+
+        before_bytes = real_config.read_bytes()
+        before_mtime = real_config.stat().st_mtime_ns
+
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", *self.RELOAD_TRIGGERING_TESTS, "-q"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        after_bytes = real_config.read_bytes()
+        after_mtime = real_config.stat().st_mtime_ns
+
+        assert before_bytes == after_bytes, (
+            "Running the reload-triggering settings tests mutated the real "
+            "repo-root azan.toml.\n"
+            f"pytest stdout:\n{result.stdout}\npytest stderr:\n{result.stderr}"
+        )
+        assert before_mtime == after_mtime, (
+            "Real repo-root azan.toml mtime changed even though content matched.\n"
+            f"pytest stdout:\n{result.stdout}\npytest stderr:\n{result.stderr}"
+        )
 
 
 class TestLegacyMigration:
