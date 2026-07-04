@@ -14,6 +14,27 @@ from datetime import datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+@pytest.fixture(autouse=True)
+def reset_chromecast_shared_state():
+    """Reset ChromecastManager's class-level discovery cache before and after each test.
+
+    ChromecastManager caches discovered devices on the class itself
+    (_shared_chromecasts / _shared_last_discovery) so that all instances in the
+    running process share one discovery result. Left untouched between tests,
+    whichever test runs first "wins" and seeds state that later tests silently
+    inherit, making results depend on execution order (e.g. under pytest-randomly
+    or pytest-xdist). Resetting it here makes every test start from a clean slate
+    regardless of what ran before it.
+    """
+    from chromecast_manager import ChromecastManager
+
+    ChromecastManager._shared_chromecasts = {}
+    ChromecastManager._shared_last_discovery = 0
+    yield
+    ChromecastManager._shared_chromecasts = {}
+    ChromecastManager._shared_last_discovery = 0
+
+
 @pytest.fixture
 def temp_config_file(tmp_path):
     """Create a temporary TOML config file for testing."""
