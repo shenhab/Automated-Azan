@@ -57,8 +57,9 @@ class ChromecastManager:
                 if self.chromecasts:
                     logging.info(f"Successfully discovered {len(self.chromecasts)} devices.")
                     break
-                logging.warning(f"No devices discovered. Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
+                if attempt < max_retries - 1:
+                    logging.warning(f"No devices discovered. Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
         else:
             logging.info(f"Using cached devices: {len(self.chromecasts)} devices available")
 
