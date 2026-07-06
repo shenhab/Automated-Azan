@@ -293,7 +293,7 @@ jobs:
             -o azan-agent ./cmd/azan-agent
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v4.2.0
+        uses: docker/login-action@v4.4.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
