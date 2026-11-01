@@ -106,6 +106,50 @@ jobs:
           E2E_DOCKER_IMAGE: ${{ matrix.mode == 'docker' && 'azan-e2e:ci' || '' }}
         run: go test -tags e2e ./e2e/ -count=1 -v -parallel 16 -timeout 12m
 
+  # Dependency updates only: build every release target, so that "CI is green" on
+  # an update really means "this can still be released" (the Windows, macOS and ARM
+  # binaries are otherwise only built at release time). The Dependabot auto-merge
+  # waits for these checks, by name, on Go and Docker updates.
+  cross-build:
+    name: Cross-build (${{ matrix.goos }}/${{ matrix.goarch }})
+    if: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'dependabot/') }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest,  goos: linux,   goarch: amd64, cgo: "1" }
+          - { runner: ubuntu-latest,  goos: linux,   goarch: arm64, cgo: "0" }
+          - { runner: ubuntu-latest,  goos: linux,   goarch: arm,   cgo: "0" }
+          - { runner: windows-latest, goos: windows, goarch: amd64, cgo: "1" }
+          - { runner: macos-latest,   goos: darwin,  goarch: amd64, cgo: "1" }
+          - { runner: macos-latest,   goos: darwin,  goarch: arm64, cgo: "1" }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go/go.mod
+          cache: true
+          cache-dependency-path: go/go.sum
+
+      - name: Install tray dependencies (Linux)
+        if: matrix.goos == 'linux' && matrix.cgo == '1'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y pkg-config libgtk-3-dev libayatana-appindicator3-dev libasound2-dev
+
+      - name: Build
+        working-directory: go
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: ${{ matrix.cgo }}
+        run: go build -o "$RUNNER_TEMP/azan-agent-build" ./cmd/azan-agent
+
   # Pull requests only: prove the Dockerfile still builds. Nothing is pushed and
   # no secrets are used. (Skipped when this workflow is called from Docker/Release,
   # where github.event_name is the caller's event.)
