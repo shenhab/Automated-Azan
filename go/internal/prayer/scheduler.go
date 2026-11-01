@@ -32,6 +32,15 @@ const (
 	muteLeadTime   = 2 * time.Second
 )
 
+// dailyRefreshSpec is when the day's prayer schedule is rebuilt (local time of
+// the scheduler's timezone).
+//
+// It must be a wall-clock time that exists exactly once on every day of the
+// year. 01:00 is not: in Ireland it does not exist on the spring-forward day
+// (so that day's schedule was never built) and happens twice on the fall-back
+// day. 00:05 is always valid, and still comfortably before the earliest Fajr.
+const dailyRefreshSpec = "5 0 * * *"
+
 // Scheduler schedules daily Athan playback and optional Quran/Kahf jobs.
 type Scheduler struct {
 	cfg       *config.Config
@@ -51,9 +60,20 @@ type Scheduler struct {
 	cron      *cron.Cron
 	running   bool
 
+	// now is the clock; nil means time.Now. Tests inject a fixed date to check
+	// scheduling across daylight-saving changes.
+	now func() time.Time
+
 	// quran/kahf stop channels
 	quranStop chan struct{}
 	kahfStop  chan struct{}
+}
+
+func (s *Scheduler) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 // NewScheduler constructs a Scheduler.
@@ -83,7 +103,7 @@ func NewScheduler(
 }
 
 // Start launches the scheduler: schedules today's prayers and starts the daily
-// 01:00 refresh cron.
+// daily refresh cron (see dailyRefreshSpec).
 func (s *Scheduler) Start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -96,7 +116,7 @@ func (s *Scheduler) Start() error {
 	}
 
 	s.cron = cron.New(cron.WithLocation(s.tz))
-	s.cron.AddFunc("0 1 * * *", func() { // 01:00 daily
+	s.cron.AddFunc(dailyRefreshSpec, func() {
 		log.Println("[scheduler] daily refresh triggered")
 		timesync.Sync()
 		s.Reschedule()
@@ -141,7 +161,7 @@ func (s *Scheduler) Status() []JobStatus {
 
 // NextPrayer returns the name and scheduled time of the next upcoming prayer.
 func (s *Scheduler) NextPrayer() (name string, at time.Time, ok bool) {
-	now := time.Now().In(s.tz)
+	now := s.clock().In(s.tz)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, j := range s.todayJobs {
@@ -163,7 +183,7 @@ func (s *Scheduler) NextPrayer() (name string, at time.Time, ok bool) {
 // --- internal ---
 
 func (s *Scheduler) scheduleTodayLocked() error {
-	now := time.Now().In(s.tz)
+	now := s.clock().In(s.tz)
 	loc := s.cfg.Prayer.Location
 
 	times, err := s.fetcher.Fetch(loc, now, false)
@@ -266,7 +286,7 @@ func (s *Scheduler) scheduleTodayLocked() error {
 			continue
 		}
 
-		delay := time.Until(j.at)
+		delay := j.at.Sub(now)
 		prayer := j.prayer
 		label := j.label
 		idx := len(s.todayJobs) - 1
