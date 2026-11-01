@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -126,6 +127,9 @@ func TestFakeIdleReceiverStatusMatchesTheRealDevices(t *testing.T) {
 	topKeys, volKeys, appKeys := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	noAppsWhenIdle := 0
 	for name, frames := range real {
+		if !strings.HasPrefix(name, "idle-") {
+			continue // the playback trace is a different scenario
+		}
 		for _, st := range receiverStatuses(frames) {
 			for k := range st {
 				topKeys[k] = true
@@ -209,7 +213,9 @@ func TestFakeOnlySpeaksDocumentedCast(t *testing.T) {
 			t.Errorf("playerState %q is not a Cast player state", st["playerState"])
 		}
 		if state == "IDLE" {
-			if r, _ := st["idleReason"].(string); !docIdleReasons[r] {
+			// Optional per the reference (absent when IDLE just means "started");
+			// when present it must be one of the documented reasons.
+			if r, has := st["idleReason"].(string); has && !docIdleReasons[r] {
 				t.Errorf("idleReason %q is not documented", r)
 			}
 		} else if _, has := st["idleReason"]; has {
@@ -232,4 +238,97 @@ func TestFakeOnlySpeaksDocumentedCast(t *testing.T) {
 		}
 	}
 	_ = docInvalidWhy
+}
+
+// ── a real Athan, as the speaker group reported it (athan-playback.jsonl) ──────
+
+type mediaStatusRec struct {
+	Dir     string
+	Reply   bool // an answer to a request (requestId != 0), not a spontaneous update
+	State   string
+	Reason  string
+	Session float64
+	Keys    map[string]bool
+}
+
+func realMediaStatuses(t *testing.T) []mediaStatusRec {
+	t.Helper()
+	var out []mediaStatusRec
+	for _, f := range loadTraces(t)["athan-playback.jsonl"] {
+		if f.Dir != "in" || f.Type != "MEDIA_STATUS" {
+			continue
+		}
+		var p struct {
+			RequestID int              `json:"requestId"`
+			Status    []map[string]any `json:"status"`
+		}
+		if err := json.Unmarshal(f.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range p.Status {
+			r := mediaStatusRec{Dir: f.Dir, Reply: p.RequestID != 0, Keys: map[string]bool{}}
+			r.State, _ = s["playerState"].(string)
+			r.Reason, _ = s["idleReason"].(string)
+			r.Session, _ = s["mediaSessionId"].(float64)
+			for k := range s {
+				r.Keys[k] = true
+			}
+			out = append(out, r)
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("athan-playback.jsonl holds no media statuses")
+	}
+	return out
+}
+
+func TestRealAthanPlaybackFollowsTheDocumentedVocabulary(t *testing.T) {
+	for _, s := range realMediaStatuses(t) {
+		if !docPlayerStates[s.State] {
+			t.Errorf("real device sent playerState %q, which the Cast reference does not list", s.State)
+		}
+		if s.Reason != "" && !docIdleReasons[s.Reason] {
+			t.Errorf("real device sent idleReason %q, which the Cast reference does not list", s.Reason)
+		}
+		if s.Reason != "" && s.State != "IDLE" {
+			t.Errorf("idleReason %q sent with %s; the reference says it applies when IDLE", s.Reason, s.State)
+		}
+		for _, k := range []string{"mediaSessionId", "playerState", "currentTime", "volume"} {
+			if !s.Keys[k] {
+				t.Errorf("real %s status lacks %q", s.State, k)
+			}
+		}
+	}
+}
+
+// The order the real group reported things in, which the agent's playback check
+// must be able to follow: IDLE without a reason is "just started" (the reference
+// says idleReason is absent then) and is NOT a failure; BUFFERING and PLAYING
+// follow; the end is IDLE with FINISHED.
+func TestRealAthanPlaybackSequence(t *testing.T) {
+	var seq []string
+	for _, s := range realMediaStatuses(t) {
+		step := s.State
+		if s.Reason != "" {
+			step += "/" + s.Reason
+		}
+		if len(seq) == 0 || seq[len(seq)-1] != step {
+			seq = append(seq, step)
+		}
+	}
+	want := []string{"IDLE", "BUFFERING", "PLAYING", "IDLE/FINISHED"}
+	// PLAYING may interleave with repeats of IDLE/BUFFERING replies; compare as an ordered subsequence.
+	i := 0
+	for _, step := range seq {
+		if i < len(want) && step == want[i] {
+			i++
+		}
+	}
+	if i != len(want) {
+		t.Fatalf("real sequence %v does not contain %v in order", seq, want)
+	}
+	first := realMediaStatuses(t)[0]
+	if first.State != "IDLE" || first.Reason != "" {
+		t.Errorf("the first status for a new Athan was %s/%q, want IDLE with no idleReason", first.State, first.Reason)
+	}
 }

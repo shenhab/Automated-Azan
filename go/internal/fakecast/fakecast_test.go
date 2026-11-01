@@ -193,9 +193,7 @@ func TestFakeCanAcceptALoadAndDoNothing(t *testing.T) {
 	if err := app.Load(media.URL+"/media/ok.mp3", 0, "audio/mpeg", false, true, false); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := mediaState(app); st != "PLAYING" {
-		t.Errorf("after the misbehaviour ended, state = %q, want PLAYING", st)
-	}
+	waitState(t, app, "PLAYING")
 }
 
 func TestFakeCanReportLoadFailed(t *testing.T) {
@@ -217,11 +215,64 @@ func TestFakeCanStartPlayingAndThenStopWithAnError(t *testing.T) {
 	if err := app.Load(media.URL+"/media/ok.mp3", 0, "audio/mpeg", false, true, false); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := mediaState(app); st != "PLAYING" {
-		t.Errorf("right after the LOAD state = %q, want PLAYING", st)
-	}
-	time.Sleep(700 * time.Millisecond)
+	waitState(t, app, "PLAYING")       // it does start...
+	time.Sleep(700 * time.Millisecond) // ...and then fails
 	if st, reason := mediaState(app); st != "IDLE" || reason != "ERROR" {
 		t.Errorf("later state = %s/%s, want IDLE/ERROR", st, reason)
 	}
+}
+
+// A real speaker does not report PLAYING the instant it is told to load: the group
+// recorded in testdata/traces answered a LOAD with IDLE (no reason), then
+// BUFFERING, then PLAYING. The fake must do the same, or the agent is never shown
+// the states it has to cope with.
+func TestFakeStartsPlaybackLikeTheRealSpeakerGroup(t *testing.T) {
+	media := mediaServer(t)
+	_, app := startSpeaker(t)
+	if err := app.Load(media.URL+"/media/ok.mp3", 0, "audio/mpeg", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	var seq []string
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		st, reason := mediaState(app)
+		step := st
+		if reason != "" {
+			step += "/" + reason
+		}
+		if len(seq) == 0 || seq[len(seq)-1] != step {
+			seq = append(seq, step)
+		}
+		if st == "PLAYING" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	want := []string{"IDLE", "BUFFERING", "PLAYING"}
+	if len(seq) != len(want) {
+		t.Fatalf("a new playback went through %v, want %v (as the real group did)", seq, want)
+	}
+	for i := range want {
+		if seq[i] != want[i] {
+			t.Fatalf("a new playback went through %v, want %v (as the real group did)", seq, want)
+		}
+	}
+}
+
+// waitState polls until the speaker reports want (a real speaker takes a moment to
+// get from IDLE through BUFFERING to PLAYING).
+func waitState(t *testing.T, app interface {
+	Update() error
+	Media() *cast.Media
+}, want string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if st, _ := mediaState(app); st == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	st, r := mediaState(app)
+	t.Fatalf("speaker never reached %s (now %s/%s)", want, st, r)
 }

@@ -29,7 +29,12 @@ func main() {
 	every := flag.Duration("every", time.Second, "status poll interval")
 	out := flag.String("out", "", "output file (JSON lines)")
 	scrub := flag.String("scrub", "", "comma list of old=new name replacements; enables scrubbing of IPs, ids and names")
+	convert := flag.String("convert", "", "instead of recording: scrub this existing raw JSONL file into -out (uses -scrub)")
 	flag.Parse()
+	if *convert != "" {
+		convertFile(*convert, *out, *scrub)
+		return
+	}
 	if *host == "" || *out == "" {
 		flag.Usage()
 		os.Exit(2)
@@ -50,14 +55,7 @@ func main() {
 		time.Sleep(*every)
 	}
 
-	names := map[string]string{}
-	if *scrub != "" {
-		for _, kv := range strings.Split(*scrub, ",") {
-			if k, v, ok := strings.Cut(kv, "="); ok {
-				names[k] = v
-			}
-		}
-	}
+	names := parseNames(*scrub)
 	f, err := os.Create(*out)
 	if err != nil {
 		log.Fatal(err)
@@ -73,4 +71,32 @@ func main() {
 		fmt.Fprintln(f, line)
 	}
 	log.Printf("recorded %d frames to %s", len(frames), *out)
+}
+
+func parseNames(spec string) map[string]string {
+	names := map[string]string{}
+	for _, kv := range strings.Split(spec, ",") {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			names[k] = v
+		}
+	}
+	return names
+}
+
+// convertFile scrubs an existing raw recording line by line.
+func convertFile(in, out, scrub string) {
+	data, err := os.ReadFile(in)
+	if err != nil {
+		log.Fatal(err)
+	}
+	names := parseNames(scrub)
+	var sb strings.Builder
+	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
+		sb.WriteString(castrecord.Scrub(line, names))
+		sb.WriteString("\n")
+	}
+	if err := os.WriteFile(out, []byte(sb.String()), 0o644); err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("scrubbed %s -> %s", in, out)
 }
