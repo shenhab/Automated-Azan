@@ -43,33 +43,38 @@ var dublin = func() *time.Location {
 // ── building / launching the agent ───────────────────────────────────────────
 
 var (
-	buildOnce sync.Once
-	binPath   string
-	buildErr  error
+	buildMu  sync.Mutex
+	builtBin = map[string]string{} // build tags -> binary path
 )
 
 // agentBinary compiles the headless (CGO_ENABLED=0) agent — the same way the
-// Docker image is built — once per test run.
-func agentBinary(t *testing.T) string {
+// Docker image is built — once per set of build tags per test run. The
+// "azanfaketime" tag is the only difference from the shipped build: it lets a test
+// start the agent's clock at a chosen instant (see internal/clock).
+func agentBinary(t *testing.T, tags string) string {
 	t.Helper()
-	buildOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "azan-e2e-bin")
-		if err != nil {
-			buildErr = err
-			return
-		}
-		binPath = filepath.Join(dir, "azan-agent")
-		cmd := exec.Command("go", "build", "-o", binPath, "./cmd/azan-agent")
-		cmd.Dir = ".." // module root (the go/ directory)
-		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			buildErr = fmt.Errorf("go build: %v\n%s", err, out)
-		}
-	})
-	if buildErr != nil {
-		t.Fatalf("cannot build agent: %v", buildErr)
+	buildMu.Lock()
+	defer buildMu.Unlock()
+	if p, ok := builtBin[tags]; ok {
+		return p
 	}
-	return binPath
+	dir, err := os.MkdirTemp("", "azan-e2e-bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "azan-agent")
+	args := []string{"build", "-o", out}
+	if tags != "" {
+		args = append(args, "-tags", tags)
+	}
+	cmd := exec.Command("go", append(args, "./cmd/azan-agent")...)
+	cmd.Dir = ".." // module root (the go/ directory)
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("cannot build agent: %v\n%s", err, b)
+	}
+	builtBin[tags] = out
+	return out
 }
 
 type syncBuf struct {
@@ -89,7 +94,8 @@ func (s *syncBuf) String() string {
 }
 
 type agent struct {
-	logs *syncBuf
+	logs    *syncBuf
+	webPort int
 }
 
 // freePorts returns a web port p such that p and p+1 (the media server) are free.
@@ -116,8 +122,30 @@ func freePorts(t *testing.T) int {
 // startAgent launches the agent (binary, or Docker image if E2E_DOCKER_IMAGE is
 // set) with the given home directory, config file and speaker, and stops it when
 // the test ends.
-func startAgent(t *testing.T, home, cfgFile string, sp *fakecast.Speaker) *agent {
+type agentOpt func(*agentCfg)
+
+type agentCfg struct {
+	fakeNow string
+	env     []string
+}
+
+// withFakeNow starts the agent's clock at the given RFC 3339 instant. It needs
+// the "azanfaketime" build, so it only works in binary mode (the Docker image is the
+// shipped build and has no fake clock).
+// withCredentials seeds the web login (the agent does this at first run from
+// AZAN_USERNAME / AZAN_PASSWORD).
+func withCredentials(user, pass string) agentOpt {
+	return func(c *agentCfg) { c.env = append(c.env, "AZAN_USERNAME="+user, "AZAN_PASSWORD="+pass) }
+}
+
+func withFakeNow(rfc3339 string) agentOpt { return func(c *agentCfg) { c.fakeNow = rfc3339 } }
+
+func startAgent(t *testing.T, home, cfgFile string, sp *fakecast.Speaker, opts ...agentOpt) *agent {
 	t.Helper()
+	var ac agentCfg
+	for _, o := range opts {
+		o(&ac)
+	}
 	host, port := sp.Addr()
 	static := fmt.Sprintf("%s=%s:%d", speakerName, host, port)
 	logs := &syncBuf{}
@@ -125,6 +153,9 @@ func startAgent(t *testing.T, home, cfgFile string, sp *fakecast.Speaker) *agent
 	var cmd *exec.Cmd
 	var stop func()
 	if image := os.Getenv("E2E_DOCKER_IMAGE"); image != "" {
+		if ac.fakeNow != "" {
+			t.Skip("needs the azanfaketime build; run in binary mode (unset E2E_DOCKER_IMAGE)")
+		}
 		u, _ := user.Current()
 		name := fmt.Sprintf("azan-e2e-%d-%d", os.Getpid(), time.Now().UnixNano()%100000)
 		cmd = exec.Command("docker", "run", "--rm", "--name", name,
@@ -133,16 +164,27 @@ func startAgent(t *testing.T, home, cfgFile string, sp *fakecast.Speaker) *agent
 			"-e", "AZAN_CONFIG_FILE=/cfg/azan.toml",
 			"-e", "AZAN_STATIC_DEVICES="+static,
 			"-v", home+":/home/e2e",
-			"-v", filepath.Dir(cfgFile)+":/cfg",
-			image)
+			"-v", filepath.Dir(cfgFile)+":/cfg")
+		for _, kv := range ac.env {
+			cmd.Args = append(cmd.Args, "-e", kv)
+		}
+		cmd.Args = append(cmd.Args, image)
 		stop = func() { exec.Command("docker", "stop", "-t", "3", name).Run() }
 	} else {
-		cmd = exec.Command(agentBinary(t))
+		tags := ""
+		if ac.fakeNow != "" {
+			tags = "azanfaketime"
+		}
+		cmd = exec.Command(agentBinary(t, tags))
 		cmd.Env = append(os.Environ(),
 			"HOME="+home,
 			"AZAN_CONFIG_FILE="+cfgFile,
 			"AZAN_STATIC_DEVICES="+static,
 		)
+		if ac.fakeNow != "" {
+			cmd.Env = append(cmd.Env, "AZAN_FAKE_NOW="+ac.fakeNow)
+		}
+		cmd.Env = append(cmd.Env, ac.env...)
 		stop = func() { cmd.Process.Signal(syscall.SIGTERM) }
 	}
 	cmd.Stdout, cmd.Stderr = logs, logs
@@ -210,7 +252,7 @@ func quoteJoin(ss []string) string {
 func writeConfig(t *testing.T, path string, webPort int, enabledPrayer string) {
 	t.Helper()
 	flag := func(p string) string {
-		if strings.EqualFold(p, enabledPrayer) {
+		if enabledPrayer == "all" || strings.EqualFold(p, enabledPrayer) {
 			return "true"
 		}
 		return "false"
@@ -257,7 +299,9 @@ func TestScheduledAthanReachesSpeaker(t *testing.T) {
 		prayer   string
 		wantFile string
 	}{
-		{"Isha", "media_Athan.mp3"},         // regular prayers use the standard Athan
+		// A regular prayer plays the standard Athan. (Asr, not Isha: Isha must come
+		// after Maghrib, and an Isha earlier than Maghrib now means "after midnight".)
+		{"Asr", "media_Athan.mp3"},
 		{"Fajr", "media_adhan_al_fajr.mp3"}, // Fajr has its own Athan
 	} {
 		tc := tc
