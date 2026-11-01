@@ -16,6 +16,7 @@ import (
 
 	"azan-agent/internal/appdirs"
 	"azan-agent/internal/chromecast"
+	"azan-agent/internal/clock"
 	"azan-agent/internal/config"
 	"azan-agent/internal/localplay"
 	"azan-agent/internal/media"
@@ -307,7 +308,7 @@ func (p *program) run() {
 	p.cfgWatcher = watcher
 
 	// Print prayer times on startup
-	now := time.Now().In(fetcher.Timezone())
+	now := clock.Now().In(fetcher.Timezone())
 	if times, err := fetcher.Fetch(cfg.Prayer.Location, now, false); err == nil {
 		log.Printf("[main] prayer times for %s on %s:", cfg.Prayer.Location, now.Format("2006-01-02"))
 		log.Printf("  Fajr=%s  Dhuhr=%s  Asr=%s  Maghrib=%s  Isha=%s",

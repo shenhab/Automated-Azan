@@ -7,10 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"azan-agent/internal/clock"
 	"azan-agent/internal/config"
 	"azan-agent/internal/timesync"
-
-	"github.com/robfig/cron/v3"
 )
 
 // PlayFunc is called when it's time to play Athan.
@@ -32,14 +31,28 @@ const (
 	muteLeadTime   = 2 * time.Second
 )
 
-// dailyRefreshSpec is when the day's prayer schedule is rebuilt (local time of
-// the scheduler's timezone).
+// The day's prayer schedule is rebuilt at 00:05 local time every day.
 //
 // It must be a wall-clock time that exists exactly once on every day of the
 // year. 01:00 is not: in Ireland it does not exist on the spring-forward day
 // (so that day's schedule was never built) and happens twice on the fall-back
 // day. 00:05 is always valid, and still comfortably before the earliest Fajr.
-const dailyRefreshSpec = "5 0 * * *"
+const (
+	dailyRefreshHour   = 0
+	dailyRefreshMinute = 5
+)
+
+// nextDailyRefresh returns the next refresh instant strictly after `from`.
+// time.Date resolves the wall-clock time in loc, so it is correct across
+// daylight-saving changes.
+func nextDailyRefresh(from time.Time, loc *time.Location) time.Time {
+	f := from.In(loc)
+	t := time.Date(f.Year(), f.Month(), f.Day(), dailyRefreshHour, dailyRefreshMinute, 0, 0, loc)
+	if !t.After(f) {
+		t = time.Date(f.Year(), f.Month(), f.Day()+1, dailyRefreshHour, dailyRefreshMinute, 0, 0, loc)
+	}
+	return t
+}
 
 // Scheduler schedules daily Athan playback and optional Quran/Kahf jobs.
 type Scheduler struct {
@@ -54,15 +67,19 @@ type Scheduler struct {
 	warmup    func() error // called warmupLeadTime before each event to pre-connect
 	mute      func() error // called muteLeadTime before each Athan to silence TVs
 
-	mu        sync.Mutex
-	todayJobs []JobStatus
-	timers    []*time.Timer
-	cron      *cron.Cron
-	running   bool
+	mu          sync.Mutex
+	todayJobs   []JobStatus
+	timers      []*time.Timer
+	stopRefresh chan struct{} // closes the daily-refresh goroutine
+	running     bool
 
 	// now is the clock; nil means time.Now. Tests inject a fixed date to check
 	// scheduling across daylight-saving changes.
 	now func() time.Time
+
+	// timeSync and afterRefresh are test seams for the daily refresh.
+	timeSync     func()
+	afterRefresh func()
 
 	// quran/kahf stop channels
 	quranStop chan struct{}
@@ -73,7 +90,7 @@ func (s *Scheduler) clock() time.Time {
 	if s.now != nil {
 		return s.now()
 	}
-	return time.Now()
+	return clock.Now()
 }
 
 // NewScheduler constructs a Scheduler.
@@ -103,7 +120,7 @@ func NewScheduler(
 }
 
 // Start launches the scheduler: schedules today's prayers and starts the daily
-// daily refresh cron (see dailyRefreshSpec).
+// loop that rebuilds it every day at 00:05 (see nextDailyRefresh).
 func (s *Scheduler) Start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -115,28 +132,55 @@ func (s *Scheduler) Start() error {
 		return err
 	}
 
-	s.cron = cron.New(cron.WithLocation(s.tz))
-	s.cron.AddFunc(dailyRefreshSpec, func() {
-		log.Println("[scheduler] daily refresh triggered")
-		timesync.Sync()
-		s.Reschedule()
-	})
-	s.cron.Start()
+	s.stopRefresh = make(chan struct{})
+	go s.refreshLoop(s.stopRefresh)
 	s.running = true
 	log.Println("[scheduler] started")
 	return nil
 }
 
-// Stop cancels all pending timers and the cron job.
+// Stop cancels all pending timers and the daily refresh.
 func (s *Scheduler) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cancelTimersLocked()
-	if s.cron != nil {
-		s.cron.Stop()
+	if s.stopRefresh != nil {
+		close(s.stopRefresh)
+		s.stopRefresh = nil
 	}
 	s.running = false
 	log.Println("[scheduler] stopped")
+}
+
+// refreshLoop rebuilds the day's schedule every day at 00:05 local time until
+// stop is closed.
+func (s *Scheduler) refreshLoop(stop <-chan struct{}) {
+	var last time.Time
+	for {
+		from := s.clock()
+		if from.Before(last) {
+			from = last // never fire the same refresh twice
+		}
+		next := nextDailyRefresh(from, s.tz)
+		timer := time.NewTimer(next.Sub(s.clock()))
+		select {
+		case <-stop:
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		last = next
+		log.Println("[scheduler] daily refresh triggered")
+		if s.timeSync != nil {
+			s.timeSync()
+		} else {
+			timesync.Sync()
+		}
+		s.Reschedule()
+		if s.afterRefresh != nil {
+			s.afterRefresh()
+		}
+	}
 }
 
 // Reschedule reloads prayer times and recreates all timers. Safe to call

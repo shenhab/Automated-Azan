@@ -8,31 +8,24 @@ import (
 	"testing"
 	"time"
 
-	"github.com/robfig/cron/v3"
-
 	"azan-agent/internal/config"
 )
 
-// The scheduler rebuilds each day's prayer timers from a daily cron job. If that
-// job is skipped on any calendar day, no prayers are scheduled for that day.
-// Clock changes are where cron implementations go wrong: in Ireland 01:00 does
-// not exist on the spring-forward day (29 Mar 2026) and happens twice on the
-// fall-back day (25 Oct 2026).
+// The scheduler rebuilds each day's prayer timers from a daily refresh. If that
+// refresh is skipped on any calendar day, no prayers are scheduled for that day.
+// Clock changes are where this goes wrong: in Ireland 01:00 does not exist on the
+// spring-forward day (29 Mar 2026) and happens twice on the fall-back day
+// (25 Oct 2026).
 //
 // Property under test: starting from any time on day D-1, the next refresh falls
 // on day D, exactly once, in the early hours — for every day of the year.
 func TestDailyRefreshFiresEveryCalendarDayIncludingDSTChanges(t *testing.T) {
 	loc := mustDublin(t)
-	c := cron.New(cron.WithLocation(loc))
-	if _, err := c.AddFunc(dailyRefreshSpec, func() {}); err != nil {
-		t.Fatalf("invalid refresh spec %q: %v", dailyRefreshSpec, err)
-	}
-	sched := c.Entries()[0].Schedule
 
 	for day := time.Date(2026, 1, 1, 0, 0, 0, 0, loc); day.Year() == 2026; day = day.AddDate(0, 0, 1) {
 		// Start just after the previous refresh window, at noon the day before.
 		from := time.Date(day.Year(), day.Month(), day.Day(), 12, 0, 0, 0, loc).AddDate(0, 0, -1)
-		next := sched.Next(from).In(loc)
+		next := nextDailyRefresh(from, loc).In(loc)
 
 		if next.YearDay() != day.YearDay() || next.Year() != day.Year() {
 			t.Errorf("after %s the next refresh is %s — the refresh for %s is skipped",
@@ -43,10 +36,57 @@ func TestDailyRefreshFiresEveryCalendarDayIncludingDSTChanges(t *testing.T) {
 			t.Errorf("refresh on %s runs at %s, expected the small hours", day.Format("2006-01-02"), next.Format("15:04 MST"))
 		}
 		// And it must not fire twice on the same day.
-		if again := sched.Next(next).In(loc); again.YearDay() == next.YearDay() {
+		if again := nextDailyRefresh(next, loc).In(loc); again.YearDay() == next.YearDay() {
 			t.Errorf("refresh fires twice on %s (%s and %s)", day.Format("2006-01-02"),
 				next.Format("15:04 MST"), again.Format("15:04 MST"))
 		}
+	}
+}
+
+// The real refresh loop, driven by a clock set just before 00:05 on each DST
+// night, must rebuild the schedule exactly once and then wait for the next day.
+func TestRefreshLoopRunsOncePerDSTNight(t *testing.T) {
+	loc := mustDublin(t)
+	for _, tc := range []struct {
+		name  string
+		start time.Time // 0.5 s before the 00:05 refresh
+	}{
+		{"spring-forward night (29 Mar 2026)", time.Date(2026, 3, 29, 0, 4, 59, 500_000_000, loc)},
+		{"fall-back night (25 Oct 2026)", time.Date(2026, 10, 25, 0, 4, 59, 500_000_000, loc)},
+		{"an ordinary night", time.Date(2026, 6, 10, 0, 4, 59, 500_000_000, loc)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, err := NewFetcher(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeNaasFormat(t, f, "naas", [6]string{"03:00", "05:00", "12:25", "15:00", "18:00", "20:00"})
+			cfg := &config.Config{}
+			cfg.Prayer.Location = "naas"
+			s := NewScheduler(cfg, f, func(string, string) error { return nil }, nil, nil, nil, nil, nil, nil)
+
+			offset := time.Until(tc.start) // the clock starts at tc.start and runs in real time
+			s.now = func() time.Time { return time.Now().Add(offset) }
+			refreshed := make(chan struct{}, 4)
+			s.timeSync = func() {}
+			s.afterRefresh = func() { refreshed <- struct{}{} }
+
+			if err := s.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(s.Stop)
+
+			select {
+			case <-refreshed:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the 00:05 refresh never ran")
+			}
+			select {
+			case <-refreshed:
+				t.Error("the refresh ran twice")
+			case <-time.After(1500 * time.Millisecond):
+			}
+		})
 	}
 }
 

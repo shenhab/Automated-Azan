@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"azan-agent/internal/chromecast"
+	"azan-agent/internal/clock"
 	"azan-agent/internal/config"
 	"azan-agent/internal/hijri"
 	"azan-agent/internal/media"
@@ -235,7 +236,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	now := time.Now().In(s.fetcher.Timezone())
+	now := clock.Now().In(s.fetcher.Timezone())
 	times, _ := s.fetcher.Fetch(s.cfg.Prayer.Location, now, false)
 	name, at, _ := s.scheduler.NextPrayer()
 
@@ -479,7 +480,7 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPIPrayerTimes(w http.ResponseWriter, r *http.Request) {
-	now := time.Now().In(s.fetcher.Timezone())
+	now := clock.Now().In(s.fetcher.Timezone())
 	force := r.URL.Query().Get("force") == "true"
 	times, err := s.fetcher.Fetch(s.cfg.Prayer.Location, now, force)
 	if err != nil {
