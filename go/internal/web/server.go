@@ -354,6 +354,67 @@ func (s *Server) broadcastLoop() {
 
 // --- REST API ---
 
+// mediaFileExists reports whether name is a plain audio file name the agent
+// can actually serve: no path components, an audio extension, and present in
+// the media directory or bundled with the binary.
+func (s *Server) mediaFileExists(name string) bool {
+	if name == "" || name != filepath.Base(name) || strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
+		return false
+	}
+	if !strings.HasSuffix(name, ".mp3") && !strings.HasSuffix(name, ".m4a") {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(s.mediaDir, name)); err == nil {
+		return true
+	}
+	if f, err := media.EmbeddedFS.Open("embedded/" + name); err == nil {
+		f.Close()
+		return true
+	}
+	return false
+}
+
+// validateConfigUpdate checks a settings update before any of it is applied, so
+// a bad value can never be saved (an unknown location, for example, would stop
+// every prayer from being scheduled).
+func (s *Server) validateConfigUpdate(body map[string]interface{}) error {
+	if v, ok := body["location"].(string); ok && !config.IsValidLocation(v) {
+		return fmt.Errorf("unknown location %q (use one of %s)", v, strings.Join(config.Locations, ", "))
+	}
+	if v, ok := body["speakers_group_name"].(string); ok && strings.TrimSpace(v) == "" {
+		return fmt.Errorf("the speaker name cannot be empty")
+	}
+	if v, ok := body["pre_fajr_minutes"].(float64); ok && (v < 0 || v > 720 || v != float64(int(v))) {
+		return fmt.Errorf("pre-Fajr minutes must be a whole number between 0 and 720")
+	}
+	if v, ok := body["aladhan_method"].(float64); ok && (v < 0 || v > 99 || v != float64(int(v))) {
+		return fmt.Errorf("invalid Aladhan calculation method %v", v)
+	}
+	// Aladhan needs a city and country, whether set now or already saved.
+	loc := s.cfg.Prayer.Location
+	if v, ok := body["location"].(string); ok {
+		loc = v
+	}
+	if loc == "aladhan" {
+		city, country := s.cfg.Prayer.AladhanCity, s.cfg.Prayer.AladhanCountry
+		if v, ok := body["aladhan_city"].(string); ok {
+			city = v
+		}
+		if v, ok := body["aladhan_country"].(string); ok {
+			country = v
+		}
+		if strings.TrimSpace(city) == "" || strings.TrimSpace(country) == "" {
+			return fmt.Errorf("the Aladhan source needs a city and a country")
+		}
+	}
+	for _, k := range []string{"fajr_media", "dhuhr_media", "asr_media", "maghrib_media", "isha_media"} {
+		if v, ok := body[k].(string); ok && v != "" && !s.mediaFileExists(v) {
+			return fmt.Errorf("%s: %q is not an available audio file", k, v)
+		}
+	}
+	return nil
+}
+
 func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -362,6 +423,10 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		var body map[string]interface{}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, errResp(err))
+			return
+		}
+		if err := s.validateConfigUpdate(body); err != nil {
 			writeJSON(w, errResp(err))
 			return
 		}
@@ -540,6 +605,10 @@ func (s *Server) handleAPIPlayAthan(w http.ResponseWriter, r *http.Request) {
 	// Use configured media file if not explicitly overridden in request
 	if body.Filename == "" {
 		body.Filename = s.cfg.Prayer.Media.FileFor(body.Prayer)
+	}
+	if !s.mediaFileExists(body.Filename) {
+		writeJSON(w, errResp(fmt.Errorf("%q is not an available audio file", body.Filename)))
+		return
 	}
 	if err := s.castMgr.PlayAthan(body.Prayer, body.Filename); err != nil {
 		writeJSON(w, errResp(err))
