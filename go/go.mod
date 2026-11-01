@@ -3,15 +3,15 @@ module azan-agent
 go 1.27.3
 
 require (
-	github.com/BurntSushi/toml v1.3.2
+	github.com/BurntSushi/toml v1.6.0
 	github.com/ebitengine/oto/v3 v3.4.0
-	github.com/fsnotify/fsnotify v1.7.0
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/getlantern/systray v1.2.2
-	github.com/gorilla/websocket v1.5.1
+	github.com/gorilla/websocket v1.5.3
 	github.com/hajimehoshi/go-mp3 v0.3.4
 	github.com/kardianos/service v1.2.4
 	github.com/robfig/cron/v3 v3.0.1
-	github.com/vishen/go-chromecast v0.3.3
+	github.com/vishen/go-chromecast v0.3.4
 	golang.org/x/crypto v0.57.0
 	golang.org/x/mod v0.42.0
 	golang.org/x/sys v0.48.0
