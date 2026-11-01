@@ -83,6 +83,7 @@ type Speaker struct {
 
 	trace        []string
 	events       []Event
+	dropReplies  map[string]int // request type -> replies still to swallow
 	loads        []Load
 	appLaunched  bool
 	sessionID    string
@@ -205,6 +206,28 @@ func (s *Speaker) SimulateCast(url string) {
 	s.mediaSession++
 	s.playerState = "PLAYING"
 	s.currentURL, s.currentType = url, "video/mp4"
+}
+
+// DropReplies makes the speaker act on the next n requests of the given type
+// (e.g. "LAUNCH", "LOAD") but not answer them, as if the reply were lost on the
+// way. The sender will wait and time out.
+func (s *Speaker) DropReplies(requestType string, n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dropReplies == nil {
+		s.dropReplies = map[string]int{}
+	}
+	s.dropReplies[requestType] = n
+}
+
+func (s *Speaker) shouldDropReply(requestType string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dropReplies[requestType] > 0 {
+		s.dropReplies[requestType]--
+		return true
+	}
+	return false
 }
 
 // SetPlayerStateForTest forces the media player state (PLAYING, PAUSED, IDLE),
@@ -418,6 +441,9 @@ func (s *Speaker) handle(m *pb.CastMessage, req *request, send func(ns, src, dst
 			s.playerState = "IDLE"
 			s.mu.Unlock()
 		}
+		if s.shouldDropReply(req.Type) {
+			return
+		}
 		send(ns, receiverID, src, s.receiverStatus(req.RequestID))
 
 	case nsMedia:
@@ -431,6 +457,9 @@ func (s *Speaker) handle(m *pb.CastMessage, req *request, send func(ns, src, dst
 			s.setState("PLAYING", "play")
 		case "STOP":
 			s.setState("IDLE", "media-stop")
+		}
+		if s.shouldDropReply(req.Type) {
+			return
 		}
 		send(ns, dst, src, s.mediaStatus(req.RequestID))
 	}

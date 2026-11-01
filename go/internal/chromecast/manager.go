@@ -428,17 +428,46 @@ func (m *Manager) playURL(url, contentType string) error {
 		dev = backoffDev
 	}
 
+	log.Printf("[chromecast] sending Load to %s (%s:%d) url=%s", dev.Name, dev.Host, dev.Port, url)
+	app, err = m.loadWithRetry(dev, app, url, contentType)
+	if err != nil {
+		return fmt.Errorf("load media on %s: %w", dev.Name, err)
+	}
 	m.mu.Lock()
 	m.app = app
 	m.mu.Unlock()
-
-	log.Printf("[chromecast] sending Load to %s (%s:%d) url=%s", dev.Name, dev.Host, dev.Port, url)
-	// detach=true so we return immediately without waiting for playback to finish
-	if err := app.Load(url, 0, contentType, false, true, false); err != nil {
-		return fmt.Errorf("load media on %s: %w", dev.Name, err)
-	}
 	log.Printf("[chromecast] Load command accepted by %s", dev.Name)
 	return nil
+}
+
+// loadAttempts is how many times a LOAD is tried before giving up.
+const loadAttempts = 3
+
+// loadWithRetry loads url on the connected speaker. If that fails it reconnects
+// and tries again: the client library can lose a reply that arrives before it has
+// registered to receive it (seen when the machine is busy), which surfaces as a
+// 5-second timeout and would otherwise cost a whole Athan. It returns the
+// connection that succeeded.
+func (m *Manager) loadWithRetry(dev Device, app *application.Application, url, contentType string) (*application.Application, error) {
+	var err error
+	for attempt := 1; attempt <= loadAttempts; attempt++ {
+		// detach=true so we return immediately without waiting for playback to finish
+		if err = app.Load(url, 0, contentType, false, true, false); err == nil {
+			return app, nil
+		}
+		log.Printf("[chromecast] Load attempt %d/%d on %s failed: %v", attempt, loadAttempts, dev.Name, err)
+		if attempt == loadAttempts {
+			break
+		}
+		app.Close(false)
+		time.Sleep(connectRetryPause)
+		fresh, cerr := m.connectWithRetry(dev)
+		if cerr != nil {
+			return nil, fmt.Errorf("%w (and reconnecting failed: %v)", err, cerr)
+		}
+		app = fresh
+	}
+	return nil, err
 }
 
 // connectWithBackoff retries connecting to the named device with forced mDNS
