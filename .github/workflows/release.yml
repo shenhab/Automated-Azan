@@ -46,6 +46,7 @@ concurrency:
 
 env:
   IMAGE: shenhab/athan
+  DOCKER_BUILD_RECORD_UPLOAD: "false"   # don't attach Docker's build record as an artifact
 
 jobs:
   # Nothing is released unless the CI quality gate passes first.
@@ -377,14 +378,21 @@ jobs:
           fi
 
       # The release itself is created last, by the release job, once every
-      # binary and the Docker image have been built.
-      - name: Keep the build outputs
+      # binary and the Docker image have been built. Name the files exactly:
+      # an empty path here once uploaded the whole go/ folder.
+      - name: Keep the build output
         uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ matrix.asset }}
-          path: |
-            go/${{ steps.versioned.outputs.asset }}
-            go/${{ steps.versioned.outputs.raw_binary }}
+          path: go/${{ steps.versioned.outputs.asset }}
+          if-no-files-found: error
+
+      - name: Keep the raw binary for the macOS self-updater
+        if: matrix.goos == 'darwin'
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ${{ matrix.asset }}-raw
+          path: go/${{ steps.versioned.outputs.raw_binary }}
           if-no-files-found: error
 
   # ── Publish the GitHub release (last, once everything above succeeded) ────
@@ -397,8 +405,28 @@ jobs:
       - name: Download the binaries
         uses: actions/download-artifact@v8.0.2
         with:
+          pattern: azan-agent-*     # only ours (not e.g. Docker's build record)
           path: dist
           merge-multiple: true
+
+      # Publish exactly the expected files, nothing more and nothing less. If this
+      # fails the release is not created and the tag is removed again.
+      - name: Check the files to publish
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          expected=$(printf '%s\n' \
+            "azan-agent-linux-amd64-$TAG" "azan-agent-linux-arm64-$TAG" "azan-agent-linux-arm-$TAG" \
+            "azan-agent-windows-amd64-$TAG.exe" \
+            "azan-agent-darwin-amd64-$TAG.dmg" "azan-agent-darwin-arm64-$TAG.dmg" \
+            "azan-agent-darwin-amd64-$TAG" "azan-agent-darwin-arm64-$TAG" | sort)
+          actual=$(ls -1 dist | sort)
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::The files to publish are not what was expected."
+            diff <(echo "$expected") <(echo "$actual") || true
+            exit 1
+          fi
+          echo "Publishing $(echo "$actual" | wc -l) files:"; echo "$actual"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3.0.3
