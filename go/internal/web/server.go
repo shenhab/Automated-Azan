@@ -572,6 +572,9 @@ func (s *Server) handleAPISchedulerStatus(w http.ResponseWriter, r *http.Request
 		"success":     true,
 		"jobs":        s.scheduler.Status(),
 		"next_prayer": map[string]interface{}{"name": name, "time": at.Format("15:04"), "found": ok},
+		// What the speaker reported after the latest play request (did it really
+		// start? is it muted?). Empty until something has been played.
+		"last_playback": s.castMgr.LastPlayback(),
 	})
 }
 
@@ -620,7 +623,8 @@ func (s *Server) handleAPIPlayAthan(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, errResp(err))
 		return
 	}
-	writeJSON(w, map[string]interface{}{"success": true, "prayer": body.Prayer, "filename": body.Filename})
+	writeJSON(w, map[string]interface{}{"success": true, "prayer": body.Prayer, "filename": body.Filename,
+		"playback": s.castMgr.LastPlayback()})
 }
 
 func (s *Server) handleAPITestWorkflow(w http.ResponseWriter, r *http.Request) {
@@ -676,6 +680,7 @@ func (s *Server) handleAPITestWorkflow(w http.ResponseWriter, r *http.Request) {
 		"prayer":   body.Prayer,
 		"filename": filename,
 		"tv_muted": tvMuted,
+		"playback": s.castMgr.LastPlayback(),
 	})
 }
 
