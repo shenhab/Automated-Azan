@@ -32,10 +32,20 @@ The next version is the highest `vMAJOR.MINOR.PATCH` tag plus a bump:
 | Bump | When |
 |---|---|
 | **patch** (default) | any other releasing change |
-| **minor** | the PR has the label `release:minor`, or its title starts with `feat:` |
-| **major** | the PR has the label `release:major`, the title is `feat!:` / `fix!:`, or the commit body contains `BREAKING CHANGE` |
+| **minor** | the title starts with `feat:` |
+| **major** | the title is `feat!:` / `fix!:`, or the commit body contains `BREAKING CHANGE` |
 
-Opt out of releasing a merge with the label `release:skip` or `[skip release]` in the PR title/body.
+### PR labels — explicit intent
+
+A `release:*` label on the PR **forces a release** (even if only docs or CI changed) and sets the bump.
+Explicit labels win over what the title suggests; if several are present the highest wins.
+
+| Label | Effect |
+|---|---|
+| `release:patch` | release, bump patch |
+| `release:minor` | release, bump minor |
+| `release:major` | release, bump major |
+| `release:skip` (or `[skip release]` in the PR title/body) | do **not** release; beats the labels above |
 
 > The rules are code with tests: `go/tools/nextversion`. Change them there, not in the workflow.
 
