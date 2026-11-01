@@ -80,10 +80,9 @@ func guardDST(t Times, date time.Time, loc *time.Location) (Times, int) {
 		if !ok {
 			return s, s == "" // leave empty values alone, bail on garbage
 		}
-		m -= 60 * k
-		if m < 0 || m >= 24*60 {
-			return s, false
-		}
+		// Wrap around midnight: Isha is after midnight in summer ("00:17"), and an
+		// hour earlier than that is 23:17 the previous evening.
+		m = ((m-60*k)%(24*60) + 24*60) % (24 * 60)
 		return minutesToClock(m), true
 	}
 

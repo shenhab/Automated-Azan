@@ -1,6 +1,8 @@
 package prayer
 
 import (
+	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"testing"
@@ -92,15 +94,65 @@ func scheduleFor(t *testing.T, loc string, day time.Time, dataDir string) map[st
 	return out
 }
 
+// circularDiff is a-b on a 24-hour clock, in (-720, 720]: 00:10 minus 23:50 is
+// +20, not -1420. (Minute-of-day in UTC wraps at midnight, which a prayer that
+// legitimately falls after midnight will cross.)
+func circularDiff(a, b float64) float64 {
+	d := math.Mod(a-b+720+1440, 1440) - 720
+	return d
+}
+
 func utcMinutes(t time.Time) float64 { return float64(t.Hour()*60+t.Minute()) + float64(t.Second())/60 }
 
-func TestScheduleIsConsistentAllYearForEverySource(t *testing.T) {
+// assertConsistentYear runs the real scheduler for every day of `year` against
+// the timetable already present in dataDir and checks, without trusting any
+// timezone logic in the code under test, that the schedule is sane: Dhuhr is at
+// solar noon in UTC, the prayers are in order, and nothing jumps by an hour from
+// one day to the next. Used for both the bundled and the live timetables.
+func assertConsistentYear(t *testing.T, src, dataDir string, year int) {
+	t.Helper()
 	loc := mustDublin(t)
 	order := []string{"Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"}
 	// Largest plausible change from one day to the next, in minutes, in UTC. A
 	// daylight-saving error shows up as a 60-minute step, far above these.
 	maxStep := map[string]float64{"Dhuhr": 6, "Asr": 12, "Maghrib": 12, "Fajr": 25, "Isha": 25}
 
+	var prev map[string]time.Time
+	for day := time.Date(year, 1, 1, 0, 0, 0, 0, loc); day.Year() == year; day = day.AddDate(0, 0, 1) {
+		got := scheduleFor(t, src, day, dataDir)
+		date := day.Format("2006-01-02")
+		for _, p := range order {
+			if _, ok := got[p]; !ok {
+				t.Fatalf("%s: no %s scheduled", date, p)
+			}
+		}
+
+		// 1. Dhuhr is at solar noon in absolute (UTC) terms.
+		if d := math.Abs(utcMinutes(got["Dhuhr"]) - noonUTC(day.YearDay())); d > 35 {
+			t.Errorf("%s: Dhuhr %s UTC is %.0f min from solar noon", date, got["Dhuhr"].Format("15:04"), d)
+		}
+		// 2. Prayers are in order.
+		for i := 1; i < len(order); i++ {
+			if !got[order[i]].After(got[order[i-1]]) {
+				t.Errorf("%s: %s (%s) is not after %s (%s)", date, order[i], got[order[i]].Format("15:04"),
+					order[i-1], got[order[i-1]].Format("15:04"))
+			}
+		}
+		// 3. No sudden jumps from yesterday (the signature of a DST error).
+		if prev != nil {
+			for _, p := range order {
+				step := circularDiff(utcMinutes(got[p]), utcMinutes(prev[p]))
+				if math.Abs(step) > maxStep[p] {
+					t.Errorf("%s: %s jumped %+.0f min in UTC since yesterday (%s -> %s)", date, p, step,
+						prev[p].Format("15:04"), got[p].Format("15:04"))
+				}
+			}
+		}
+		prev = got
+	}
+}
+
+func TestScheduleIsConsistentAllYearForEverySource(t *testing.T) {
 	for _, src := range []string{"icci", "naas", "newbridge", "cork", "galway"} {
 		src := src
 		t.Run(src, func(t *testing.T) {
@@ -117,40 +169,134 @@ func TestScheduleIsConsistentAllYearForEverySource(t *testing.T) {
 			if err := os.WriteFile(seed.timetablePath(src), raw, 0o644); err != nil {
 				t.Fatal(err)
 			}
-
-			var prev map[string]time.Time
-			for day := time.Date(2026, 1, 1, 0, 0, 0, 0, loc); day.Year() == 2026; day = day.AddDate(0, 0, 1) {
-				got := scheduleFor(t, src, day, dir)
-				date := day.Format("2006-01-02")
-				for _, p := range order {
-					if _, ok := got[p]; !ok {
-						t.Fatalf("%s: no %s scheduled", date, p)
-					}
-				}
-
-				// 1. Dhuhr is at solar noon in absolute (UTC) terms.
-				if d := math.Abs(utcMinutes(got["Dhuhr"]) - noonUTC(day.YearDay())); d > 35 {
-					t.Errorf("%s: Dhuhr %s UTC is %.0f min from solar noon", date, got["Dhuhr"].Format("15:04"), d)
-				}
-				// 2. Prayers are in order.
-				for i := 1; i < len(order); i++ {
-					if !got[order[i]].After(got[order[i-1]]) {
-						t.Errorf("%s: %s (%s) is not after %s (%s)", date, order[i], got[order[i]].Format("15:04"),
-							order[i-1], got[order[i-1]].Format("15:04"))
-					}
-				}
-				// 3. No sudden jumps from yesterday (the signature of a DST error).
-				if prev != nil {
-					for _, p := range order {
-						step := utcMinutes(got[p]) - utcMinutes(prev[p])
-						if math.Abs(step) > maxStep[p] {
-							t.Errorf("%s: %s jumped %+.0f min in UTC since yesterday (%s -> %s)", date, p, step,
-								prev[p].Format("15:04"), got[p].Format("15:04"))
-						}
-					}
-				}
-				prev = got
-			}
+			assertConsistentYear(t, src, dir, 2026)
 		})
+	}
+}
+
+// ── prayers that fall after midnight ─────────────────────────────────────────
+
+// At Ireland's latitude, Isha in late spring/summer is after midnight (the live
+// Cork timetable has e.g. 00:17 and 01:44). A timetable row lists the Isha that
+// ends that evening, so "00:17" in the 20 June row means 00:17 on 21 June.
+
+// writeNaasFormat writes a full-year Naas-format timetable with the same times
+// every day.
+func writeNaasFormat(t *testing.T, f *Fetcher, loc string, times [6]string) {
+	t.Helper()
+	var months []map[string][]string
+	for m := 0; m < 12; m++ {
+		days := map[string][]string{}
+		for d := 1; d <= 31; d++ {
+			days[fmt.Sprint(d)] = times[:]
+		}
+		months = append(months, days)
+	}
+	data, err := json.Marshal(months)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.timetablePath(loc), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func scheduleAt(t *testing.T, ishaTime string, now time.Time) *Scheduler {
+	t.Helper()
+	f, err := NewFetcher(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fajr, Sunrise, Dhuhr, Asr, Maghrib, Isha — a plausible June day in Cork.
+	writeNaasFormat(t, f, "cork", [6]string{"02:57", "05:00", "13:34", "17:48", "21:35", ishaTime})
+	cfg := &config.Config{}
+	cfg.Prayer.Location = "cork"
+	cfg.Prayer.Enabled = config.PrayerEnabledConfig{Fajr: true, Dhuhr: true, Asr: true, Maghrib: true, Isha: true}
+	s := NewScheduler(cfg, f, func(string, string) error { return nil }, nil, nil, nil, nil, nil, nil)
+	s.now = func() time.Time { return now }
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t.Cleanup(func() { s.mu.Lock(); s.cancelTimersLocked(); s.mu.Unlock() })
+	if err := s.scheduleTodayLocked(); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func ishaInstants(s *Scheduler) (upcoming []string) {
+	loc := s.tz
+	for _, j := range s.todayJobs {
+		if j.Prayer == "Isha" && j.NextRunAt != "" {
+			at, _ := time.Parse(time.RFC3339, j.NextRunAt)
+			upcoming = append(upcoming, at.In(loc).Format("2006-01-02 15:04"))
+		}
+	}
+	return upcoming
+}
+
+func TestIshaAfterMidnightIsScheduledOnTheFollowingDay(t *testing.T) {
+	loc := mustDublin(t)
+	// 20 June, just after the daily refresh. Tonight's Isha is at 00:17 on the
+	// 21st; last night's Isha (listed under the 19th) is still to come at 00:17
+	// today. Both are real prayers that must be scheduled.
+	s := scheduleAt(t, "00:17", time.Date(2026, 6, 20, 0, 5, 0, 0, loc))
+	got := ishaInstants(s)
+	want := []string{"2026-06-20 00:17", "2026-06-21 00:17"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("Isha scheduled at %v, want %v", got, want)
+	}
+}
+
+func TestIshaAfterMidnightAlreadyPassedIsNotRepeated(t *testing.T) {
+	loc := mustDublin(t)
+	// 00:30 on the 20th: last night's 00:17 Isha has already happened; only
+	// tonight's (00:17 on the 21st) remains.
+	s := scheduleAt(t, "00:17", time.Date(2026, 6, 20, 0, 30, 0, 0, loc))
+	got := ishaInstants(s)
+	want := []string{"2026-06-21 00:17"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("Isha scheduled at %v, want %v", got, want)
+	}
+}
+
+func TestNextPrayerAfterMaghribIsTonightsAfterMidnightIsha(t *testing.T) {
+	loc := mustDublin(t)
+	s := scheduleAt(t, "00:17", time.Date(2026, 6, 20, 21, 40, 0, 0, loc)) // after Maghrib
+	name, at, ok := s.NextPrayer()
+	if !ok || name != "Isha" {
+		t.Fatalf("next prayer = %q ok=%v, want Isha", name, ok)
+	}
+	if want := time.Date(2026, 6, 21, 0, 17, 0, 0, loc); !at.Equal(want) {
+		t.Errorf("next prayer at %s, want %s", at.Format("2006-01-02 15:04"), want.Format("2006-01-02 15:04"))
+	}
+}
+
+func TestOrdinaryEveningIshaIsUnchanged(t *testing.T) {
+	loc := mustDublin(t)
+	s := scheduleAt(t, "22:48", time.Date(2026, 5, 1, 0, 5, 0, 0, loc))
+	got := ishaInstants(s)
+	want := []string{"2026-05-01 22:48"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("Isha scheduled at %v, want %v", got, want)
+	}
+}
+
+// The DST sanity guard must also handle a timetable whose Isha is after
+// midnight: shifting everything an hour must wrap around midnight, not give up.
+func TestGuardDSTHandlesIshaAfterMidnight(t *testing.T) {
+	loc := mustDublin(t)
+	day := time.Date(2026, 6, 20, 9, 0, 0, 0, loc) // IST: solar noon ≈ 13:2x local
+	// Whole row one hour early (winter times on a summer day).
+	early := Times{Fajr: "01:58", Dhuhr: "12:34", Asr: "16:48", Maghrib: "20:35", Isha: "23:17"}
+	got, shift := guardDST(early, day, loc)
+	if shift != 1 || got.Dhuhr != "13:34" || got.Isha != "00:17" {
+		t.Errorf("early row: got %+v shift %d, want Dhuhr 13:34 and Isha 00:17 (wrapped past midnight), shift 1", got, shift)
+	}
+	// Whole row one hour late with Isha just after midnight: shifting back must
+	// wrap Isha to the previous evening instead of leaving the row uncorrected.
+	late := Times{Fajr: "03:58", Dhuhr: "14:34", Asr: "18:48", Maghrib: "22:35", Isha: "00:17"}
+	got, shift = guardDST(late, day, loc)
+	if shift != -1 || got.Dhuhr != "13:34" || got.Isha != "23:17" {
+		t.Errorf("late row: got %+v shift %d, want Dhuhr 13:34 and Isha 23:17, shift -1", got, shift)
 	}
 }

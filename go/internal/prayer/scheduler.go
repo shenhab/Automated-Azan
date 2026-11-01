@@ -165,16 +165,17 @@ func (s *Scheduler) NextPrayer() (name string, at time.Time, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, j := range s.todayJobs {
-		if j.Status != "upcoming" {
+		if j.Status != "upcoming" || j.NextRunAt == "" {
 			continue
 		}
-		t, err := time.ParseInLocation("15:04", j.Time, s.tz)
+		// NextRunAt carries the full date, so a prayer that falls after midnight
+		// (see ishaAfterMidnight) is reported on the correct day.
+		at, err := time.Parse(time.RFC3339, j.NextRunAt)
 		if err != nil {
 			continue
 		}
-		at = time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, s.tz)
 		if at.After(now) {
-			return j.Prayer, at, true
+			return j.Prayer, at.In(s.tz), true
 		}
 	}
 	return "", time.Time{}, false
@@ -222,12 +223,36 @@ func (s *Scheduler) scheduleTodayLocked() error {
 		if p.name == "Fajr" {
 			kind = "fajr_athan"
 		}
+		day, label := now.Day(), p.name+" Athan"
+		if p.name == "Isha" && ishaAfterMidnight(times) {
+			// This row's Isha ends the evening, so it falls on the next calendar day.
+			day, label = day+1, p.name+" Athan (after midnight)"
+		}
 		jobs = append(jobs, job{
 			prayer: p.name,
-			label:  p.name + " Athan",
+			label:  label,
 			kind:   kind,
-			at:     time.Date(now.Year(), now.Month(), now.Day(), h, m, 0, 0, s.tz),
+			at:     time.Date(now.Year(), now.Month(), day, h, m, 0, 0, s.tz),
 		})
+	}
+
+	// Last night's Isha, if it falls after midnight, is still to come today. It
+	// must be scheduled here too: the daily refresh discards timers set
+	// yesterday, so otherwise it would be lost.
+	if s.cfg.Prayer.Enabled.IsEnabled("Isha") {
+		if prev, err := s.fetcher.Fetch(loc, now.AddDate(0, 0, -1), false); err == nil && ishaAfterMidnight(prev) {
+			if h, m, err := parseHHMM(prev.Isha); err == nil {
+				at := time.Date(now.Year(), now.Month(), now.Day(), h, m, 0, 0, s.tz)
+				if at.After(now) {
+					jobs = append(jobs, job{
+						prayer: "Isha",
+						label:  "Isha Athan (after midnight)",
+						kind:   "regular_athan",
+						at:     at,
+					})
+				}
+			}
+		}
 	}
 
 	// Pre-Fajr Quran
@@ -340,6 +365,16 @@ func (s *Scheduler) scheduleTodayLocked() error {
 	}
 
 	return nil
+}
+
+// ishaAfterMidnight reports whether this row's Isha is a time after midnight.
+// At Ireland's latitude the evening twilight lasts past midnight in late
+// spring and summer, so timetables list Isha as e.g. "00:17" or "01:44": a clock
+// time earlier than Maghrib. It then belongs to the *next* calendar day.
+func ishaAfterMidnight(t Times) bool {
+	mh, mm, err1 := parseHHMM(t.Maghrib)
+	ih, im, err2 := parseHHMM(t.Isha)
+	return err1 == nil && err2 == nil && ih*60+im < mh*60+mm
 }
 
 func (s *Scheduler) fire(prayer string) {
