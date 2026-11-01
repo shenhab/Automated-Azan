@@ -17,6 +17,8 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/user"
@@ -26,6 +28,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"azan-agent/internal/fakecast"
 )
@@ -98,21 +102,34 @@ type agent struct {
 	webPort int
 }
 
-// freePorts returns a web port p such that p and p+1 (the media server) are free.
+var (
+	portMu   sync.Mutex
+	portUsed = map[int]bool{}
+)
+
+// freePorts returns a web port p such that p and p+1 (the media server) are
+// free, and that no other test in this run has been given. (Tests run in
+// parallel, and a port is only "free" until somebody binds it.)
 func freePorts(t *testing.T) int {
 	t.Helper()
-	for i := 0; i < 50; i++ {
+	portMu.Lock()
+	defer portMu.Unlock()
+	for i := 0; i < 200; i++ {
 		l1, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			continue
 		}
 		p := l1.Addr().(*net.TCPAddr).Port
-		l2, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p+1))
 		l1.Close()
+		if portUsed[p] || portUsed[p+1] || portUsed[p-1] {
+			continue
+		}
+		l2, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p+1))
 		if err != nil {
 			continue
 		}
 		l2.Close()
+		portUsed[p], portUsed[p+1] = true, true
 		return p
 	}
 	t.Fatal("no free port pair")
@@ -127,6 +144,7 @@ type agentOpt func(*agentCfg)
 type agentCfg struct {
 	fakeNow string
 	env     []string
+	extra   []string // additional static devices, "Name=host:port"
 }
 
 // withFakeNow starts the agent's clock at the given RFC 3339 instant. It needs
@@ -138,6 +156,14 @@ func withCredentials(user, pass string) agentOpt {
 	return func(c *agentCfg) { c.env = append(c.env, "AZAN_USERNAME="+user, "AZAN_PASSWORD="+pass) }
 }
 
+// withExtraDevice makes another fake device (e.g. a TV) visible to the agent.
+func withExtraDevice(name string, sp *fakecast.Speaker) agentOpt {
+	return func(c *agentCfg) {
+		h, p := sp.Addr()
+		c.extra = append(c.extra, fmt.Sprintf("%s=%s:%d", name, h, p))
+	}
+}
+
 func withFakeNow(rfc3339 string) agentOpt { return func(c *agentCfg) { c.fakeNow = rfc3339 } }
 
 func startAgent(t *testing.T, home, cfgFile string, sp *fakecast.Speaker, opts ...agentOpt) *agent {
@@ -147,7 +173,7 @@ func startAgent(t *testing.T, home, cfgFile string, sp *fakecast.Speaker, opts .
 		o(&ac)
 	}
 	host, port := sp.Addr()
-	static := fmt.Sprintf("%s=%s:%d", speakerName, host, port)
+	static := strings.Join(append([]string{fmt.Sprintf("%s=%s:%d", speakerName, host, port)}, ac.extra...), ";")
 	logs := &syncBuf{}
 
 	var cmd *exec.Cmd
@@ -163,6 +189,7 @@ func startAgent(t *testing.T, home, cfgFile string, sp *fakecast.Speaker, opts .
 			"-e", "HOME=/home/e2e",
 			"-e", "AZAN_CONFIG_FILE=/cfg/azan.toml",
 			"-e", "AZAN_STATIC_DEVICES="+static,
+			"-e", "AZAN_DISABLE_MDNS=1", // never touch real devices on the LAN
 			"-v", home+":/home/e2e",
 			"-v", filepath.Dir(cfgFile)+":/cfg")
 		for _, kv := range ac.env {
@@ -180,6 +207,7 @@ func startAgent(t *testing.T, home, cfgFile string, sp *fakecast.Speaker, opts .
 			"HOME="+home,
 			"AZAN_CONFIG_FILE="+cfgFile,
 			"AZAN_STATIC_DEVICES="+static,
+			"AZAN_DISABLE_MDNS=1", // never touch real devices on the LAN
 		)
 		if ac.fakeNow != "" {
 			cmd.Env = append(cmd.Env, "AZAN_FAKE_NOW="+ac.fakeNow)
@@ -249,7 +277,7 @@ func quoteJoin(ss []string) string {
 	return strings.Join(q, ",")
 }
 
-func writeConfig(t *testing.T, path string, webPort int, enabledPrayer string) {
+func writeConfig(t *testing.T, path string, webPort int, enabledPrayer string, extra ...string) {
 	t.Helper()
 	flag := func(p string) string {
 		if enabledPrayer == "all" || strings.EqualFold(p, enabledPrayer) {
@@ -274,6 +302,7 @@ isha = %s
 host = "127.0.0.1"
 port = %d
 `, speakerName, flag("Fajr"), flag("Dhuhr"), flag("Asr"), flag("Maghrib"), flag("Isha"), webPort)
+	cfg += strings.Join(extra, "\n")
 	if err := os.WriteFile(path, []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -295,6 +324,7 @@ func nextFireTime(minLead time.Duration) time.Time {
 // ── the scenarios ────────────────────────────────────────────────────────────
 
 func TestScheduledAthanReachesSpeaker(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		prayer   string
 		wantFile string
@@ -321,9 +351,12 @@ func TestScheduledAthanReachesSpeaker(t *testing.T) {
 
 			fireAt := nextFireTime(100 * time.Second)
 			writeNaasTimetable(t, home, fireAt, tc.prayer)
-			writeConfig(t, cfgFile, webPort, tc.prayer)
+			// Also notify connected browsers, so the websocket event can be checked.
+			writeConfig(t, cfgFile, webPort, tc.prayer,
+				fmt.Sprintf("\n[prayer.channels.%s]\nspeaker = true\nbrowser_notify = true\nbrowser_athan = true\n", strings.ToLower(tc.prayer)))
 
-			ag := startAgent(t, home, cfgFile, sp)
+			ag := startAgent(t, home, cfgFile, sp, withCredentials(testUser, testPass))
+			events := watchWebsocket(t, webPort)
 
 			// Wait for the Athan to arrive at the speaker.
 			wait := time.Until(fireAt) + 90*time.Second
@@ -357,16 +390,68 @@ func TestScheduledAthanReachesSpeaker(t *testing.T) {
 				t.Errorf("downloaded file is not a plausible MP3: %+v", f)
 			}
 
-			// 3. Played once, not repeatedly.
+			// 3. A browser connected to the dashboard is told, with the audio to play.
+			select {
+			case ev := <-events:
+				if ev.Event != "prayer_fired" || ev.Data.Prayer != tc.prayer || ev.Data.AudioURL != "/media/"+tc.wantFile ||
+					!ev.Data.BrowserNotify || !ev.Data.BrowserAthan {
+					t.Errorf("websocket event = %+v, want prayer_fired for %s with /media/%s", ev, tc.prayer, tc.wantFile)
+				}
+			case <-time.After(10 * time.Second):
+				t.Errorf("a connected browser never received the prayer_fired event")
+			}
+
+			// 4. Played once, not repeatedly.
 			time.Sleep(10 * time.Second)
 			if n := len(sp.Loads()); n != 1 {
 				t.Errorf("speaker received %d LOAD commands, want exactly 1", n)
 			}
 
-			// 4. The agent stayed healthy.
+			// 5. The agent stayed healthy.
 			if out := ag.logs.String(); strings.Contains(out, "panic:") {
 				t.Errorf("agent panicked")
 			}
 		})
 	}
+}
+
+type wsEvent struct {
+	Event string `json:"event"`
+	Data  struct {
+		Prayer        string `json:"prayer"`
+		BrowserNotify bool   `json:"browser_notify"`
+		BrowserAthan  bool   `json:"browser_athan"`
+		AudioURL      string `json:"audio_url"`
+	} `json:"data"`
+}
+
+// watchWebsocket logs in like a browser, opens the dashboard websocket and
+// returns a channel of the prayer_fired events it receives.
+func watchWebsocket(t *testing.T, webPort int) <-chan wsEvent {
+	t.Helper()
+	c := newClient(t, webPort)
+	c.mustLogin()
+	u, _ := url.Parse(c.base)
+	var cookies []string
+	for _, ck := range c.http.Jar.Cookies(u) {
+		cookies = append(cookies, ck.Name+"="+ck.Value)
+	}
+	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://127.0.0.1:%d/ws", webPort), http.Header{"Cookie": {strings.Join(cookies, "; ")}})
+	if err != nil {
+		t.Fatalf("websocket: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	out := make(chan wsEvent, 8)
+	go func() {
+		for {
+			var ev wsEvent
+			if err := conn.ReadJSON(&ev); err != nil {
+				return
+			}
+			if ev.Event == "prayer_fired" {
+				out <- ev
+			}
+		}
+	}()
+	return out
 }

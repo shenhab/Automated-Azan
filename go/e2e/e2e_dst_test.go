@@ -88,6 +88,7 @@ func newSpeaker(t *testing.T) *fakecast.Speaker {
 // after 00:58 GMT — the clock skips the hour in between. It must fire then, not
 // an hour late (as if 01:xx had existed) or an hour early.
 func TestAthanFiresAtTheRightInstantAcrossTheSpringForwardGap(t *testing.T) {
+	t.Parallel()
 	sp := newSpeaker(t)
 	home, cfgFile, webPort := t.TempDir(), filepath.Join(t.TempDir(), "azan.toml"), freePorts(t)
 
@@ -126,6 +127,7 @@ func TestAthanFiresAtTheRightInstantAcrossTheSpringForwardGap(t *testing.T) {
 // At 00:05 on each clock-change night the agent rebuilds the day's schedule —
 // exactly once — and every prayer lands on the right absolute instant.
 func TestScheduleIsRebuiltOnceAndCorrectlyOnClockChangeNights(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		start time.Time // 30 s before the 00:05 local refresh

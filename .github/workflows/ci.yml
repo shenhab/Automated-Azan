@@ -58,7 +58,7 @@ jobs:
       #   hostport  — chromecast/manager.go builds "%s:%d" (breaks for IPv6)
       # Everything else in `go vet` is enforced. Remove these flags once fixed.
       - name: Vet
-        run: go vet -tags "e2e live" -copylocks=false -hostport=false ./...
+        run: go vet -tags "e2e live azanfaketime" -copylocks=false -hostport=false ./...
 
       - name: Build (desktop, cgo)
         run: go build ./...
@@ -80,7 +80,7 @@ jobs:
   e2e:
     name: E2E (${{ matrix.mode }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -104,7 +104,7 @@ jobs:
         working-directory: go
         env:
           E2E_DOCKER_IMAGE: ${{ matrix.mode == 'docker' && 'azan-e2e:ci' || '' }}
-        run: go test -tags e2e ./e2e/ -count=1 -v -timeout 10m
+        run: go test -tags e2e ./e2e/ -count=1 -v -parallel 16 -timeout 12m
 
   # Pull requests only: prove the Dockerfile still builds. Nothing is pushed and
   # no secrets are used. (Skipped when this workflow is called from Docker/Release,

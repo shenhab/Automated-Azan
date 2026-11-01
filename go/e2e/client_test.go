@@ -130,3 +130,5 @@ func (c *client) postJSON(path string, body, v any) int {
 	}
 	return status
 }
+
+func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
