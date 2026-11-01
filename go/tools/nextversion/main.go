@@ -9,8 +9,8 @@
 //   - a PR label release:patch / release:minor / release:major is explicit intent:
 //     it forces a release even if nothing users run changed, and sets the bump
 //     (explicit labels win over what the title suggests; the highest label wins);
-//   - "[skip release]" or the label release:skip opts out, and beats a release
-//     label; a person running the workflow by hand can force a release and choose
+//   - "[skip release]" (in the title or on a line of its own) or the label
+//     release:skip opts out, and beats a release label; a person running the workflow by hand can force a release and choose
 //     the bump.
 package main
 
@@ -47,7 +47,27 @@ var (
 	semverTag     = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)$`)
 	breakingTitle = regexp.MustCompile(`^\w+(\([^)]*\))?!:`)
 	featTitle     = regexp.MustCompile(`(?i)^feat(\([^)]*\))?:`)
+	// "BREAKING CHANGE:" counts as a commit footer, at the start of a line — not when
+	// it is merely mentioned in a sentence.
+	breakingFooter = regexp.MustCompile(`(?m)^BREAKING[ -]CHANGE:`)
 )
+
+// hasSkipMarker reports whether the message deliberately opts out of a release:
+// "[skip release]" in the title, or on a line of its own. Mentioning the marker in
+// a sentence (as documentation does) does not count.
+func hasSkipMarker(msg string) bool {
+	const marker = "[skip release]"
+	lines := strings.Split(strings.ReplaceAll(msg, "\r\n", "\n"), "\n")
+	if len(lines) > 0 && strings.Contains(strings.ToLower(lines[0]), marker) {
+		return true
+	}
+	for _, l := range lines {
+		if strings.EqualFold(strings.TrimSpace(l), marker) {
+			return true
+		}
+	}
+	return false
+}
 
 type version struct{ major, minor, patch int }
 
@@ -133,10 +153,9 @@ func Decide(in Input) (Decision, error) {
 		}
 	}
 
-	lowerMsg := strings.ToLower(in.Message)
 	reason := ""
 	if !in.Force {
-		if strings.Contains(lowerMsg, "[skip release]") || hasLabel(in.Labels, "release:skip") {
+		if hasSkipMarker(in.Message) || hasLabel(in.Labels, "release:skip") {
 			return Decision{Reason: "opted out of releasing ([skip release] or label release:skip)"}, nil
 		}
 		shipped := false
@@ -160,7 +179,7 @@ func Decide(in Input) (Decision, error) {
 	case bump != "": // chosen explicitly by a person running the workflow
 	case labelBump != "":
 		bump = labelBump
-	case strings.Contains(in.Message, "BREAKING CHANGE"), breakingTitle.MatchString(title):
+	case breakingFooter.MatchString(in.Message), breakingTitle.MatchString(title):
 		bump = "major"
 	case featTitle.MatchString(title):
 		bump = "minor"

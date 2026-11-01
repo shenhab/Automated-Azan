@@ -244,3 +244,54 @@ func TestExplicitLabelsBeatWhatTheTitleSuggests(t *testing.T) {
 		}
 	}
 }
+
+// ── markers must be deliberate, not words that happen to appear ───────────────
+//
+// Found on the first real release: a PR whose description EXPLAINED the
+// "[skip release]" marker was itself treated as opting out, so nothing was
+// released. A marker counts only when it is on purpose: in the title, or on a line
+// of its own. Likewise "BREAKING CHANGE" counts as the footer of a commit message,
+// at the start of a line, not when it is mentioned in a sentence.
+
+func TestProseThatMentionsAMarkerDoesNotTriggerIt(t *testing.T) {
+	code := []string{"go/internal/web/server.go"}
+	for name, msg := range map[string]string{
+		"explains skip, in a sentence":     "feat: release automation (#63)\n\nUse the label release:skip or put [skip release] in the title to opt out.",
+		"explains skip, in code quotes":    "fix: x (#1)\n\nThe marker `[skip release]` opts a merge out.",
+		"explains skip, in a bullet":       "fix: x (#1)\n\n- `[skip release]` in the PR title/body opts out",
+		"explains skip, inline after text": "fix: x\n\nTo avoid a release write [skip release] here.",
+	} {
+		d, _ := Decide(Input{Tags: []string{"v1.2.7"}, Message: msg, Files: code})
+		if !d.Release {
+			t.Errorf("%s: wrongly opted out: %+v", name, d)
+		}
+	}
+	// "BREAKING CHANGE" mentioned in a sentence is not a breaking change.
+	d, _ := Decide(Input{Tags: []string{"v1.2.7"}, Message: "docs: x (#1)\n\nA footer such as BREAKING CHANGE: y would make this a major release.", Files: code})
+	if d.Bump == "major" {
+		t.Errorf("a sentence mentioning BREAKING CHANGE raised a major bump: %+v", d)
+	}
+}
+
+func TestDeliberateMarkersStillWork(t *testing.T) {
+	code := []string{"go/internal/web/server.go"}
+	for name, msg := range map[string]string{
+		"in the title":             "fix: x [skip release] (#1)",
+		"in the title, other case": "Fix: x [Skip Release]",
+		"on a line of its own":     "fix: x (#1)\n\n[skip release]",
+		"on its own line, padded":  "fix: x (#1)\n\nSome text.\n   [Skip Release]   \nMore.",
+	} {
+		if d, _ := Decide(Input{Tags: []string{"v1.2.7"}, Message: msg, Files: code}); d.Release {
+			t.Errorf("%s: a deliberate opt-out was ignored: %+v", name, d)
+		}
+	}
+	for name, msg := range map[string]string{
+		"footer":                   "fix: x (#1)\n\nBREAKING CHANGE: config renamed",
+		"footer with hyphen":       "fix: x (#1)\n\nBREAKING-CHANGE: config renamed",
+		"footer after other lines": "fix: x (#1)\n\nDetails.\n\nBREAKING CHANGE: y",
+	} {
+		if d, _ := Decide(Input{Tags: []string{"v1.2.7"}, Message: msg, Files: code}); d.Bump != "major" {
+			t.Errorf("%s: a breaking-change footer was ignored: %+v", name, d)
+		}
+	}
+}
