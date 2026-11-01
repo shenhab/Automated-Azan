@@ -1,0 +1,35 @@
+name: Live sources
+
+# Downloads the REAL prayer timetables (Mawaqit, ICCI, Aladhan) and checks the
+# agent can still read them and schedule from them correctly. It needs the
+# internet and depends on third-party sites, so it is not part of CI and never
+# blocks a release. It runs weekly and on demand; a red run means a site changed
+# its format, went away, or is publishing bad data. Reports (as warnings) how many
+# days of each timetable have a wrong GMT/IST changeover that the agent corrects.
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    name: Live timetables
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go/go.mod
+          cache: true
+          cache-dependency-path: go/go.sum
+
+      - name: Check live timetables
+        working-directory: go
+        run: go test -tags live ./internal/prayer/ -run Live -count=1 -v -timeout 10m
