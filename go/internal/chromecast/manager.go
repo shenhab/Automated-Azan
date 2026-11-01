@@ -28,6 +28,11 @@ var (
 	backoffMaxWait       = 3 * time.Minute  // total time to keep retrying
 	connectRetryPause    = 2 * time.Second  // pause between connect attempts
 	mdnsTimeout          = 8 * time.Second  // how long one mDNS scan listens
+
+	// Playback verification (see verifyPlayback).
+	verifyStartTimeout = 10 * time.Second       // how long the speaker has to start playing
+	verifyStablePeriod = 2 * time.Second        // it must keep playing this long to count
+	verifyPollEvery    = 500 * time.Millisecond // how often its state is read
 )
 
 // QuranStation is the default live Quran recitation stream.
@@ -63,6 +68,8 @@ type Manager struct {
 
 	athanPlaying bool
 	quranPlaying bool
+
+	lastPlayback Playback // what the speaker reported after the latest play request
 
 	// static devices are always merged into discovery results (see
 	// parseStaticDevices); they let speakers be addressed directly where mDNS
@@ -402,15 +409,15 @@ func (m *Manager) playURL(url, contentType string) error {
 		// has already done what was asked, so asking again on the same warm session
 		// normally works. Only if that fails too is it replaced.
 		for attempt := 1; attempt <= preConnectAttempts; attempt++ {
-			err := preApp.Load(url, 0, contentType, false, true, false)
+			pb, err := m.loadAndVerify(preApp, preDev.Name, url, contentType)
 			if err == nil {
 				m.mu.Lock()
 				m.app = preApp
 				m.mu.Unlock()
-				log.Printf("[chromecast] Load accepted by %q (pre-connect)", preDev.Name)
+				m.recordPlayback(pb, "pre-connect")
 				return nil
 			}
-			log.Printf("[chromecast] Load on the pre-connected session failed (attempt %d/%d): %v", attempt, preConnectAttempts, err)
+			log.Printf("[chromecast] playback on the pre-connected session failed (attempt %d/%d): %v", attempt, preConnectAttempts, err)
 		}
 		preApp.Close(false)
 		log.Printf("[chromecast] pre-connect session stale for %q — reconnecting", preDev.Name)
@@ -437,14 +444,17 @@ func (m *Manager) playURL(url, contentType string) error {
 	}
 
 	log.Printf("[chromecast] sending Load to %s (%s:%d) url=%s", dev.Name, dev.Host, dev.Port, url)
-	app, err = m.loadWithRetry(dev, app, url, contentType)
+	app, pb, err := m.loadWithRetry(dev, app, url, contentType)
 	if err != nil {
+		m.mu.Lock()
+		m.lastPlayback = pb
+		m.mu.Unlock()
 		return fmt.Errorf("load media on %s: %w", dev.Name, err)
 	}
 	m.mu.Lock()
 	m.app = app
 	m.mu.Unlock()
-	log.Printf("[chromecast] Load command accepted by %s", dev.Name)
+	m.recordPlayback(pb, "")
 	return nil
 }
 
@@ -455,19 +465,23 @@ const loadAttempts = 3
 // session before it is replaced by a fresh connection.
 const preConnectAttempts = 2
 
-// loadWithRetry loads url on the connected speaker. If that fails it reconnects
-// and tries again: the client library can lose a reply that arrives before it has
-// registered to receive it (seen when the machine is busy), which surfaces as a
-// 5-second timeout and would otherwise cost a whole Athan. It returns the
-// connection that succeeded.
-func (m *Manager) loadWithRetry(dev Device, app *application.Application, url, contentType string) (*application.Application, error) {
-	var err error
+// loadWithRetry plays url on the connected speaker and checks that it really
+// started (see verifyPlayback). If a request is lost, ignored, rejected or the
+// playback dies at once, it reconnects and tries again, up to loadAttempts times.
+// (A lost reply is a known race in the client library, which registers its
+// listener after sending; it surfaces as a 5-second timeout and would otherwise
+// cost a whole Athan.) It returns the connection that succeeded and what the
+// speaker reported.
+func (m *Manager) loadWithRetry(dev Device, app *application.Application, url, contentType string) (*application.Application, Playback, error) {
+	var (
+		pb  Playback
+		err error
+	)
 	for attempt := 1; attempt <= loadAttempts; attempt++ {
-		// detach=true so we return immediately without waiting for playback to finish
-		if err = app.Load(url, 0, contentType, false, true, false); err == nil {
-			return app, nil
+		if pb, err = m.loadAndVerify(app, dev.Name, url, contentType); err == nil {
+			return app, pb, nil
 		}
-		log.Printf("[chromecast] Load attempt %d/%d on %s failed: %v", attempt, loadAttempts, dev.Name, err)
+		log.Printf("[chromecast] play attempt %d/%d on %s failed: %v", attempt, loadAttempts, dev.Name, err)
 		if attempt == loadAttempts {
 			break
 		}
@@ -475,11 +489,128 @@ func (m *Manager) loadWithRetry(dev Device, app *application.Application, url, c
 		time.Sleep(connectRetryPause)
 		fresh, cerr := m.connectWithRetry(dev)
 		if cerr != nil {
-			return nil, fmt.Errorf("%w (and reconnecting failed: %v)", err, cerr)
+			return nil, pb, fmt.Errorf("%w (and reconnecting failed: %v)", err, cerr)
 		}
 		app = fresh
 	}
-	return nil, err
+	return nil, pb, err
+}
+
+// Playback is what a speaker reported after being asked to play something.
+type Playback struct {
+	Speaker    string    `json:"speaker"`
+	Started    bool      `json:"started"`     // it reported PLAYING/BUFFERING and kept playing
+	State      string    `json:"state"`       // PLAYING, BUFFERING, IDLE, ...
+	IdleReason string    `json:"idle_reason"` // e.g. ERROR, when State is IDLE
+	Muted      bool      `json:"muted"`
+	Level      float32   `json:"level"` // 0..1
+	Warning    string    `json:"warning,omitempty"`
+	At         time.Time `json:"at"`
+}
+
+// LastPlayback returns what the speaker reported after the latest play request.
+func (m *Manager) LastPlayback() Playback {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastPlayback
+}
+
+func (m *Manager) recordPlayback(pb Playback, via string) {
+	m.mu.Lock()
+	m.lastPlayback = pb
+	m.mu.Unlock()
+	if via != "" {
+		via = " (" + via + ")"
+	}
+	log.Printf("[chromecast] %s is %s%s — volume %.2f, muted=%v", pb.Speaker, pb.State, via, pb.Level, pb.Muted)
+	if pb.Warning != "" {
+		log.Printf("[chromecast] WARNING: %s", pb.Warning)
+	}
+}
+
+// loadAndVerify asks the speaker to play url and then checks that it did.
+func (m *Manager) loadAndVerify(app *application.Application, speaker, url, contentType string) (Playback, error) {
+	baseline := 0 // the media session already on the speaker, if any, is not ours
+	if md := app.Media(); md != nil {
+		baseline = md.MediaSessionId
+	}
+	// detach=true so we return immediately without waiting for playback to finish
+	if err := app.Load(url, 0, contentType, false, true, false); err != nil {
+		return Playback{Speaker: speaker}, err
+	}
+	pb, err := verifyPlayback(app, speaker, baseline)
+	if err != nil {
+		return pb, fmt.Errorf("the speaker accepted the request but did not start playing: %w", err)
+	}
+	return pb, nil
+}
+
+// verifyPlayback asks the speaker, until it answers, what it is doing. Playback
+// counts as started once a NEW media session (not the one that was there before)
+// reports PLAYING or BUFFERING and keeps doing so for verifyStablePeriod. It fails
+// at once if the speaker reports an error, stops, or pauses, and after
+// verifyStartTimeout if nothing starts. A speaker that is playing but muted, or at
+// volume 0, is flagged in the report (the Athan will start but not be heard).
+func verifyPlayback(app *application.Application, speaker string, baseline int) (Playback, error) {
+	pb := Playback{Speaker: speaker}
+	deadline := time.Now().Add(verifyStartTimeout)
+	var playingSince time.Time
+	for {
+		if err := app.Update(); err != nil {
+			return pb, fmt.Errorf("could not read the speaker's state: %w", err)
+		}
+		pb.At = time.Now()
+		pb.State, pb.IdleReason = "", ""
+		if v := app.Volume(); v != nil {
+			pb.Muted, pb.Level = v.Muted, v.Level
+		}
+		if md := app.Media(); md != nil && md.MediaSessionId != baseline {
+			pb.State, pb.IdleReason = md.PlayerState, md.IdleReason
+		}
+
+		switch pb.State {
+		case "PLAYING", "BUFFERING":
+			if playingSince.IsZero() {
+				playingSince = time.Now()
+			}
+			if time.Since(playingSince) >= verifyStablePeriod {
+				pb.Started = true
+				pb.Warning = silenceWarning(speaker, pb)
+				return pb, nil
+			}
+		case "IDLE":
+			switch {
+			case pb.IdleReason == "FINISHED" && !playingSince.IsZero():
+				pb.Started = true // it played, and was short enough to be over already
+				pb.Warning = silenceWarning(speaker, pb)
+				return pb, nil
+			case pb.IdleReason != "":
+				return pb, fmt.Errorf("the speaker went idle (%s)", pb.IdleReason)
+			}
+		case "PAUSED":
+			return pb, fmt.Errorf("the speaker is paused")
+		}
+
+		if time.Now().After(deadline) {
+			state := pb.State
+			if state == "" {
+				state = "no media"
+			}
+			return pb, fmt.Errorf("nothing was playing after %v (speaker state: %s)", verifyStartTimeout, state)
+		}
+		time.Sleep(verifyPollEvery)
+	}
+}
+
+// silenceWarning explains why a speaker that is playing may still be inaudible.
+func silenceWarning(speaker string, pb Playback) string {
+	switch {
+	case pb.Muted:
+		return fmt.Sprintf("%s is playing but it is MUTED — the Athan will not be heard", speaker)
+	case pb.Level < 0.02:
+		return fmt.Sprintf("%s is playing but its volume is %.2f — the Athan will not be heard", speaker, pb.Level)
+	}
+	return ""
 }
 
 // connectWithBackoff retries connecting to the named device with forced mDNS

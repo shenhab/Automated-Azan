@@ -246,6 +246,48 @@ func TestWebUIAndAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("the play button reports whether the speaker really played, and warns if it is muted", func(t *testing.T) {
+		type playResp struct {
+			Success  bool   `json:"success"`
+			Error    string `json:"error"`
+			Playback struct {
+				Speaker string  `json:"speaker"`
+				Started bool    `json:"started"`
+				State   string  `json:"state"`
+				Muted   bool    `json:"muted"`
+				Level   float64 `json:"level"`
+				Warning string  `json:"warning"`
+			} `json:"playback"`
+		}
+		var ok playResp
+		c.postJSON("/api/play-athan", map[string]any{"prayer": "Dhuhr"}, &ok)
+		if !ok.Success || !ok.Playback.Started || ok.Playback.State != "PLAYING" || ok.Playback.Speaker != speakerName || ok.Playback.Warning != "" {
+			t.Errorf("a normal play reported %+v", ok)
+		}
+
+		// The speaker is muted: it plays, but nobody will hear it, and the page must say so.
+		sp.SetVolumeState(0.5, true)
+		defer sp.SetVolumeState(0.5, false)
+		var muted playResp
+		c.postJSON("/api/play-athan", map[string]any{"prayer": "Dhuhr"}, &muted)
+		if !muted.Success || !muted.Playback.Muted || !strings.Contains(muted.Playback.Warning, "MUTED") {
+			t.Errorf("a muted speaker was not flagged: %+v", muted)
+		}
+
+		// The same report is on the status endpoint the dashboard polls.
+		var st struct {
+			Last struct {
+				Speaker string `json:"speaker"`
+				Started bool   `json:"started"`
+				Warning string `json:"warning"`
+			} `json:"last_playback"`
+		}
+		c.getJSON("/api/scheduler-status", &st)
+		if st.Last.Speaker != speakerName || !st.Last.Started || !strings.Contains(st.Last.Warning, "MUTED") {
+			t.Errorf("last_playback on scheduler-status = %+v", st.Last)
+		}
+	})
+
 	t.Run("a request that cannot play is reported as failed, not as success", func(t *testing.T) {
 		before := len(sp.Loads())
 		for _, name := range []string{"../../etc/passwd", "does-not-exist.mp3", "sub/dir.mp3"} {

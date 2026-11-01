@@ -87,19 +87,27 @@ type Speaker struct {
 	connections int // total accepted
 	closed      bool
 
-	trace        []string
-	events       []Event
-	dropReplies  map[string]int // request type -> replies still to swallow
-	replyDelay   time.Duration  // how long the speaker takes to answer
-	loads        []Load
-	appLaunched  bool
-	sessionID    string
-	mediaSession int
-	playerState  string
-	currentURL   string
-	currentType  string
-	volume       float64
-	muted        bool
+	trace       []string
+	events      []Event
+	dropReplies map[string]int // request type -> replies still to swallow
+	replyDelay  time.Duration  // how long the speaker takes to answer
+	idleReason  string         // why the player is IDLE (ERROR, ...); empty = CANCELLED
+
+	// Misbehaviour to simulate, consumed one LOAD at a time.
+	ignoreLoads     int           // accept the LOAD but do nothing
+	failLoads       int           // answer LOAD_FAILED
+	failAfterN      int           // start playing, then stop with failAfterReason after failAfterDur
+	failAfterDur    time.Duration //
+	failAfterReason string        //
+	loads           []Load
+	appLaunched     bool
+	sessionID       string
+	mediaSession    int
+	playerState     string
+	currentURL      string
+	currentType     string
+	volume          float64
+	muted           bool
 
 	wg sync.WaitGroup
 }
@@ -227,6 +235,31 @@ func (s *Speaker) delay() time.Duration {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.replyDelay
+}
+
+// IgnoreNextLoads makes the speaker accept the next n LOAD requests and then do
+// nothing at all: no media session, no download, no playback.
+func (s *Speaker) IgnoreNextLoads(n int) {
+	s.mu.Lock()
+	s.ignoreLoads = n
+	s.mu.Unlock()
+}
+
+// FailNextLoads makes the speaker answer the next n LOAD requests with
+// LOAD_FAILED (and leave the player IDLE with reason ERROR).
+func (s *Speaker) FailNextLoads(n int) {
+	s.mu.Lock()
+	s.failLoads = n
+	s.mu.Unlock()
+}
+
+// FailPlaybackAfterStart makes the next n LOADs start playing and then, after the
+// given delay, stop with the given idle reason (e.g. "ERROR": the device could not
+// keep fetching or decoding the media).
+func (s *Speaker) FailPlaybackAfterStart(n int, after time.Duration, reason string) {
+	s.mu.Lock()
+	s.failAfterN, s.failAfterDur, s.failAfterReason = n, after, reason
+	s.mu.Unlock()
 }
 
 // DropReplies makes the speaker act on the next n requests of the given type
@@ -472,7 +505,12 @@ func (s *Speaker) handle(m *pb.CastMessage, req *request, send func(ns, src, dst
 		switch req.Type {
 		case "GET_STATUS":
 		case "LOAD":
-			s.onLoad(req)
+			if s.onLoad(req) == "LOAD_FAILED" {
+				if !s.shouldDropReply(req.Type) {
+					send(ns, dst, src, map[string]any{"type": "LOAD_FAILED", "requestId": req.RequestID})
+				}
+				return
+			}
 		case "PAUSE":
 			s.setState("PAUSED", "pause")
 		case "PLAY":
@@ -489,18 +527,17 @@ func (s *Speaker) handle(m *pb.CastMessage, req *request, send func(ns, src, dst
 
 func (s *Speaker) setState(st, event string) {
 	s.mu.Lock()
+	s.idleReason = ""
 	s.playerState = st
 	s.addEventLocked(event)
 	s.mu.Unlock()
 }
 
-func (s *Speaker) onLoad(req *request) {
+// onLoad handles a LOAD request. It returns "LOAD_FAILED" when the reply to the
+// sender should be that error instead of a media status.
+func (s *Speaker) onLoad(req *request) string {
 	s.mu.Lock()
-	s.mediaSession++
-	s.playerState = "PLAYING"
 	s.addEventLocked("load")
-	s.currentURL = req.Media.ContentID
-	s.currentType = req.Media.ContentType
 	idx := len(s.loads)
 	s.loads = append(s.loads, Load{
 		At:          time.Now(),
@@ -509,6 +546,40 @@ func (s *Speaker) onLoad(req *request) {
 		StreamType:  req.Media.StreamType,
 		Autoplay:    req.Autoplay,
 	})
+	notFetched := FetchResult{Done: true, Err: "the device did not fetch the media"}
+
+	switch {
+	case s.ignoreLoads > 0:
+		s.ignoreLoads--
+		s.loads[idx].Fetch = notFetched
+		s.mu.Unlock()
+		return ""
+	case s.failLoads > 0:
+		s.failLoads--
+		s.mediaSession++
+		s.playerState, s.idleReason = "IDLE", "ERROR"
+		s.currentURL, s.currentType = req.Media.ContentID, req.Media.ContentType
+		s.loads[idx].Fetch = notFetched
+		s.mu.Unlock()
+		return "LOAD_FAILED"
+	}
+
+	s.mediaSession++
+	session := s.mediaSession
+	s.playerState, s.idleReason = "PLAYING", ""
+	s.currentURL = req.Media.ContentID
+	s.currentType = req.Media.ContentType
+	if s.failAfterN > 0 {
+		s.failAfterN--
+		reason := s.failAfterReason
+		time.AfterFunc(s.failAfterDur, func() {
+			s.mu.Lock()
+			if s.mediaSession == session {
+				s.playerState, s.idleReason = "IDLE", reason
+			}
+			s.mu.Unlock()
+		})
+	}
 	s.mu.Unlock()
 
 	// Like a real speaker, download the media it was told to play.
@@ -520,6 +591,7 @@ func (s *Speaker) onLoad(req *request) {
 		s.loads[idx].Fetch = res
 		s.mu.Unlock()
 	}()
+	return ""
 }
 
 func fetch(url string) FetchResult {
@@ -586,7 +658,11 @@ func (s *Speaker) mediaStatus(reqID int) map[string]any {
 			},
 		}
 		if s.playerState == "IDLE" {
-			st["idleReason"] = "CANCELLED"
+			reason := s.idleReason
+			if reason == "" {
+				reason = "CANCELLED"
+			}
+			st["idleReason"] = reason
 		}
 		status = append(status, st)
 	}

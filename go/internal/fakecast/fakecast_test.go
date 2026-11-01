@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/vishen/go-chromecast/application"
+	"github.com/vishen/go-chromecast/cast"
 
 	"azan-agent/internal/fakecast"
 )
@@ -159,5 +160,68 @@ func TestTheSpeakerAnswersLikeARealDeviceOverANetwork(t *testing.T) {
 	}
 	if took := time.Since(start); took < 60*time.Millisecond {
 		t.Errorf("with a 60 ms reply delay a round trip took only %v", took)
+	}
+}
+
+// ── misbehaviour the fake can simulate (used to test the agent's playback checks) ──
+
+func mediaState(app interface {
+	Update() error
+	Media() *cast.Media
+}) (state, reason string) {
+	app.Update()
+	if m := app.Media(); m != nil {
+		return m.PlayerState, m.IdleReason
+	}
+	return "none", ""
+}
+
+func TestFakeCanAcceptALoadAndDoNothing(t *testing.T) {
+	media := mediaServer(t)
+	sp, app := startSpeaker(t)
+	sp.IgnoreNextLoads(1)
+	if err := app.Load(media.URL+"/media/ok.mp3", 0, "audio/mpeg", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sp.WaitForLoads(1, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := mediaState(app); st != "none" {
+		t.Errorf("an ignored LOAD produced media state %q, want none", st)
+	}
+	// The next one works again.
+	if err := app.Load(media.URL+"/media/ok.mp3", 0, "audio/mpeg", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := mediaState(app); st != "PLAYING" {
+		t.Errorf("after the misbehaviour ended, state = %q, want PLAYING", st)
+	}
+}
+
+func TestFakeCanReportLoadFailed(t *testing.T) {
+	media := mediaServer(t)
+	sp, app := startSpeaker(t)
+	sp.FailNextLoads(1)
+	if err := app.Load(media.URL+"/media/ok.mp3", 0, "audio/mpeg", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if st, reason := mediaState(app); st != "IDLE" || reason != "ERROR" {
+		t.Errorf("after LOAD_FAILED state = %s/%s, want IDLE/ERROR", st, reason)
+	}
+}
+
+func TestFakeCanStartPlayingAndThenStopWithAnError(t *testing.T) {
+	media := mediaServer(t)
+	sp, app := startSpeaker(t)
+	sp.FailPlaybackAfterStart(1, 400*time.Millisecond, "ERROR")
+	if err := app.Load(media.URL+"/media/ok.mp3", 0, "audio/mpeg", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := mediaState(app); st != "PLAYING" {
+		t.Errorf("right after the LOAD state = %q, want PLAYING", st)
+	}
+	time.Sleep(700 * time.Millisecond)
+	if st, reason := mediaState(app); st != "IDLE" || reason != "ERROR" {
+		t.Errorf("later state = %s/%s, want IDLE/ERROR", st, reason)
 	}
 }

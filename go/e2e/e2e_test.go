@@ -409,6 +409,25 @@ func TestScheduledAthanReachesSpeaker(t *testing.T) {
 				t.Errorf("a connected browser never received the prayer_fired event")
 			}
 
+			// 3b. The agent checked, by itself, that the speaker really started playing.
+			api := newClient(t, webPort)
+			api.mustLogin()
+			var status struct {
+				Last struct {
+					Started bool   `json:"started"`
+					State   string `json:"state"`
+					Speaker string `json:"speaker"`
+				} `json:"last_playback"`
+			}
+			verifyBy := time.Now().Add(15 * time.Second)
+			for !status.Last.Started && time.Now().Before(verifyBy) {
+				api.getJSON("/api/scheduler-status", &status)
+				time.Sleep(500 * time.Millisecond)
+			}
+			if !status.Last.Started || status.Last.State != "PLAYING" || status.Last.Speaker != speakerName {
+				t.Errorf("the agent never recorded verified playback after the scheduled Athan: %+v", status.Last)
+			}
+
 			// 4. Played once, not repeatedly.
 			time.Sleep(10 * time.Second)
 			if n := len(sp.Loads()); n != 1 {
