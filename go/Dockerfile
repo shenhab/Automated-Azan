@@ -27,7 +27,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
       -o /out/azan-agent ./cmd/azan-agent
 
 # ── Runtime stage ────────────────────────────────────────────────────────────
-FROM alpine:3.20
+FROM alpine:3.24
 
 # ca-certificates — HTTPS requests to prayer-time APIs
 # tzdata          — timezone database (needed for Europe/Dublin DST rules)
