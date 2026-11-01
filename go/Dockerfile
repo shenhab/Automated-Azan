@@ -10,7 +10,7 @@
 
 # ── Build stage ──────────────────────────────────────────────────────────────
 # Runs on the build host's own architecture and cross-compiles (pure Go, no cgo).
-FROM --platform=$BUILDPLATFORM golang:1.25.11-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS build
 WORKDIR /src
 
 # Dependencies first so this layer is cached until go.mod/go.sum change.
