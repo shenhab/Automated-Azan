@@ -398,13 +398,21 @@ func (m *Manager) playURL(url, contentType string) error {
 	if preApp != nil && preDev != nil {
 		log.Printf("[chromecast] using pre-connected session for %q (%s:%d) url=%s",
 			preDev.Name, preDev.Host, preDev.Port, url)
-		if err := preApp.Load(url, 0, contentType, false, true, false); err == nil {
-			m.mu.Lock()
-			m.app = preApp
-			m.mu.Unlock()
-			log.Printf("[chromecast] Load accepted by %q (pre-connect)", preDev.Name)
-			return nil
+		// A lost reply (see loadWithRetry) does not make the session stale: the speaker
+		// has already done what was asked, so asking again on the same warm session
+		// normally works. Only if that fails too is it replaced.
+		for attempt := 1; attempt <= preConnectAttempts; attempt++ {
+			err := preApp.Load(url, 0, contentType, false, true, false)
+			if err == nil {
+				m.mu.Lock()
+				m.app = preApp
+				m.mu.Unlock()
+				log.Printf("[chromecast] Load accepted by %q (pre-connect)", preDev.Name)
+				return nil
+			}
+			log.Printf("[chromecast] Load on the pre-connected session failed (attempt %d/%d): %v", attempt, preConnectAttempts, err)
 		}
+		preApp.Close(false)
 		log.Printf("[chromecast] pre-connect session stale for %q — reconnecting", preDev.Name)
 	}
 
@@ -442,6 +450,10 @@ func (m *Manager) playURL(url, contentType string) error {
 
 // loadAttempts is how many times a LOAD is tried before giving up.
 const loadAttempts = 3
+
+// preConnectAttempts is how many times a LOAD is tried on the warm pre-connected
+// session before it is replaced by a fresh connection.
+const preConnectAttempts = 2
 
 // loadWithRetry loads url on the connected speaker. If that fails it reconnects
 // and tries again: the client library can lose a reply that arrives before it has
