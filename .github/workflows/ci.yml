@@ -76,7 +76,7 @@ jobs:
   # that a scheduled prayer delivers the right audio to the speaker at the right
   # time (see go/e2e). Runs twice: once as a freshly built binary and once as the
   # Docker image built from go/Dockerfile, which is what ships. A failure here
-  # blocks the image publish, because docker.yml waits for this whole workflow.
+  # blocks the image publish, because release.yml waits for this whole workflow.
   e2e:
     name: E2E (${{ matrix.mode }})
     runs-on: ubuntu-latest

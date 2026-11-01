@@ -17,6 +17,10 @@ Then open `http://<host>:28426`. Host networking is required so Chromecast
 devices can be discovered on your LAN. Config and data persist in the
 `azan_config` and `azan_data` volumes.
 
+## Releases
+
+Automatic on merge to `main` — see [RELEASING.md](RELEASING.md).
+
 ## Repository layout
 
 | Path | Contents |

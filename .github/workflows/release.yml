@@ -1,76 +1,205 @@
 name: Release
 
+# Every change that reaches main is tested and, if it changes what users run,
+# released automatically — no manual tagging:
+#
+#   test  ->  plan (is this a release? which version?)  ->  tag
+#         ->  Docker image + binaries for the tag (in parallel)  ->  GitHub release
+#
+# The tag is created BEFORE anything is published, so every artifact carries a
+# real, existing version. If building or publishing fails, the tag is removed
+# again so no half-released version is left behind.
+#
+# The rules (what counts as a release, how the version is chosen, how to opt out
+# or force one) live in go/tools/nextversion and are written up in RELEASING.md.
+#
+# Why one workflow: a tag pushed by a workflow's own token does not trigger other
+# workflows, so tagging and publishing have to happen in the same run.
 on:
   push:
-    tags:
-      - "v*"          # triggers on any tag like v1.0.0, v1.2.3-go, etc.
-  workflow_dispatch:  # allow manual trigger from GitHub UI
+    branches: [main]
+    tags: ["v*"]          # a tag pushed by hand releases exactly that version
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump (auto = decide from the PR label / title)"
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+      force:
+        description: "Release even if nothing users run has changed"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Only show what would be released; tag and publish nothing"
+        type: boolean
+        default: false
 
 permissions:
-  contents: write   # needed to create/upload releases
+  contents: write        # create the tag and the release
+  pull-requests: read    # read the labels of the merged pull request
+
+# One release at a time, so two quick merges cannot be given the same version.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  IMAGE: shenhab/athan
 
 jobs:
   # Nothing is released unless the CI quality gate passes first.
-  # (The Docker image is built and pushed by docker.yml, also gated on CI.)
   test:
     name: Test
+    if: ${{ !inputs.dry_run }}
     uses: ./.github/workflows/ci.yml
 
-  # ── Create the GitHub Release first so build jobs can upload directly ─────
-  create-release:
-    name: Create Release
-    needs: test
+  # ── Decide whether this is a release and which version it gets ────────────
+  plan:
+    name: Plan release
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.decide.outputs.release }}
+      tag: ${{ steps.decide.outputs.version }}
+      reason: ${{ steps.decide.outputs.reason }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0     # all tags and history, to find the last release and the changed files
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go/go.mod
+
+      - name: Decide
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+          BUMP: ${{ inputs.bump || 'auto' }}
+          FORCE: ${{ inputs.force || 'false' }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+
+          # A tag pushed by hand releases exactly that version.
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            { echo "release=true"; echo "version=$GITHUB_REF_NAME"; echo "reason=tag pushed by hand"; } >> "$GITHUB_OUTPUT"
+            echo "### Release $GITHUB_REF_NAME (tag pushed by hand)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$GITHUB_REF" != "refs/heads/main" ] && [ "$DRY_RUN" != "true" ]; then
+            echo "::error::Releases can only be made from main (this run is on $GITHUB_REF). Use dry_run to rehearse from a branch."
+            exit 1
+          fi
+
+          # What changed: this push, or (by hand) everything since the last release.
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            LAST=$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+            BASE=${LAST:-$(git rev-list --max-parents=0 HEAD | tail -1)}
+          else
+            BASE="$BEFORE"
+            if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+              BASE="$GITHUB_SHA^"
+            fi
+          fi
+          git diff --name-only "$BASE" "$GITHUB_SHA" > "$RUNNER_TEMP/files.txt"
+          git log -1 --format=%B "$GITHUB_SHA" > "$RUNNER_TEMP/message.txt"
+          LABELS=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '[.[].labels[].name] | join(",")' 2>/dev/null || true)
+          TAGS=$(git tag --list | paste -sd, -)
+
+          (cd go && go run ./tools/nextversion \
+              -tags "$TAGS" -message-file "$RUNNER_TEMP/message.txt" -labels "$LABELS" \
+              -files "$RUNNER_TEMP/files.txt" -bump "$BUMP" -force="$FORCE") | tee "$RUNNER_TEMP/decision.txt"
+
+          cat "$RUNNER_TEMP/decision.txt" >> "$GITHUB_OUTPUT"
+          RELEASE=$(grep '^release=' "$RUNNER_TEMP/decision.txt" | cut -d= -f2)
+          VERSION=$(grep '^version=' "$RUNNER_TEMP/decision.txt" | cut -d= -f2)
+          REASON=$(grep '^reason=' "$RUNNER_TEMP/decision.txt" | cut -d= -f2-)
+          {
+            echo "### Release plan"
+            if [ "$RELEASE" = "true" ]; then echo "**Release $VERSION** — $REASON"; else echo "**No release** — $REASON"; fi
+            echo
+            echo "Labels: \`${LABELS:-none}\` · changed files: $(wc -l < "$RUNNER_TEMP/files.txt")"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run: nothing will be tagged or published."
+            echo "release=false" >> "$GITHUB_OUTPUT"   # the last value wins
+          fi
+
+  # ── Create the tag (before anything is published) ─────────────────────────
+  tag:
+    name: Tag ${{ needs.plan.outputs.tag }}
+    needs: [test, plan]
+    if: ${{ needs.plan.outputs.release == 'true' && github.ref_type != 'tag' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3.0.3
-        with:
-          tag_name:   ${{ github.ref_name }}
-          name:       "Automated Azan ${{ github.ref_name }}"
-          body: |
-            ## Automated Azan — ${{ github.ref_name }}
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
 
-            Cross-platform Go agent. Single binary, no runtime required.
-
-            ### Downloads
-
-            | File | Platform | Tray |
-            |---|---|---|
-            | `azan-agent-linux-amd64` | Linux x86-64 | ✅ native GTK |
-            | `azan-agent-linux-arm64` | Raspberry Pi 4/5 | — headless |
-            | `azan-agent-linux-arm` | Raspberry Pi 3 | — headless |
-            | `azan-agent-windows-amd64.exe` | Windows 64-bit | ✅ native Win32 |
-            | `azan-agent-darwin-amd64.dmg` | macOS Intel | ✅ native NSStatusBar |
-            | `azan-agent-darwin-arm64.dmg` | macOS Apple Silicon (M1/M2/M3) | ✅ native NSStatusBar |
-
-            ### Quick start
-            1. Download the binary/bundle for your platform
-            2. Run it — it installs itself as a background service automatically
-            3. Dashboard: `http://localhost:28426`
-
-            ### Docker
-            ```
-            docker pull shenhab/athan:${{ github.ref_name }}
-            ```
-
-            ### macOS — install
-            1. Download and open the `.dmg`
-            2. Double-click **"Install Automated Azan"** inside the DMG
-            3. Look for the icon in your **menu bar** (top-right)
-
-            > **Alternative:** `xattr -rd com.apple.quarantine /Applications/AzanAgent.app`
-
-            ### Windows — first run
-            Right-click → **Run as administrator** once to register the Windows Service.
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+      - name: Create and push the tag
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
+
+  # ── Docker image, tagged with the version ─────────────────────────────────
+  docker:
+    name: Build and push image
+    needs: [test, plan, tag]
+    if: ${{ !cancelled() && needs.test.result == 'success' && needs.plan.outputs.release == 'true' && (needs.tag.result == 'success' || needs.tag.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.4.1
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4.7.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Compute image tags and labels
+        id: meta
+        uses: docker/metadata-action@v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=${{ needs.plan.outputs.tag }}
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: go
+          file: go/Dockerfile
+          push: true
+          # amd64 only, matching the current deployment. For arm64 (e.g. a Pi)
+          # add linux/arm64 and a docker/setup-qemu-action step.
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ needs.plan.outputs.tag }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # ── Build matrix: each OS builds its own native binary (CGO = real tray) ──
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
-    needs: create-release
+    needs: [plan, tag]
+    if: ${{ !cancelled() && needs.plan.outputs.release == 'true' && (needs.tag.result == 'success' || needs.tag.result == 'skipped') }}
     runs-on: ${{ matrix.runner }}
 
     strategy:
@@ -155,7 +284,7 @@ jobs:
           if [ "${{ matrix.goos }}" = "windows" ]; then EXTRA="-H windowsgui"; fi
           OUT="${{ matrix.asset }}"
           if [ "${{ matrix.goos }}" = "darwin" ]; then OUT="${OUT%.dmg}"; fi
-          go build -ldflags="-s -w $EXTRA -X main.version=${{ github.ref_name }}" -o "$OUT" ./cmd/azan-agent
+          go build -ldflags="-s -w $EXTRA -X main.version=${{ needs.plan.outputs.tag }}" -o "$OUT" ./cmd/azan-agent
 
       # macOS only: wrap the binary in a proper .app bundle with icon, then
       # package as a .dmg with a drag-to-Applications shortcut.
@@ -165,7 +294,7 @@ jobs:
         working-directory: go
         shell: bash
         env:
-          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_REF_NAME: ${{ needs.plan.outputs.tag }}
         run: |
           BINARY="${{ matrix.asset }}"
           BINARY="${BINARY%.dmg}"
@@ -226,7 +355,7 @@ jobs:
         working-directory: go
         shell: bash
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.plan.outputs.tag }}
           ASSET: ${{ matrix.asset }}
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -247,28 +376,97 @@ jobs:
             echo "raw_binary=${RAW_V}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Upload to GitHub Release
-        shell: bash
-        run: |
-          if [[ "${{ matrix.goos }}" == "linux" ]]; then
-            chmod +x go/${{ steps.versioned.outputs.asset }}
-          fi
-          gh release upload ${{ github.ref_name }} \
-            go/${{ steps.versioned.outputs.asset }} \
-            --repo ${{ github.repository }} \
-            --clobber
+      # The release itself is created last, by the release job, once every
+      # binary and the Docker image have been built.
+      - name: Keep the build outputs
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ${{ matrix.asset }}
+          path: |
+            go/${{ steps.versioned.outputs.asset }}
+            go/${{ steps.versioned.outputs.raw_binary }}
+          if-no-files-found: error
+
+  # ── Publish the GitHub release (last, once everything above succeeded) ────
+  release:
+    name: Publish release
+    needs: [plan, docker, build]
+    if: ${{ !cancelled() && needs.docker.result == 'success' && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the binaries
+        uses: actions/download-artifact@v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3.0.3
+        with:
+          tag_name: ${{ needs.plan.outputs.tag }}
+          name: "Automated Azan ${{ needs.plan.outputs.tag }}"
+          files: dist/*
+          generate_release_notes: true      # the merged pull requests since the last release
+          draft: false
+          prerelease: ${{ contains(needs.plan.outputs.tag, '-') }}
+          body: |
+            ## Automated Azan — ${{ needs.plan.outputs.tag }}
+
+            Cross-platform Go agent. Single binary, no runtime required.
+
+            ### Downloads
+
+            | File | Platform | Tray |
+            |---|---|---|
+            | `azan-agent-linux-amd64` | Linux x86-64 | ✅ native GTK |
+            | `azan-agent-linux-arm64` | Raspberry Pi 4/5 | — headless |
+            | `azan-agent-linux-arm` | Raspberry Pi 3 | — headless |
+            | `azan-agent-windows-amd64.exe` | Windows 64-bit | ✅ native Win32 |
+            | `azan-agent-darwin-amd64.dmg` | macOS Intel | ✅ native NSStatusBar |
+            | `azan-agent-darwin-arm64.dmg` | macOS Apple Silicon (M1/M2/M3) | ✅ native NSStatusBar |
+
+            ### Quick start
+            1. Download the binary/bundle for your platform
+            2. Run it — it installs itself as a background service automatically
+            3. Dashboard: `http://localhost:28426`
+
+            ### Docker
+            ```
+            docker pull shenhab/athan:${{ needs.plan.outputs.tag }}
+            ```
+
+            ### macOS — install
+            1. Download and open the `.dmg`
+            2. Double-click **"Install Automated Azan"** inside the DMG
+            3. Look for the icon in your **menu bar** (top-right)
+
+            > **Alternative:** `xattr -rd com.apple.quarantine /Applications/AzanAgent.app`
+
+            ### Windows — first run
+            Right-click → **Run as administrator** once to register the Windows Service.
+
+            ### What changed
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # macOS: also upload the raw binary so the in-app self-updater can
-      # download it directly (programmatic downloads are never quarantined).
-      - name: Upload raw binary for self-update (macOS)
-        if: matrix.goos == 'darwin'
-        shell: bash
-        run: |
-          gh release upload ${{ github.ref_name }} \
-            go/${{ steps.versioned.outputs.raw_binary }} \
-            --repo ${{ github.repository }} \
-            --clobber
+  # ── If anything failed after the tag was created, take it back ────────────
+  # (so a failed release leaves no version behind; the next run reuses it).
+  # A Docker image already pushed under that version tag is simply overwritten
+  # by the retry.
+  cleanup:
+    name: Remove the tag after a failure
+    needs: [plan, tag, docker, build, release]
+    if: ${{ always() && needs.tag.result == 'success' && (needs.docker.result != 'success' || needs.build.result != 'success' || needs.release.result != 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Delete the release (if any) and the tag
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
+          echo "Removed $TAG because the release did not complete." >> "$GITHUB_STEP_SUMMARY"
