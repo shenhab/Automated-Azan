@@ -254,14 +254,22 @@ func (f *Fetcher) loadFromFile(location string, date time.Time) (Times, error) {
 		}
 	}
 
+	var times Times
 	switch location {
 	case "icci":
-		return f.extractICCI(data, date)
+		times, err = f.extractICCI(data, date)
 	case "naas", "newbridge", "cork", "galway":
-		return f.extractNaas(data, date)
+		times, err = f.extractNaas(data, date)
 	default:
 		return Times{}, fmt.Errorf("unknown location: %s", location)
 	}
+	if err != nil {
+		return Times{}, err
+	}
+	// Published timetables often get the GMT/IST changeover wrong; fix it here
+	// so every source is protected, whatever year or file it came from.
+	times, _ = guardDST(times, date, f.tz)
+	return times, nil
 }
 
 // embeddedTimetable returns the bundled timetable JSON for the given location.
