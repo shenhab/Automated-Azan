@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 )
@@ -84,5 +85,23 @@ func TestACorrectCalendarIsNotReportedAsWrong(t *testing.T) {
 	}
 	if got := f.SourceIssue("cork"); got != 0 {
 		t.Errorf("a correct calendar was reported as wrong on %d days", got)
+	}
+}
+
+// A restarted agent normally reuses the timetable file it already has, without
+// downloading. It must still know — and say — that the calendar is wrong.
+func TestTheProblemIsReportedForAnAlreadyDownloadedTimetable(t *testing.T) {
+	f, err := NewFetcher(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.timetablePath("naas"), naasPublished, 0o644); err != nil { // fresh file, no download needed
+		t.Fatal(err)
+	}
+	if _, err := f.Fetch("naas", time.Now(), false); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.SourceIssue("naas"); got != 151 {
+		t.Errorf("SourceIssue(naas) = %d after loading an existing file, want 151", got)
 	}
 }

@@ -240,10 +240,14 @@ func (f *Fetcher) downloadMawaqit(url, location string) error {
 // wrong in the downloaded timetable (the agent corrects them, but a source that
 // is wrong is never allowed to go unnoticed).
 func (f *Fetcher) recordSourceIssues(location string, data []byte) {
+	months, err := parseNaas(data)
+	if err != nil {
+		return
+	}
 	year := clock.Now().In(f.tz).Year()
 	wrong, total := 0, 0
 	for d := time.Date(year, 1, 1, 12, 0, 0, 0, f.tz); d.Year() == year; d = d.AddDate(0, 0, 1) {
-		ts, err := f.extractNaas(data, d)
+		ts, err := naasRow(months, d)
 		if err != nil {
 			continue
 		}
@@ -281,6 +285,15 @@ func (f *Fetcher) loadFromFile(location string, date time.Time) (Times, error) {
 		if err != nil {
 			return Times{}, fmt.Errorf("no timetable available for %s: %w", location, err)
 		}
+	}
+
+	// Work out, once per run, whether this timetable has the wrong changeover, so a
+	// restarted agent that reuses its file still knows and says so.
+	f.mu.Lock()
+	_, known := f.issues[location]
+	f.mu.Unlock()
+	if !known && location != "icci" {
+		f.recordSourceIssues(location, data)
 	}
 
 	var times Times
@@ -359,11 +372,25 @@ func (f *Fetcher) extractICCI(data []byte, date time.Time) (Times, error) {
 // Day format: {"1": ["07:45", "09:39", "13:32", ...]}
 // Indices: 0=Fajr, 1=Sunrise, 2=Dhuhr, 3=Asr, 4=Maghrib, 5=Isha
 func (f *Fetcher) extractNaas(data []byte, date time.Time) (Times, error) {
+	months, err := parseNaas(data)
+	if err != nil {
+		return Times{}, err
+	}
+	return naasRow(months, date)
+}
+
+// parseNaas decodes a Naas-format (Mawaqit calendar) timetable: 12 months, each
+// a map of day -> times.
+func parseNaas(data []byte) ([]map[string][]string, error) {
 	var months []map[string][]string
 	if err := json.Unmarshal(data, &months); err != nil {
-		return Times{}, fmt.Errorf("parse naas: %w", err)
+		return nil, fmt.Errorf("parse naas: %w", err)
 	}
+	return months, nil
+}
 
+// naasRow returns the prayer times for date from a decoded Naas-format timetable.
+func naasRow(months []map[string][]string, date time.Time) (Times, error) {
 	monthIdx := int(date.Month()) - 1 // 0-indexed
 	if monthIdx < 0 || monthIdx >= len(months) {
 		return Times{}, fmt.Errorf("Naas: month %d out of range", date.Month())
