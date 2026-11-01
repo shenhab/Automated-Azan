@@ -20,14 +20,24 @@ import (
 	"azan-agent/internal/fakecast"
 )
 
-// todayFixture writes a timetable whose times are the same every day, with a
-// Dhuhr near solar noon on the Dublin wall clock today, and returns them.
+// todayFixture writes a realistic full-year timetable for the current year — the
+// prayers stay at the same UTC instants, so their local times move with the
+// clocks — and returns today's row. (A timetable with the same local times all
+// year would really be an hour wrong for half of it, and the agent rightly says so.)
 func todayFixture(t *testing.T, home string) [6]string {
 	t.Helper()
-	_, off := time.Now().In(dublin).Zone()
-	times := [6]string{"03:10", "05:00", fmt.Sprintf("%02d:25", 12+off/3600), "15:00", "18:00", "20:00"}
-	writeYearTimetable(t, home, func(time.Month, int) [6]string { return times })
-	return times
+	year := time.Now().In(dublin).Year()
+	row := func(m time.Month, d int) [6]string {
+		_, off := time.Date(year, m, d, 12, 0, 0, 0, dublin).Zone()
+		var out [6]string
+		for i, hm := range utcTimes {
+			out[i] = fmt.Sprintf("%02d:%02d", hm[0]+off/3600, hm[1])
+		}
+		return out
+	}
+	writeYearTimetable(t, home, row)
+	n := time.Now().In(dublin)
+	return row(n.Month(), n.Day())
 }
 
 type apiResp struct {
@@ -54,11 +64,24 @@ func TestWebUIAndAPI(t *testing.T) {
 	home, cfgFile, webPort := t.TempDir(), filepath.Join(t.TempDir(), "azan.toml"), freePorts(t)
 	times := todayFixture(t, home)
 	writeConfig(t, cfgFile, webPort, "all")
-	startAgent(t, home, cfgFile, sp, withCredentials(testUser, testPass))
+	ag := startAgent(t, home, cfgFile, sp, withCredentials(testUser, testPass))
 
 	c := newClient(t, webPort)
 	c.waitUntilUp()
 	dockerMode := os.Getenv("E2E_DOCKER_IMAGE") != ""
+
+	t.Run("a healthy start raises no false alarms and says where the audio comes from", func(t *testing.T) {
+		logs := ag.logs.String()
+		for _, line := range strings.Split(logs, "\n") {
+			if strings.Contains(line, "WARNING") {
+				t.Errorf("a correctly configured agent warned at startup: %s", line)
+			}
+		}
+		// There is no Media directory in this setup; the audio is bundled.
+		if !strings.Contains(logs, "bundled in the program") {
+			t.Errorf("the startup log does not say where the audio comes from:\n%.600s", logs)
+		}
+	})
 
 	t.Run("authentication is enforced", func(t *testing.T) {
 		c := newClient(t, webPort)

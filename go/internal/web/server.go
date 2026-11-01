@@ -552,12 +552,18 @@ func (s *Server) handleAPIPrayerTimes(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, errResp(err))
 		return
 	}
-	writeJSON(w, map[string]interface{}{
+	resp := map[string]interface{}{
 		"success":      true,
 		"prayer_times": times,
 		"location":     s.cfg.Prayer.Location,
 		"date":         now.Format("2006-01-02"),
-	})
+	}
+	if n := s.fetcher.SourceIssue(s.cfg.Prayer.Location); n > 0 {
+		// The source's calendar has the wrong GMT/IST changeover on n days; the
+		// times above are already corrected.
+		resp["source_corrected_days"] = n
+	}
+	writeJSON(w, resp)
 }
 
 func (s *Server) handleAPISchedulerStatus(w http.ResponseWriter, r *http.Request) {

@@ -419,7 +419,7 @@ func (c *Config) writablePath() string {
 }
 
 // Locations are the prayer-time sources the agent can use.
-var Locations = []string{"naas", "icci", "newbridge", "cork", "galway", "aladhan"}
+var Locations = []string{"naas", "mai", "icci", "newbridge", "cork", "galway", "aladhan"}
 
 // IsValidLocation reports whether loc is one of Locations.
 func IsValidLocation(loc string) bool {
@@ -441,7 +441,8 @@ func locationLabel(key, aladhanCity, aladhanCountry string) string {
 	}
 	labels := map[string]string{
 		"naas":      "Ireland — Naas",
-		"icci":      "Ireland — Dublin",
+		"mai":       "Ireland — Dublin (MAI)",
+		"icci":      "Ireland — Dublin (ICCI, bundled data)",
 		"newbridge": "Ireland — Newbridge",
 		"cork":      "Ireland — Cork",
 		"galway":    "Ireland — Galway",

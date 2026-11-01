@@ -20,7 +20,6 @@ import (
 var embeddedTimetables embed.FS
 
 const (
-	icciBuildURL = "https://islamireland.ie/api/timetable/"
 	naasURL      = "https://mawaqit.net/en/m/-34"
 	newbridgeURL = "https://mawaqit.net/en/newbridge-masjid-newbridge-newbridge-ireland"
 	corkURL      = "https://mawaqit.net/en/m/icc-bandon-cork-bandon-p72ad92-ireland"
@@ -43,6 +42,11 @@ type cacheEntry struct {
 	at    time.Time
 }
 
+// errICCIDiscontinued explains why "icci" cannot be refreshed: islamireland.ie was
+// rebuilt and no longer publishes a timetable. The bundled copy is still used; the
+// "mai" source (maionline.ie) is the live alternative for Dublin.
+var errICCIDiscontinued = fmt.Errorf("the ICCI online timetable was discontinued (islamireland.ie no longer publishes one); using the bundled copy — choose the MAI source for live Dublin times")
+
 // Fetcher fetches and caches prayer times for naas/icci/newbridge/aladhan.
 type Fetcher struct {
 	dataDir string
@@ -50,6 +54,7 @@ type Fetcher struct {
 	mu      sync.Mutex
 	cache   map[string]cacheEntry // key: "location_YYYY-MM-DD"
 	aladhan aladhanState
+	issues  map[string]int // location -> days of the last download needing a DST correction
 }
 
 // NewFetcher creates a Fetcher that stores timetable files in dataDir.
@@ -61,7 +66,7 @@ func NewFetcher(dataDir string) (*Fetcher, error) {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", dataDir, err)
 	}
-	return &Fetcher{dataDir: dataDir, tz: loc, cache: make(map[string]cacheEntry)}, nil
+	return &Fetcher{dataDir: dataDir, tz: loc, cache: make(map[string]cacheEntry), issues: make(map[string]int)}, nil
 }
 
 // Fetch returns prayer times for location on date, downloading if necessary.
@@ -69,6 +74,9 @@ func NewFetcher(dataDir string) (*Fetcher, error) {
 func (f *Fetcher) Fetch(location string, date time.Time, forceDownload bool) (Times, error) {
 	if location == "aladhan" {
 		return f.fetchAladhan(date, forceDownload)
+	}
+	if location == "mai" {
+		return f.fetchMAI(date, forceDownload)
 	}
 
 	key := fmt.Sprintf("%s_%s", location, date.Format("2006-01-02"))
@@ -109,11 +117,22 @@ func (f *Fetcher) ForceRefresh(location string) error {
 		f.aladhan.mu.Unlock()
 		return f.downloadAladhanBackup(city, country, method, time.Now().Year())
 	}
+	if location == "mai" {
+		_, err := f.fetchMAI(clock.Now(), true)
+		return err
+	}
 	locations := []string{location}
 	if location == "" {
-		locations = []string{"icci", "naas", "newbridge", "cork", "galway"}
+		// icci is not listed: its online timetable no longer exists.
+		locations = []string{"mai", "naas", "newbridge", "cork", "galway"}
 	}
 	for _, loc := range locations {
+		if loc == "mai" {
+			if _, err := f.fetchMAI(clock.Now(), true); err != nil {
+				return fmt.Errorf("mai: %w", err)
+			}
+			continue
+		}
 		if err := f.download(loc); err != nil {
 			return fmt.Errorf("%s: %w", loc, err)
 		}
@@ -131,6 +150,9 @@ func (f *Fetcher) ClearCache() {
 // needsRefresh returns true if the timetable file is missing, older than 7 days,
 // or a DST change has been detected since the last download.
 func (f *Fetcher) needsRefresh(location string) bool {
+	if location == "icci" {
+		return false // its online timetable was discontinued; only the bundled copy exists
+	}
 	path := f.timetablePath(location)
 	info, err := os.Stat(path)
 	if err != nil {
@@ -148,7 +170,7 @@ func (f *Fetcher) needsRefresh(location string) bool {
 func (f *Fetcher) download(location string) error {
 	switch location {
 	case "icci":
-		return f.downloadICCI()
+		return errICCIDiscontinued
 	case "naas":
 		return f.downloadMawaqit(naasURL, "naas")
 	case "newbridge":
@@ -160,35 +182,6 @@ func (f *Fetcher) download(location string) error {
 	default:
 		return fmt.Errorf("unknown location: %s", location)
 	}
-}
-
-func (f *Fetcher) downloadICCI() error {
-	log.Println("[prayer/fetcher] downloading ICCI timetable")
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(icciBuildURL)
-	if err != nil {
-		return fmt.Errorf("GET icci: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("icci HTTP %d", resp.StatusCode)
-	}
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("read icci body: %w", err)
-	}
-	// Validate JSON before saving
-	var v interface{}
-	if err := json.Unmarshal(data, &v); err != nil {
-		return fmt.Errorf("invalid ICCI JSON: %w", err)
-	}
-	path := f.timetablePath("icci")
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("write icci: %w", err)
-	}
-	f.saveDSTMetadata("icci")
-	log.Printf("[prayer/fetcher] ICCI timetable saved to %s", path)
-	return nil
 }
 
 // downloadMawaqit fetches a Mawaqit mosque page, extracts the confData calendar
@@ -239,7 +232,45 @@ func (f *Fetcher) downloadMawaqit(url, location string) error {
 	}
 	f.saveDSTMetadata(location)
 	log.Printf("[prayer/fetcher] %s timetable saved to %s", location, path)
+	f.recordSourceIssues(location, data)
 	return nil
+}
+
+// recordSourceIssues counts the days of this year whose GMT/IST changeover is
+// wrong in the downloaded timetable (the agent corrects them, but a source that
+// is wrong is never allowed to go unnoticed).
+func (f *Fetcher) recordSourceIssues(location string, data []byte) {
+	months, err := parseNaas(data)
+	if err != nil {
+		return
+	}
+	year := clock.Now().In(f.tz).Year()
+	wrong, total := 0, 0
+	for d := time.Date(year, 1, 1, 12, 0, 0, 0, f.tz); d.Year() == year; d = d.AddDate(0, 0, 1) {
+		ts, err := naasRow(months, d)
+		if err != nil {
+			continue
+		}
+		total++
+		if _, shift := correctDST(ts, d, f.tz); shift != 0 {
+			wrong++
+		}
+	}
+	f.mu.Lock()
+	f.issues[location] = wrong
+	f.mu.Unlock()
+	if wrong > 0 {
+		log.Printf("[prayer/fetcher] WARNING: the %s timetable has the wrong GMT/IST changeover on %d of %d days; "+
+			"the agent corrects them, but the source (the mosque's calendar) is wrong", location, wrong, total)
+	}
+}
+
+// SourceIssue returns how many days of the current year the last download of this
+// location's timetable had the wrong GMT/IST changeover (0 if none or unknown).
+func (f *Fetcher) SourceIssue(location string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.issues[location]
 }
 
 // loadFromFile reads the local JSON timetable and extracts prayer times for date.
@@ -254,6 +285,15 @@ func (f *Fetcher) loadFromFile(location string, date time.Time) (Times, error) {
 		if err != nil {
 			return Times{}, fmt.Errorf("no timetable available for %s: %w", location, err)
 		}
+	}
+
+	// Work out, once per run, whether this timetable has the wrong changeover, so a
+	// restarted agent that reuses its file still knows and says so.
+	f.mu.Lock()
+	_, known := f.issues[location]
+	f.mu.Unlock()
+	if !known && location != "icci" {
+		f.recordSourceIssues(location, data)
 	}
 
 	var times Times
@@ -332,11 +372,25 @@ func (f *Fetcher) extractICCI(data []byte, date time.Time) (Times, error) {
 // Day format: {"1": ["07:45", "09:39", "13:32", ...]}
 // Indices: 0=Fajr, 1=Sunrise, 2=Dhuhr, 3=Asr, 4=Maghrib, 5=Isha
 func (f *Fetcher) extractNaas(data []byte, date time.Time) (Times, error) {
+	months, err := parseNaas(data)
+	if err != nil {
+		return Times{}, err
+	}
+	return naasRow(months, date)
+}
+
+// parseNaas decodes a Naas-format (Mawaqit calendar) timetable: 12 months, each
+// a map of day -> times.
+func parseNaas(data []byte) ([]map[string][]string, error) {
 	var months []map[string][]string
 	if err := json.Unmarshal(data, &months); err != nil {
-		return Times{}, fmt.Errorf("parse naas: %w", err)
+		return nil, fmt.Errorf("parse naas: %w", err)
 	}
+	return months, nil
+}
 
+// naasRow returns the prayer times for date from a decoded Naas-format timetable.
+func naasRow(months []map[string][]string, date time.Time) (Times, error) {
 	monthIdx := int(date.Month()) - 1 // 0-indexed
 	if monthIdx < 0 || monthIdx >= len(months) {
 		return Times{}, fmt.Errorf("Naas: month %d out of range", date.Month())

@@ -1,0 +1,57 @@
+<table class="timetable"><tr><td class='date-time'><span class='date'>Sun, 1st November 2026<br />th  </span><div class='clock'><span id='servertime'></span></div>
+<script type='text/javascript'>
+//Depending on whether your page supports SSI (.shtml) or PHP (.php), UNCOMMENT the line below your page supports and COMMENT the one it does not:
+//Default is SSI method is uncommented:
+
+//var currenttime = 'May 06, 2011 06:00:52' //SSI method of getting server date
+//var currenttime = '<!--#config timefmt='%B %d, %Y %H:%M:%S'--><!--#echo var='DATE_LOCAL' -->' //SSI method of getting server date
+var currenttime = 'November 01, 2026 13:24:28'
+
+///////////Stop editting here/////////////////////////////////
+
+var montharray=new Array('January','February','March','April','May','June','July','August','September','October','November','December')
+var serverdate=new Date(currenttime)
+
+function padlength(what){
+var output=(what.toString().length==1)? '0'+what : what
+return output
+}
+
+function displaytime(){
+serverdate.setSeconds(serverdate.getSeconds()+1)
+var datestring=padlength(serverdate.getDate())+' '+montharray[serverdate.getMonth()]+', '+serverdate.getFullYear()
+var timestring=padlength(serverdate.getHours())+':'+padlength(serverdate.getMinutes())+':'+padlength(serverdate.getSeconds())
+//~ document.getElementById('servertime').innerHTML=datestring+' '+timestring
+document.getElementById('servertime').innerHTML=timestring
+}
+
+window.onload=function(){
+setInterval('displaytime()', 1000)
+}
+</script></td><td class='prayer-cell'><div class='prayer-label fajr'>fajr</div><div class='prayer-time'><span class='prayer-passed-hour'>05</span><span class='prayer-separator'>:</span><span class='prayer-passed-minute'>34</span></div></td><td class='prayer-cell'><div class='prayer-label shurooq'>shurooq</div><div class='prayer-time'><span class='prayer-passed-hour'>07</span><span class='prayer-separator'>:</span><span class='prayer-passed-minute'>17</span></div></td><td class='prayer-cell'><div class='prayer-label dhuhr'>dhuhr</div><div class='prayer-time'><span class='prayer-passed-hour'>12</span><span class='prayer-separator'>:</span><span class='prayer-passed-minute'>09</span></div></td><td class='prayer-cell'><div class='prayer-label asr'>asr</div><div class='prayer-time'><span class='prayer-pending-hour'>14</span><span class='prayer-separator'>:</span><span class='prayer-pending-minute'>28</span></div></td><td class='prayer-cell'><div class='prayer-label maghrib'>maghrib</div><div class='prayer-time'><span class='prayer-remaining-hour'>16</span><span class='prayer-separator'>:</span><span class='prayer-remaining-minute'>57</span></div></td><td class='prayer-cell'><div class='prayer-label isha'>isha</div><div class='prayer-time'><span class='prayer-remaining-hour'>18</span><span class='prayer-separator'>:</span><span class='prayer-remaining-minute'>34</span></div></td><td class="countdown-container"><div class="nextprayer-label">next prayer <span class="nextprayer-title">asr</span> in: </div>
+<div id="countdown">
+<!-- Countdown dashboard start -->
+<div id="countdown_dashboard">
+
+<div class="dash hours_dash">
+<span class="dash_title">hours</span>
+<div class="digit">0</div>
+<div class="digit">0</div>
+	</div>
+
+<div class="dash minutes_dash">
+<span class="dash_title">minutes</span>
+<div class="digit">0</div>
+<div class="digit">0</div>
+	</div>
+
+	<div class="dash seconds_dash">
+<span class="dash_title">seconds</span>
+<div class="digit">0</div>
+<div class="digit">0</div>
+	</div>
+
+</div>
+<!-- Countdown dashboard end -->
+</div>
+</td><!-- end countdown-container --><td class="qibla"><img src="/site/templates/images/compas.png" alt="" title="Qibla" /></td></tr></table>
