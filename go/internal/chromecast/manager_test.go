@@ -1,9 +1,14 @@
 package chromecast
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
+	"github.com/vishen/go-chromecast/application"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -353,5 +358,70 @@ func TestTheWarmSessionIsKeptWhenALoadIsIgnored(t *testing.T) {
 	if !speakerPlaying(sp) || loadCount(sp) != 2 || sp.Connections() != 1 {
 		t.Errorf("playing=%v, %d LOADs, %d connections; want playing after 2 LOADs on the 1 warm connection",
 			speakerPlaying(sp), loadCount(sp), sp.Connections())
+	}
+}
+
+// ── replaying what real devices actually sent ─────────────────────────────────
+
+// recordedStatus returns the last RECEIVER_STATUS "status" object in a recorded trace.
+func recordedStatus(t *testing.T, file string) json.RawMessage {
+	t.Helper()
+	fh, err := os.Open(filepath.Join("..", "fakecast", "testdata", "traces", file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fh.Close()
+	var last json.RawMessage
+	sc := bufio.NewScanner(fh)
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	for sc.Scan() {
+		var f struct {
+			Dir     string `json:"dir"`
+			Type    string `json:"type"`
+			Payload struct {
+				Status json.RawMessage `json:"status"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(sc.Bytes(), &f) == nil && f.Dir == "in" && f.Type == "RECEIVER_STATUS" {
+			last = f.Payload.Status
+		}
+	}
+	if last == nil {
+		t.Fatalf("%s holds no receiver status", file)
+	}
+	return last
+}
+
+// The agent must read volume and mute correctly from what each KIND of real device
+// sends (speaker group, display hub, plain speaker, TV box, fixed-volume TV dongle).
+func TestAgentReadsVolumeAndMuteFromRealDeviceStatuses(t *testing.T) {
+	for _, file := range []string{"idle-group.jsonl", "idle-hub.jsonl", "idle-speaker.jsonl", "idle-tvbox.jsonl", "idle-tvdongle.jsonl"} {
+		t.Run(file, func(t *testing.T) {
+			_, sp := newRig(t)
+			raw := recordedStatus(t, file)
+			var want struct {
+				Volume struct {
+					Level float32 `json:"level"`
+					Muted bool    `json:"muted"`
+				} `json:"volume"`
+			}
+			if err := json.Unmarshal(raw, &want); err != nil {
+				t.Fatal(err)
+			}
+			sp.ReplayReceiverStatus(raw)
+			host, port := sp.Addr()
+			app := application.NewApplication(application.WithCacheDisabled(true))
+			if err := app.Start(host, port); err != nil {
+				t.Fatalf("could not talk to a device that answers like the recorded one: %v", err)
+			}
+			defer app.Close(false)
+			if err := app.Update(); err != nil {
+				t.Fatalf("Update: %v", err)
+			}
+			v := app.Volume()
+			if v == nil || v.Level != want.Volume.Level || v.Muted != want.Volume.Muted {
+				t.Errorf("client read volume %+v, device reported %+v", v, want.Volume)
+			}
+		})
 	}
 }
