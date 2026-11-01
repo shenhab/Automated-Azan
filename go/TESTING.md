@@ -15,14 +15,14 @@ test without it found and acted on real speakers on the LAN.)
 
 | Layer | Where | What it proves | Runs |
 |---|---|---|---|
-| Unit | `internal/prayer/*_test.go` | The DST sanity guard corrects bad timetables (incl. after-midnight Isha); the daily refresh falls on every calendar day and the real refresh loop runs once on both DST nights; across **every day of 2026 and all 5 bundled timetables** the real scheduler yields ordered prayers at solar noon in UTC with no 1-hour jumps; Isha after midnight is scheduled on the right day | `go test ./...` |
+| Unit | `internal/prayer/*_test.go`, `tools/nextversion` (the release rules) | The DST sanity guard corrects bad timetables (incl. after-midnight Isha); the daily refresh falls on every calendar day and the real refresh loop runs once on both DST nights; across **every day of 2026 and all 5 bundled timetables** the real scheduler yields ordered prayers at solar noon in UTC with no 1-hour jumps; Isha after midnight is scheduled on the right day | `go test ./...` |
 | Component | `internal/chromecast/*_test.go` | Speaker control against a fake speaker (right file per prayer, warm-up reused, dropped session, speaker returns mid-retry, failure reported) and TV-mute (idle TV muted/unmuted, playing TV paused/resumed, what the owner muted/paused is left alone, overlapping calls, dropped connection, unreachable TV) | `go test ./...` |
 | Fake speaker | `internal/fakecast` | A fake Google Cast receiver speaking the real CASTV2 protocol (checked with the same `go-chromecast` client the agent uses). Records messages, LOAD, mute/pause/play events with times, and downloads the media URL like a real speaker | used by the above |
 | End to end | `e2e/` (tag `e2e`) | The **real agent** (binary or Docker image) with fake speakers: a scheduled prayer plays the right MP3 at the right time exactly once and a browser gets the `prayer_fired` event; TVs are quieted and restored; the whole web UI/API (auth, pages, status, discovery, play/stop, settings validation and re-planning, media, uploads, websocket); and, on clock-change days with a fake clock (binary mode only, tag `azanfaketime`), the Athan fires at the right instant across the spring-forward gap and the 00:05 refresh runs once and schedules correctly on both nights | `go test -tags e2e ./e2e/` |
 | Live sources | `internal/prayer/live_test.go` (tag `live`) | The real Mawaqit (Naas, Newbridge, Cork, Galway), MAI and Aladhan data still downloads, parses and schedules correctly; reports how many days a site publishes with a wrong GMT/IST changeover. (ICCI is not listed: its online timetable was discontinued.) | weekly + on demand: `.github/workflows/live-sources.yml` |
 
 CI (`.github/workflows/ci.yml`) runs everything except the live check; the Docker
-image is only published (`docker.yml`) if all of it, including both e2e modes,
+image is only published (`release.yml`, see `../RELEASING.md`) if all of it, including both e2e modes,
 passes. The live check never blocks a release: a red run means a website changed.
 
 ## Running the end-to-end tests
