@@ -16,21 +16,21 @@ import (
 
 // SpeakerConfig holds speaker/device settings.
 type SpeakerConfig struct {
-	GroupName        string `toml:"group_name"`
-	AthanSpeaker     string `toml:"athan_speaker"`
-	PreFajrSpeaker   string `toml:"pre_fajr_speaker"`
+	GroupName         string `toml:"group_name"`
+	AthanSpeaker      string `toml:"athan_speaker"`
+	PreFajrSpeaker    string `toml:"pre_fajr_speaker"`
 	FridayKahfSpeaker string `toml:"friday_kahf_speaker"`
-	QuranSpeaker     string `toml:"quran_speaker"`
+	QuranSpeaker      string `toml:"quran_speaker"`
 }
 
 // Resolve returns the effective speaker name for the given audio type,
 // falling back to GroupName when no override is set.
 func (s SpeakerConfig) Resolve(audioType string) string {
 	overrides := map[string]string{
-		"athan":        s.AthanSpeaker,
-		"pre_fajr":     s.PreFajrSpeaker,
-		"friday_kahf":  s.FridayKahfSpeaker,
-		"quran":        s.QuranSpeaker,
+		"athan":       s.AthanSpeaker,
+		"pre_fajr":    s.PreFajrSpeaker,
+		"friday_kahf": s.FridayKahfSpeaker,
+		"quran":       s.QuranSpeaker,
 	}
 	if v, ok := overrides[audioType]; ok && v != "" {
 		return v
@@ -51,12 +51,18 @@ type PrayerEnabledConfig struct {
 // IsEnabled returns whether the named prayer should play Athan.
 func (e PrayerEnabledConfig) IsEnabled(prayer string) bool {
 	switch prayer {
-	case "Fajr":    return e.Fajr
-	case "Dhuhr":   return e.Dhuhr
-	case "Asr":     return e.Asr
-	case "Maghrib": return e.Maghrib
-	case "Isha":    return e.Isha
-	default:        return true
+	case "Fajr":
+		return e.Fajr
+	case "Dhuhr":
+		return e.Dhuhr
+	case "Asr":
+		return e.Asr
+	case "Maghrib":
+		return e.Maghrib
+	case "Isha":
+		return e.Isha
+	default:
+		return true
 	}
 }
 
@@ -75,11 +81,16 @@ type PrayerMediaConfig struct {
 func (m PrayerMediaConfig) FileFor(prayer string) string {
 	var f string
 	switch prayer {
-	case "Fajr":    f = m.Fajr
-	case "Dhuhr":   f = m.Dhuhr
-	case "Asr":     f = m.Asr
-	case "Maghrib": f = m.Maghrib
-	case "Isha":    f = m.Isha
+	case "Fajr":
+		f = m.Fajr
+	case "Dhuhr":
+		f = m.Dhuhr
+	case "Asr":
+		f = m.Asr
+	case "Maghrib":
+		f = m.Maghrib
+	case "Isha":
+		f = m.Isha
 	}
 	if f != "" {
 		return f
@@ -93,11 +104,11 @@ func (m PrayerMediaConfig) FileFor(prayer string) string {
 // ChannelConfig holds the notification channels for a single prayer job.
 // Any combination is valid; all false means the job fires silently.
 type ChannelConfig struct {
-	Speaker        bool `toml:"speaker"`         // play on Google/Chromecast speaker
-	Local          bool `toml:"local"`           // play audio on the server machine
-	Notify         bool `toml:"notify"`          // show an OS desktop notification (server-side)
-	BrowserNotify  bool `toml:"browser_notify"`  // show a Web Notification in connected browser tabs
-	BrowserAthan   bool `toml:"browser_athan"`   // play athan audio in the browser
+	Speaker       bool `toml:"speaker"`        // play on Google/Chromecast speaker
+	Local         bool `toml:"local"`          // play audio on the server machine
+	Notify        bool `toml:"notify"`         // show an OS desktop notification (server-side)
+	BrowserNotify bool `toml:"browser_notify"` // show a Web Notification in connected browser tabs
+	BrowserAthan  bool `toml:"browser_athan"`  // play athan audio in the browser
 }
 
 // JobChannelsConfig holds per-job channel settings for every schedulable job.
@@ -114,12 +125,18 @@ type JobChannelsConfig struct {
 // ForPrayer returns the ChannelConfig for the named Athan prayer.
 func (j JobChannelsConfig) ForPrayer(name string) ChannelConfig {
 	switch name {
-	case "Fajr":    return j.Fajr
-	case "Dhuhr":   return j.Dhuhr
-	case "Asr":     return j.Asr
-	case "Maghrib": return j.Maghrib
-	case "Isha":    return j.Isha
-	default:        return ChannelConfig{Speaker: true}
+	case "Fajr":
+		return j.Fajr
+	case "Dhuhr":
+		return j.Dhuhr
+	case "Asr":
+		return j.Asr
+	case "Maghrib":
+		return j.Maghrib
+	case "Isha":
+		return j.Isha
+	default:
+		return ChannelConfig{Speaker: true}
 	}
 }
 
@@ -127,13 +144,13 @@ func (j JobChannelsConfig) ForPrayer(name string) ChannelConfig {
 type PrayerConfig struct {
 	// Location is either a preloaded key ("naas","icci","newbridge")
 	// or "aladhan" to use the Aladhan API.
-	Location          string             `toml:"location"`
-	AladhanCity       string             `toml:"aladhan_city"`
-	AladhanCountry    string             `toml:"aladhan_country"`
-	AladhanMethod     int                `toml:"aladhan_method"` // 3 = MWL (default)
-	PreFajrEnabled    bool               `toml:"pre_fajr_enabled"`
-	PreFajrMinutes    int                `toml:"pre_fajr_minutes"`
-	FridayKahfEnabled bool               `toml:"friday_kahf_enabled"`
+	Location          string              `toml:"location"`
+	AladhanCity       string              `toml:"aladhan_city"`
+	AladhanCountry    string              `toml:"aladhan_country"`
+	AladhanMethod     int                 `toml:"aladhan_method"` // 3 = MWL (default)
+	PreFajrEnabled    bool                `toml:"pre_fajr_enabled"`
+	PreFajrMinutes    int                 `toml:"pre_fajr_minutes"`
+	FridayKahfEnabled bool                `toml:"friday_kahf_enabled"`
 	Enabled           PrayerEnabledConfig `toml:"enabled"`
 	Media             PrayerMediaConfig   `toml:"media"`
 	Channels          JobChannelsConfig   `toml:"channels"`
@@ -168,11 +185,11 @@ type LogConfig struct {
 
 // Config is the top-level configuration structure.
 type Config struct {
-	Speaker  SpeakerConfig  `toml:"speaker"`
-	Prayer   PrayerConfig   `toml:"prayer"`
-	Web      WebConfig      `toml:"web"`
-	Log      LogConfig      `toml:"log"`
-	TVPause  TVPauseConfig  `toml:"tv_pause"`
+	Speaker SpeakerConfig `toml:"speaker"`
+	Prayer  PrayerConfig  `toml:"prayer"`
+	Web     WebConfig     `toml:"web"`
+	Log     LogConfig     `toml:"log"`
+	TVPause TVPauseConfig `toml:"tv_pause"`
 
 	mu       sync.RWMutex
 	filePath string
@@ -199,8 +216,8 @@ func (c *Config) setDefaults() {
 	c.Speaker = SpeakerConfig{GroupName: "athan"}
 	defaultCh := ChannelConfig{Speaker: true, Local: false, Notify: false}
 	c.Prayer = PrayerConfig{
-		Location:      "naas",
-		AladhanMethod: 3, // Muslim World League
+		Location:       "naas",
+		AladhanMethod:  3, // Muslim World League
 		PreFajrMinutes: 30,
 		Enabled: PrayerEnabledConfig{
 			Fajr: true, Dhuhr: true, Asr: true, Maghrib: true, Isha: true,
@@ -327,23 +344,23 @@ func (c *Config) AsWebDict() map[string]interface{} {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return map[string]interface{}{
-		"auth_enabled":          c.Web.Auth.Username != "",
-		"speakers_group_name":   c.Speaker.GroupName,
-		"athan_speaker":         c.Speaker.AthanSpeaker,
-		"pre_fajr_speaker":      c.Speaker.PreFajrSpeaker,
-		"friday_kahf_speaker":   c.Speaker.FridayKahfSpeaker,
-		"quran_speaker":         c.Speaker.QuranSpeaker,
-		"location":              c.Prayer.Location,
-		"location_label":        locationLabel(c.Prayer.Location, c.Prayer.AladhanCity, c.Prayer.AladhanCountry),
-		"aladhan_city":          c.Prayer.AladhanCity,
-		"aladhan_country":       c.Prayer.AladhanCountry,
-		"aladhan_method":        c.Prayer.AladhanMethod,
-		"aladhan_ireland_warn":  c.Prayer.Location == "aladhan" && isIreland(c.Prayer.AladhanCountry),
-		"pre_fajr_enabled":      c.Prayer.PreFajrEnabled,
-		"pre_fajr_minutes":      c.Prayer.PreFajrMinutes,
-		"friday_kahf_enabled":   c.Prayer.FridayKahfEnabled,
-		"web_port":              c.Web.Port,
-		"log_level":             c.Log.Level,
+		"auth_enabled":         c.Web.Auth.Username != "",
+		"speakers_group_name":  c.Speaker.GroupName,
+		"athan_speaker":        c.Speaker.AthanSpeaker,
+		"pre_fajr_speaker":     c.Speaker.PreFajrSpeaker,
+		"friday_kahf_speaker":  c.Speaker.FridayKahfSpeaker,
+		"quran_speaker":        c.Speaker.QuranSpeaker,
+		"location":             c.Prayer.Location,
+		"location_label":       locationLabel(c.Prayer.Location, c.Prayer.AladhanCity, c.Prayer.AladhanCountry),
+		"aladhan_city":         c.Prayer.AladhanCity,
+		"aladhan_country":      c.Prayer.AladhanCountry,
+		"aladhan_method":       c.Prayer.AladhanMethod,
+		"aladhan_ireland_warn": c.Prayer.Location == "aladhan" && isIreland(c.Prayer.AladhanCountry),
+		"pre_fajr_enabled":     c.Prayer.PreFajrEnabled,
+		"pre_fajr_minutes":     c.Prayer.PreFajrMinutes,
+		"friday_kahf_enabled":  c.Prayer.FridayKahfEnabled,
+		"web_port":             c.Web.Port,
+		"log_level":            c.Log.Level,
 		// Per-prayer enabled flags
 		"fajr_enabled":    c.Prayer.Enabled.Fajr,
 		"dhuhr_enabled":   c.Prayer.Enabled.Dhuhr,
@@ -365,9 +382,9 @@ func (c *Config) AsWebDict() map[string]interface{} {
 		"ch_pre_fajr_speaker": c.Prayer.Channels.PreFajr.Speaker, "ch_pre_fajr_local": c.Prayer.Channels.PreFajr.Local, "ch_pre_fajr_notify": c.Prayer.Channels.PreFajr.Notify, "ch_pre_fajr_browser": c.Prayer.Channels.PreFajr.BrowserNotify, "ch_pre_fajr_browser_athan": c.Prayer.Channels.PreFajr.BrowserAthan,
 		"ch_friday_kahf_speaker": c.Prayer.Channels.FridayKahf.Speaker, "ch_friday_kahf_local": c.Prayer.Channels.FridayKahf.Local, "ch_friday_kahf_notify": c.Prayer.Channels.FridayKahf.Notify, "ch_friday_kahf_browser": c.Prayer.Channels.FridayKahf.BrowserNotify, "ch_friday_kahf_browser_athan": c.Prayer.Channels.FridayKahf.BrowserAthan,
 		// TV pause
-		"tv_pause_enabled":      c.TVPause.Enabled,
-		"tv_pause_delay_secs":   c.TVPause.ResumeDelaySecs,
-		"tv_pause_devices":      c.TVPause.Devices,
+		"tv_pause_enabled":    c.TVPause.Enabled,
+		"tv_pause_delay_secs": c.TVPause.ResumeDelaySecs,
+		"tv_pause_devices":    c.TVPause.Devices,
 	}
 }
 

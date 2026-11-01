@@ -1,0 +1,8 @@
+# Used only when building go/Dockerfile (BuildKit picks <Dockerfile>.dockerignore).
+# Keeps the build context small and the layer cache stable.
+azan-agent
+*.exe
+*.md
+packaging
+scripts
+.gitignore

@@ -1,10 +1,13 @@
 // Package appdirs resolves OS-standard directories for config, data and logs.
 //
 // macOS:   ~/Library/Application Support/AzanAgent/
-//          ~/Library/Logs/AzanAgent/
+//
+//	~/Library/Logs/AzanAgent/
+//
 // Windows: %APPDATA%\AzanAgent\
 // Linux:   ~/.config/azan-agent/   (XDG)
-//          ~/.local/share/azan-agent/
+//
+//	~/.local/share/azan-agent/
 package appdirs
 
 import (
@@ -14,8 +17,8 @@ import (
 )
 
 const (
-	appNameUnix = "azan-agent"   // XDG / Linux convention
-	appNameGUI  = "AzanAgent"    // macOS / Windows convention
+	appNameUnix = "azan-agent" // XDG / Linux convention
+	appNameGUI  = "AzanAgent"  // macOS / Windows convention
 )
 
 // Config returns the directory that should hold azan.toml.

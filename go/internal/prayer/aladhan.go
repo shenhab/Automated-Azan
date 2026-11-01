@@ -61,7 +61,7 @@ type aladhanBackup struct {
 // aladhanState holds runtime Aladhan settings stored inside Fetcher.
 type aladhanState struct {
 	mu         sync.Mutex
-	active     bool   // true when location == "aladhan"
+	active     bool // true when location == "aladhan"
 	city       string
 	country    string
 	method     int

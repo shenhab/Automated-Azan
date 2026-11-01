@@ -66,8 +66,8 @@ type Server struct {
 	httpSrv *http.Server
 
 	// Geo cache — proxied from CountriesNow
-	geoMu         sync.Mutex
-	geoCountries  []map[string]string // [{name, Iso2, Iso3}]
+	geoMu          sync.Mutex
+	geoCountries   []map[string]string // [{name, Iso2, Iso3}]
 	geoCountriesAt time.Time
 	geoCities      map[string][]string // country → city list
 	geoCitiesAt    map[string]time.Time
@@ -242,12 +242,12 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	hd, _ := hijri.Today() // nil on first-ever network failure; template handles nil
 
 	s.renderPage(w, "dashboard.html", map[string]interface{}{
-		"page":            "dashboard",
-		"config":          s.cfg.AsWebDict(),
-		"prayer_times":    times,
-		"next_prayer":     map[string]interface{}{"name": name, "time": at.Format("15:04")},
-		"jobs":            s.scheduler.Status(),
-		"hijri":           hd,
+		"page":             "dashboard",
+		"config":           s.cfg.AsWebDict(),
+		"prayer_times":     times,
+		"next_prayer":      map[string]interface{}{"name": name, "time": at.Format("15:04")},
+		"jobs":             s.scheduler.Status(),
+		"hijri":            hd,
 		"quran_stream_url": quran.StreamURL,
 	})
 }
@@ -263,11 +263,11 @@ func (s *Server) handleScheduler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleChromecasts(w http.ResponseWriter, r *http.Request) {
 	devs := s.castMgr.Devices()
 	s.renderPage(w, "chromecasts.html", map[string]interface{}{
-		"page":         "devices",
-		"config":       s.cfg.AsWebDict(),
-		"devices":      devs,
-		"tv_paused":    s.tvPause.IsPaused(),
-		"tv_paused_n":  s.tvPause.PausedCount(),
+		"page":        "devices",
+		"config":      s.cfg.AsWebDict(),
+		"devices":     devs,
+		"tv_paused":   s.tvPause.IsPaused(),
+		"tv_paused_n": s.tvPause.PausedCount(),
 	})
 }
 
@@ -282,12 +282,12 @@ type notifRow struct {
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	rows := []notifRow{
-		{Key: "fajr",        Label: "Fajr",               HasEnabled: true,  HasMedia: true},
-		{Key: "dhuhr",       Label: "Dhuhr",              HasEnabled: true,  HasMedia: true},
-		{Key: "asr",         Label: "Asr",                HasEnabled: true,  HasMedia: true},
-		{Key: "maghrib",     Label: "Maghrib",            HasEnabled: true,  HasMedia: true},
-		{Key: "isha",        Label: "Isha",               HasEnabled: true,  HasMedia: true},
-		{Key: "pre_fajr",    Label: "Pre-Fajr Quran",     HasEnabled: false, HasMedia: false, AudioLabel: "Quran stream"},
+		{Key: "fajr", Label: "Fajr", HasEnabled: true, HasMedia: true},
+		{Key: "dhuhr", Label: "Dhuhr", HasEnabled: true, HasMedia: true},
+		{Key: "asr", Label: "Asr", HasEnabled: true, HasMedia: true},
+		{Key: "maghrib", Label: "Maghrib", HasEnabled: true, HasMedia: true},
+		{Key: "isha", Label: "Isha", HasEnabled: true, HasMedia: true},
+		{Key: "pre_fajr", Label: "Pre-Fajr Quran", HasEnabled: false, HasMedia: false, AudioLabel: "Quran stream"},
 		{Key: "friday_kahf", Label: "Friday Surah Al-Kahf", HasEnabled: false, HasMedia: false, AudioLabel: "Kahf (built-in)"},
 	}
 	s.renderPage(w, "settings.html", map[string]interface{}{
@@ -345,7 +345,7 @@ func (s *Server) broadcastLoop() {
 	for range ticker.C {
 		name, at, _ := s.scheduler.NextPrayer()
 		s.Broadcast("scheduler_update", map[string]interface{}{
-			"jobs":       s.scheduler.Status(),
+			"jobs":        s.scheduler.Status(),
 			"next_prayer": map[string]interface{}{"name": name, "time": at.Format("15:04")},
 		})
 	}
@@ -408,58 +408,58 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 				*field = v
 			}
 		}
-		setBool(&s.cfg.Prayer.Enabled.Fajr,    "fajr_enabled")
-		setBool(&s.cfg.Prayer.Enabled.Dhuhr,   "dhuhr_enabled")
-		setBool(&s.cfg.Prayer.Enabled.Asr,     "asr_enabled")
+		setBool(&s.cfg.Prayer.Enabled.Fajr, "fajr_enabled")
+		setBool(&s.cfg.Prayer.Enabled.Dhuhr, "dhuhr_enabled")
+		setBool(&s.cfg.Prayer.Enabled.Asr, "asr_enabled")
 		setBool(&s.cfg.Prayer.Enabled.Maghrib, "maghrib_enabled")
-		setBool(&s.cfg.Prayer.Enabled.Isha,    "isha_enabled")
+		setBool(&s.cfg.Prayer.Enabled.Isha, "isha_enabled")
 		// Per-prayer media files
 		setStr := func(field *string, key string) {
 			if v, ok := body[key].(string); ok {
 				*field = v
 			}
 		}
-		setStr(&s.cfg.Prayer.Media.Fajr,    "fajr_media")
-		setStr(&s.cfg.Prayer.Media.Dhuhr,   "dhuhr_media")
-		setStr(&s.cfg.Prayer.Media.Asr,     "asr_media")
+		setStr(&s.cfg.Prayer.Media.Fajr, "fajr_media")
+		setStr(&s.cfg.Prayer.Media.Dhuhr, "dhuhr_media")
+		setStr(&s.cfg.Prayer.Media.Asr, "asr_media")
 		setStr(&s.cfg.Prayer.Media.Maghrib, "maghrib_media")
-		setStr(&s.cfg.Prayer.Media.Isha,    "isha_media")
+		setStr(&s.cfg.Prayer.Media.Isha, "isha_media")
 		// Per-job notification channels (ch_ prefix avoids collision with speaker-device overrides)
-		setBool(&s.cfg.Prayer.Channels.Fajr.Speaker,              "ch_fajr_speaker")
-		setBool(&s.cfg.Prayer.Channels.Fajr.Local,                "ch_fajr_local")
-		setBool(&s.cfg.Prayer.Channels.Fajr.Notify,               "ch_fajr_notify")
-		setBool(&s.cfg.Prayer.Channels.Fajr.BrowserNotify,        "ch_fajr_browser")
-		setBool(&s.cfg.Prayer.Channels.Fajr.BrowserAthan,         "ch_fajr_browser_athan")
-		setBool(&s.cfg.Prayer.Channels.Dhuhr.Speaker,             "ch_dhuhr_speaker")
-		setBool(&s.cfg.Prayer.Channels.Dhuhr.Local,               "ch_dhuhr_local")
-		setBool(&s.cfg.Prayer.Channels.Dhuhr.Notify,              "ch_dhuhr_notify")
-		setBool(&s.cfg.Prayer.Channels.Dhuhr.BrowserNotify,       "ch_dhuhr_browser")
-		setBool(&s.cfg.Prayer.Channels.Dhuhr.BrowserAthan,        "ch_dhuhr_browser_athan")
-		setBool(&s.cfg.Prayer.Channels.Asr.Speaker,               "ch_asr_speaker")
-		setBool(&s.cfg.Prayer.Channels.Asr.Local,                 "ch_asr_local")
-		setBool(&s.cfg.Prayer.Channels.Asr.Notify,                "ch_asr_notify")
-		setBool(&s.cfg.Prayer.Channels.Asr.BrowserNotify,         "ch_asr_browser")
-		setBool(&s.cfg.Prayer.Channels.Asr.BrowserAthan,          "ch_asr_browser_athan")
-		setBool(&s.cfg.Prayer.Channels.Maghrib.Speaker,           "ch_maghrib_speaker")
-		setBool(&s.cfg.Prayer.Channels.Maghrib.Local,             "ch_maghrib_local")
-		setBool(&s.cfg.Prayer.Channels.Maghrib.Notify,            "ch_maghrib_notify")
-		setBool(&s.cfg.Prayer.Channels.Maghrib.BrowserNotify,     "ch_maghrib_browser")
-		setBool(&s.cfg.Prayer.Channels.Maghrib.BrowserAthan,      "ch_maghrib_browser_athan")
-		setBool(&s.cfg.Prayer.Channels.Isha.Speaker,              "ch_isha_speaker")
-		setBool(&s.cfg.Prayer.Channels.Isha.Local,                "ch_isha_local")
-		setBool(&s.cfg.Prayer.Channels.Isha.Notify,               "ch_isha_notify")
-		setBool(&s.cfg.Prayer.Channels.Isha.BrowserNotify,        "ch_isha_browser")
-		setBool(&s.cfg.Prayer.Channels.Isha.BrowserAthan,         "ch_isha_browser_athan")
-		setBool(&s.cfg.Prayer.Channels.PreFajr.Speaker,           "ch_pre_fajr_speaker")
-		setBool(&s.cfg.Prayer.Channels.PreFajr.Local,             "ch_pre_fajr_local")
-		setBool(&s.cfg.Prayer.Channels.PreFajr.Notify,            "ch_pre_fajr_notify")
-		setBool(&s.cfg.Prayer.Channels.PreFajr.BrowserNotify,     "ch_pre_fajr_browser")
-		setBool(&s.cfg.Prayer.Channels.PreFajr.BrowserAthan,      "ch_pre_fajr_browser_athan")
-		setBool(&s.cfg.Prayer.Channels.FridayKahf.Speaker,        "ch_friday_kahf_speaker")
-		setBool(&s.cfg.Prayer.Channels.FridayKahf.Local,          "ch_friday_kahf_local")
-		setBool(&s.cfg.Prayer.Channels.FridayKahf.Notify,         "ch_friday_kahf_notify")
-		setBool(&s.cfg.Prayer.Channels.FridayKahf.BrowserNotify,  "ch_friday_kahf_browser")
-		setBool(&s.cfg.Prayer.Channels.FridayKahf.BrowserAthan,   "ch_friday_kahf_browser_athan")
+		setBool(&s.cfg.Prayer.Channels.Fajr.Speaker, "ch_fajr_speaker")
+		setBool(&s.cfg.Prayer.Channels.Fajr.Local, "ch_fajr_local")
+		setBool(&s.cfg.Prayer.Channels.Fajr.Notify, "ch_fajr_notify")
+		setBool(&s.cfg.Prayer.Channels.Fajr.BrowserNotify, "ch_fajr_browser")
+		setBool(&s.cfg.Prayer.Channels.Fajr.BrowserAthan, "ch_fajr_browser_athan")
+		setBool(&s.cfg.Prayer.Channels.Dhuhr.Speaker, "ch_dhuhr_speaker")
+		setBool(&s.cfg.Prayer.Channels.Dhuhr.Local, "ch_dhuhr_local")
+		setBool(&s.cfg.Prayer.Channels.Dhuhr.Notify, "ch_dhuhr_notify")
+		setBool(&s.cfg.Prayer.Channels.Dhuhr.BrowserNotify, "ch_dhuhr_browser")
+		setBool(&s.cfg.Prayer.Channels.Dhuhr.BrowserAthan, "ch_dhuhr_browser_athan")
+		setBool(&s.cfg.Prayer.Channels.Asr.Speaker, "ch_asr_speaker")
+		setBool(&s.cfg.Prayer.Channels.Asr.Local, "ch_asr_local")
+		setBool(&s.cfg.Prayer.Channels.Asr.Notify, "ch_asr_notify")
+		setBool(&s.cfg.Prayer.Channels.Asr.BrowserNotify, "ch_asr_browser")
+		setBool(&s.cfg.Prayer.Channels.Asr.BrowserAthan, "ch_asr_browser_athan")
+		setBool(&s.cfg.Prayer.Channels.Maghrib.Speaker, "ch_maghrib_speaker")
+		setBool(&s.cfg.Prayer.Channels.Maghrib.Local, "ch_maghrib_local")
+		setBool(&s.cfg.Prayer.Channels.Maghrib.Notify, "ch_maghrib_notify")
+		setBool(&s.cfg.Prayer.Channels.Maghrib.BrowserNotify, "ch_maghrib_browser")
+		setBool(&s.cfg.Prayer.Channels.Maghrib.BrowserAthan, "ch_maghrib_browser_athan")
+		setBool(&s.cfg.Prayer.Channels.Isha.Speaker, "ch_isha_speaker")
+		setBool(&s.cfg.Prayer.Channels.Isha.Local, "ch_isha_local")
+		setBool(&s.cfg.Prayer.Channels.Isha.Notify, "ch_isha_notify")
+		setBool(&s.cfg.Prayer.Channels.Isha.BrowserNotify, "ch_isha_browser")
+		setBool(&s.cfg.Prayer.Channels.Isha.BrowserAthan, "ch_isha_browser_athan")
+		setBool(&s.cfg.Prayer.Channels.PreFajr.Speaker, "ch_pre_fajr_speaker")
+		setBool(&s.cfg.Prayer.Channels.PreFajr.Local, "ch_pre_fajr_local")
+		setBool(&s.cfg.Prayer.Channels.PreFajr.Notify, "ch_pre_fajr_notify")
+		setBool(&s.cfg.Prayer.Channels.PreFajr.BrowserNotify, "ch_pre_fajr_browser")
+		setBool(&s.cfg.Prayer.Channels.PreFajr.BrowserAthan, "ch_pre_fajr_browser_athan")
+		setBool(&s.cfg.Prayer.Channels.FridayKahf.Speaker, "ch_friday_kahf_speaker")
+		setBool(&s.cfg.Prayer.Channels.FridayKahf.Local, "ch_friday_kahf_local")
+		setBool(&s.cfg.Prayer.Channels.FridayKahf.Notify, "ch_friday_kahf_notify")
+		setBool(&s.cfg.Prayer.Channels.FridayKahf.BrowserNotify, "ch_friday_kahf_browser")
+		setBool(&s.cfg.Prayer.Channels.FridayKahf.BrowserAthan, "ch_friday_kahf_browser_athan")
 		if err := s.cfg.Save(); err != nil {
 			writeJSON(w, errResp(err))
 			return
@@ -596,10 +596,10 @@ func (s *Server) handleAPITestWorkflow(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[test-workflow] complete — prayer=%s tv_muted=%v", body.Prayer, tvMuted)
 	writeJSON(w, map[string]interface{}{
-		"success":   true,
-		"prayer":    body.Prayer,
-		"filename":  filename,
-		"tv_muted":  tvMuted,
+		"success":  true,
+		"prayer":   body.Prayer,
+		"filename": filename,
+		"tv_muted": tvMuted,
 	})
 }
 
@@ -974,12 +974,12 @@ func (s *Server) handleAPINextPrayer(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAPITVPauseStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
-		"success":          true,
-		"enabled":          s.cfg.TVPause.Enabled,
-		"paused":           s.tvPause.IsPaused(),
-		"paused_count":     s.tvPause.PausedCount(),
+		"success":           true,
+		"enabled":           s.cfg.TVPause.Enabled,
+		"paused":            s.tvPause.IsPaused(),
+		"paused_count":      s.tvPause.PausedCount(),
 		"resume_delay_secs": s.cfg.TVPause.ResumeDelaySecs,
-		"devices":          s.cfg.TVPause.Devices,
+		"devices":           s.cfg.TVPause.Devices,
 	})
 }
 
@@ -1008,7 +1008,6 @@ func (s *Server) handleAPITVPauseConfig(w http.ResponseWriter, r *http.Request) 
 	}
 	writeJSON(w, map[string]interface{}{"success": true})
 }
-
 
 func (s *Server) handleAPITVPauseResume(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1076,7 +1075,7 @@ func accessLogger(next http.Handler) http.Handler {
 var tmplFuncs = template.FuncMap{
 	"contains": strings.Contains,
 	"lower":    strings.ToLower,
-	"list": func(items ...string) []string { return items },
+	"list":     func(items ...string) []string { return items },
 	// colorize wraps log lines in colour spans based on log level keywords
 	"colorize": func(raw string) template.HTML {
 		var sb strings.Builder
@@ -1146,4 +1145,3 @@ func readLogTail(path string, lines int) string {
 	}
 	return strings.Join(all, "\n")
 }
-

@@ -18,13 +18,13 @@ import (
 var embeddedTimetables embed.FS
 
 const (
-	icciBuildURL      = "https://islamireland.ie/api/timetable/"
-	naasURL           = "https://mawaqit.net/en/m/-34"
-	newbridgeURL      = "https://mawaqit.net/en/newbridge-masjid-newbridge-newbridge-ireland"
-	corkURL           = "https://mawaqit.net/en/m/icc-bandon-cork-bandon-p72ad92-ireland"
-	galwayURL         = "https://mawaqit.net/en/m/tuam-islamic-culture-centre-tuam-h54p62b-ireland-1"
-	timezone          = "Europe/Dublin"
-	cacheTTL          = time.Hour
+	icciBuildURL = "https://islamireland.ie/api/timetable/"
+	naasURL      = "https://mawaqit.net/en/m/-34"
+	newbridgeURL = "https://mawaqit.net/en/newbridge-masjid-newbridge-newbridge-ireland"
+	corkURL      = "https://mawaqit.net/en/m/icc-bandon-cork-bandon-p72ad92-ireland"
+	galwayURL    = "https://mawaqit.net/en/m/tuam-islamic-culture-centre-tuam-h54p62b-ireland-1"
+	timezone     = "Europe/Dublin"
+	cacheTTL     = time.Hour
 )
 
 // Times holds the five daily prayer times as HH:MM strings.
