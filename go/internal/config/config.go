@@ -418,6 +418,19 @@ func (c *Config) writablePath() string {
 	return filepath.Join(appdirs.Config(), "azan.toml")
 }
 
+// Locations are the prayer-time sources the agent can use.
+var Locations = []string{"naas", "icci", "newbridge", "cork", "galway", "aladhan"}
+
+// IsValidLocation reports whether loc is one of Locations.
+func IsValidLocation(loc string) bool {
+	for _, l := range Locations {
+		if l == loc {
+			return true
+		}
+	}
+	return false
+}
+
 // locationLabel returns a human-readable label for the active location.
 func locationLabel(key, aladhanCity, aladhanCountry string) string {
 	if key == "aladhan" {

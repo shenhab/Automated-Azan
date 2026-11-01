@@ -37,6 +37,7 @@ func newRig(t *testing.T) (*Manager, *fakecast.Speaker) {
 	t.Cleanup(media.Close)
 
 	host, port := sp.Addr()
+	t.Setenv("AZAN_DISABLE_MDNS", "1") // tests must never reach real devices on the LAN
 	t.Setenv("AZAN_STATIC_DEVICES", fmt.Sprintf("Test Speaker=%s:%d", host, port))
 	m := NewManager("Test Speaker")
 	m.SetMediaBaseURL(media.URL + "/media/")
@@ -149,5 +150,25 @@ func TestPlayAthanReportsFailureWhenSpeakerStaysDown(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 30*time.Second {
 		t.Errorf("gave up only after %v", elapsed)
+	}
+}
+
+// A reply from the speaker can be lost (the client library has a race that drops
+// replies arriving before it is ready, and networks lose packets). The Athan must
+// still be delivered, by trying again, instead of failing after one 5-second wait.
+func TestAthanIsDeliveredEvenIfTheSpeakersReplyIsLost(t *testing.T) {
+	m, sp := newRig(t)
+	sp.DropReplies("LAUNCH", 1)
+
+	err := m.PlayAthan("Dhuhr", "")
+	if err != nil {
+		t.Fatalf("PlayAthan failed after a lost reply: %v", err)
+	}
+	loads, werr := sp.WaitForLoads(1, 20*time.Second)
+	if werr != nil {
+		t.Fatalf("the Athan never reached the speaker: %v", werr)
+	}
+	if !loads[0].Fetch.LooksLikeAudio {
+		t.Errorf("speaker did not get playable audio: %+v", loads[0].Fetch)
 	}
 }

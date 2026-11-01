@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"sync"
 	"time"
+
+	"azan-agent/internal/clock"
 )
 
 //go:embed embedded
@@ -367,7 +369,7 @@ type dstMetadata struct {
 }
 
 func (f *Fetcher) currentOffset() int {
-	_, offset := time.Now().In(f.tz).Zone()
+	_, offset := clock.Now().In(f.tz).Zone()
 	return offset
 }
 
@@ -378,7 +380,7 @@ func (f *Fetcher) dstMetaPath(location string) string {
 func (f *Fetcher) saveDSTMetadata(location string) {
 	meta := dstMetadata{
 		Offset:      f.currentOffset(),
-		LastChecked: time.Now().In(f.tz).Format(time.RFC3339),
+		LastChecked: clock.Now().In(f.tz).Format(time.RFC3339),
 		Timezone:    timezone,
 	}
 	data, _ := json.MarshalIndent(meta, "", "  ")

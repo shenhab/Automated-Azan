@@ -65,6 +65,12 @@ type Load struct {
 	Fetch       FetchResult
 }
 
+// Event is something that happened to the speaker, with its time.
+type Event struct {
+	At   time.Time
+	Kind string // launch, load, mute, unmute, volume, pause, play, media-stop, stop
+}
+
 // Speaker is a fake Cast receiver.
 type Speaker struct {
 	Name string
@@ -76,6 +82,8 @@ type Speaker struct {
 	closed      bool
 
 	trace        []string
+	events       []Event
+	dropReplies  map[string]int // request type -> replies still to swallow
 	loads        []Load
 	appLaunched  bool
 	sessionID    string
@@ -164,6 +172,78 @@ func (s *Speaker) Trace() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.trace...)
+}
+
+// Events returns the events so far, oldest first.
+func (s *Speaker) Events() []Event {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Event(nil), s.events...)
+}
+
+// EventsOfKind returns only the events of the given kind.
+func (s *Speaker) EventsOfKind(kind string) []Event {
+	var out []Event
+	for _, e := range s.Events() {
+		if e.Kind == kind {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func (s *Speaker) addEventLocked(kind string) {
+	s.events = append(s.events, Event{At: time.Now(), Kind: kind})
+}
+
+// SimulateCast makes the speaker look like someone is already casting to it
+// (e.g. a TV playing a show): the media app is running and media is PLAYING.
+func (s *Speaker) SimulateCast(url string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.appLaunched = true
+	s.sessionID = fmt.Sprintf("session-%d", time.Now().UnixNano())
+	s.mediaSession++
+	s.playerState = "PLAYING"
+	s.currentURL, s.currentType = url, "video/mp4"
+}
+
+// DropReplies makes the speaker act on the next n requests of the given type
+// (e.g. "LAUNCH", "LOAD") but not answer them, as if the reply were lost on the
+// way. The sender will wait and time out.
+func (s *Speaker) DropReplies(requestType string, n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dropReplies == nil {
+		s.dropReplies = map[string]int{}
+	}
+	s.dropReplies[requestType] = n
+}
+
+func (s *Speaker) shouldDropReply(requestType string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dropReplies[requestType] > 0 {
+		s.dropReplies[requestType]--
+		return true
+	}
+	return false
+}
+
+// SetPlayerStateForTest forces the media player state (PLAYING, PAUSED, IDLE),
+// as if the person had used their remote.
+func (s *Speaker) SetPlayerStateForTest(st string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.playerState = st
+}
+
+// SetVolumeState sets the speaker's volume and mute state, as if its owner had
+// changed them before the agent connected.
+func (s *Speaker) SetVolumeState(level float64, muted bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.volume, s.muted = level, muted
 }
 
 // Connections returns how many client connections have been accepted.
@@ -332,6 +412,7 @@ func (s *Speaker) handle(m *pb.CastMessage, req *request, send func(ns, src, dst
 		case "LAUNCH":
 			s.mu.Lock()
 			if req.AppID == defaultMediaID {
+				s.addEventLocked("launch")
 				s.appLaunched = true
 				s.sessionID = fmt.Sprintf("session-%d", time.Now().UnixNano())
 			}
@@ -341,17 +422,27 @@ func (s *Speaker) handle(m *pb.CastMessage, req *request, send func(ns, src, dst
 			if req.Volume != nil {
 				if req.Volume.Level != nil {
 					s.volume = *req.Volume.Level
+					s.addEventLocked("volume")
 				}
 				if req.Volume.Muted != nil {
 					s.muted = *req.Volume.Muted
+					if s.muted {
+						s.addEventLocked("mute")
+					} else {
+						s.addEventLocked("unmute")
+					}
 				}
 			}
 			s.mu.Unlock()
 		case "STOP":
 			s.mu.Lock()
+			s.addEventLocked("stop")
 			s.appLaunched = false
 			s.playerState = "IDLE"
 			s.mu.Unlock()
+		}
+		if s.shouldDropReply(req.Type) {
+			return
 		}
 		send(ns, receiverID, src, s.receiverStatus(req.RequestID))
 
@@ -361,19 +452,23 @@ func (s *Speaker) handle(m *pb.CastMessage, req *request, send func(ns, src, dst
 		case "LOAD":
 			s.onLoad(req)
 		case "PAUSE":
-			s.setState("PAUSED")
+			s.setState("PAUSED", "pause")
 		case "PLAY":
-			s.setState("PLAYING")
+			s.setState("PLAYING", "play")
 		case "STOP":
-			s.setState("IDLE")
+			s.setState("IDLE", "media-stop")
+		}
+		if s.shouldDropReply(req.Type) {
+			return
 		}
 		send(ns, dst, src, s.mediaStatus(req.RequestID))
 	}
 }
 
-func (s *Speaker) setState(st string) {
+func (s *Speaker) setState(st, event string) {
 	s.mu.Lock()
 	s.playerState = st
+	s.addEventLocked(event)
 	s.mu.Unlock()
 }
 
@@ -381,6 +476,7 @@ func (s *Speaker) onLoad(req *request) {
 	s.mu.Lock()
 	s.mediaSession++
 	s.playerState = "PLAYING"
+	s.addEventLocked("load")
 	s.currentURL = req.Media.ContentID
 	s.currentType = req.Media.ContentType
 	idx := len(s.loads)

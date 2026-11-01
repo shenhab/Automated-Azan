@@ -222,12 +222,20 @@ func (m *Manager) Discover(force bool) ([]Device, error) {
 	defer cancel()
 
 	found := make(map[string]Device)
-	ch, err := castdns.DiscoverCastDNSEntries(ctx, nil)
+	var ch <-chan castdns.CastEntry
+	var err error
+	if os.Getenv("AZAN_DISABLE_MDNS") != "" {
+		// Static devices only: never scan the network (used by tests, and by
+		// anyone who wants the agent to talk to exactly the speakers they list).
+		err = fmt.Errorf("mDNS disabled by AZAN_DISABLE_MDNS")
+	} else {
+		ch, err = castdns.DiscoverCastDNSEntries(ctx, nil)
+	}
 	if err != nil {
 		if len(m.static) == 0 {
 			return nil, fmt.Errorf("mDNS discover: %w", err)
 		}
-		log.Printf("[chromecast] mDNS discover failed (%v) — using static devices only", err)
+		log.Printf("[chromecast] mDNS discover skipped (%v) — using static devices only", err)
 	} else {
 		for entry := range ch {
 			d := Device{
@@ -420,17 +428,46 @@ func (m *Manager) playURL(url, contentType string) error {
 		dev = backoffDev
 	}
 
+	log.Printf("[chromecast] sending Load to %s (%s:%d) url=%s", dev.Name, dev.Host, dev.Port, url)
+	app, err = m.loadWithRetry(dev, app, url, contentType)
+	if err != nil {
+		return fmt.Errorf("load media on %s: %w", dev.Name, err)
+	}
 	m.mu.Lock()
 	m.app = app
 	m.mu.Unlock()
-
-	log.Printf("[chromecast] sending Load to %s (%s:%d) url=%s", dev.Name, dev.Host, dev.Port, url)
-	// detach=true so we return immediately without waiting for playback to finish
-	if err := app.Load(url, 0, contentType, false, true, false); err != nil {
-		return fmt.Errorf("load media on %s: %w", dev.Name, err)
-	}
 	log.Printf("[chromecast] Load command accepted by %s", dev.Name)
 	return nil
+}
+
+// loadAttempts is how many times a LOAD is tried before giving up.
+const loadAttempts = 3
+
+// loadWithRetry loads url on the connected speaker. If that fails it reconnects
+// and tries again: the client library can lose a reply that arrives before it has
+// registered to receive it (seen when the machine is busy), which surfaces as a
+// 5-second timeout and would otherwise cost a whole Athan. It returns the
+// connection that succeeded.
+func (m *Manager) loadWithRetry(dev Device, app *application.Application, url, contentType string) (*application.Application, error) {
+	var err error
+	for attempt := 1; attempt <= loadAttempts; attempt++ {
+		// detach=true so we return immediately without waiting for playback to finish
+		if err = app.Load(url, 0, contentType, false, true, false); err == nil {
+			return app, nil
+		}
+		log.Printf("[chromecast] Load attempt %d/%d on %s failed: %v", attempt, loadAttempts, dev.Name, err)
+		if attempt == loadAttempts {
+			break
+		}
+		app.Close(false)
+		time.Sleep(connectRetryPause)
+		fresh, cerr := m.connectWithRetry(dev)
+		if cerr != nil {
+			return nil, fmt.Errorf("%w (and reconnecting failed: %v)", err, cerr)
+		}
+		app = fresh
+	}
+	return nil, err
 }
 
 // connectWithBackoff retries connecting to the named device with forced mDNS
