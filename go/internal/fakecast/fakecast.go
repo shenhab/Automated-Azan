@@ -35,6 +35,12 @@ import (
 	pb "github.com/vishen/go-chromecast/cast/proto"
 )
 
+// defaultReplyDelay is how long the speaker takes to answer a request. A real
+// device is reached over a network and is never instantaneous; an instant fake
+// also exposes a race in the client library (it registers its listener after
+// sending, so a reply that comes back first is dropped).
+const defaultReplyDelay = 3 * time.Millisecond
+
 const (
 	nsConnection = "urn:x-cast:com.google.cast.tp.connection"
 	nsHeartbeat  = "urn:x-cast:com.google.cast.tp.heartbeat"
@@ -84,6 +90,7 @@ type Speaker struct {
 	trace        []string
 	events       []Event
 	dropReplies  map[string]int // request type -> replies still to swallow
+	replyDelay   time.Duration  // how long the speaker takes to answer
 	loads        []Load
 	appLaunched  bool
 	sessionID    string
@@ -104,6 +111,7 @@ func New(name string) *Speaker {
 		conns:       make(map[net.Conn]struct{}),
 		volume:      0.5,
 		playerState: "IDLE",
+		replyDelay:  defaultReplyDelay,
 	}
 }
 
@@ -206,6 +214,19 @@ func (s *Speaker) SimulateCast(url string) {
 	s.mediaSession++
 	s.playerState = "PLAYING"
 	s.currentURL, s.currentType = url, "video/mp4"
+}
+
+// SetReplyDelay sets how long the speaker takes to answer each request.
+func (s *Speaker) SetReplyDelay(d time.Duration) {
+	s.mu.Lock()
+	s.replyDelay = d
+	s.mu.Unlock()
+}
+
+func (s *Speaker) delay() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.replyDelay
 }
 
 // DropReplies makes the speaker act on the next n requests of the given type
@@ -355,6 +376,7 @@ func (s *Speaker) serve(c net.Conn) {
 		frame := make([]byte, 4+len(data))
 		binary.BigEndian.PutUint32(frame, uint32(len(data)))
 		copy(frame[4:], data)
+		time.Sleep(s.delay()) // the network and the device take a moment to answer
 		wmu.Lock()
 		defer wmu.Unlock()
 		c.Write(frame)
