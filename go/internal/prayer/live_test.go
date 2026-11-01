@@ -11,12 +11,16 @@
 package prayer
 
 import (
+	"io"
+	"net/http"
 	"os"
 	"testing"
 	"time"
 )
 
-var liveSources = []string{"icci", "naas", "newbridge", "cork", "galway"}
+// icci is not listed: islamireland.ie no longer publishes a timetable (see
+// errICCIDiscontinued). The live Dublin source is MAI, tested below.
+var liveSources = []string{"naas", "newbridge", "cork", "galway"}
 
 func TestLiveTimetablesDownloadParseAndScheduleCorrectly(t *testing.T) {
 	year := time.Now().In(mustDublin(t)).Year()
@@ -43,12 +47,7 @@ func TestLiveTimetablesDownloadParseAndScheduleCorrectly(t *testing.T) {
 			loc := mustDublin(t)
 			fixed := 0
 			for day := time.Date(year, 1, 1, 12, 0, 0, 0, loc); day.Year() == year; day = day.AddDate(0, 0, 1) {
-				var rawTimes Times
-				if src == "icci" {
-					rawTimes, err = f.extractICCI(raw, day)
-				} else {
-					rawTimes, err = f.extractNaas(raw, day)
-				}
+				rawTimes, err := f.extractNaas(raw, day)
 				if err != nil {
 					t.Fatalf("%s: live data no longer parses: %v", day.Format("2006-01-02"), err)
 				}
@@ -119,4 +118,46 @@ func absf(x float64) float64 {
 		return -x
 	}
 	return x
+}
+
+// MAI publishes today's times only. The live page must still be readable, be for
+// today, and give a plausible day.
+func TestLiveMAITodayParsesAndIsPlausible(t *testing.T) {
+	t.Setenv("AZAN_MAI_URL", "") // the real site
+	loc := mustDublin(t)
+	now := time.Now().In(loc)
+	day := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, loc)
+
+	f, err := NewFetcher(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// What the site says, before the agent's own sanity check.
+	req, _ := http.NewRequest("GET", maiURLDefault, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36")
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("maionline.ie unreachable: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	pageDate, raw, err := parseMAIPage(body)
+	if err != nil {
+		t.Fatalf("the live MAI page can no longer be read (its layout changed?): %v", err)
+	}
+	if pageDate.Format("2006-01-02") != day.Format("2006-01-02") {
+		t.Fatalf("the live MAI page is for %s, not today", pageDate.Format("2006-01-02"))
+	}
+	if _, shift := correctDST(raw, day, loc); shift != 0 {
+		t.Logf("WARNING: MAI published today's times %+v an hour out; the agent corrects this", raw)
+	}
+
+	got, err := f.Fetch("mai", day, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, m, _ := parseHHMM(got.Dhuhr)
+	if off := absf(float64(h*60+m) - solarNoonLocalMinutes(day, loc)); off > 35 {
+		t.Errorf("Dhuhr %s is %.0f min from solar noon", got.Dhuhr, off)
+	}
 }

@@ -62,6 +62,19 @@ func minutesToClock(m int) string {
 // (0 if the data was already consistent). Anything that isn't within 30 min of
 // a whole 1–2 hour error is left untouched.
 func guardDST(t Times, date time.Time, loc *time.Location) (Times, int) {
+	out, shift := correctDST(t, date, loc)
+	if shift != 0 {
+		log.Printf("[prayer/dst] source timetable is %+dh out of step with %s on %s "+
+			"(Dhuhr %s vs solar noon %s) — corrected",
+			-shift, loc, date.In(loc).Format("2006-01-02"),
+			t.Dhuhr, minutesToClock(int(math.Round(solarNoonLocalMinutes(date, loc)))))
+	}
+	return out, shift
+}
+
+// correctDST is guardDST without the logging: it returns the corrected times and
+// the shift applied in hours (0 if the row was already consistent).
+func correctDST(t Times, date time.Time, loc *time.Location) (Times, int) {
 	dhuhr, ok := clockToMinutes(t.Dhuhr)
 	if !ok {
 		return t, 0
@@ -98,10 +111,5 @@ func guardDST(t Times, date time.Time, loc *time.Location) (Times, int) {
 			return t, 0
 		}
 	}
-
-	log.Printf("[prayer/dst] source timetable is %+dh out of step with %s on %s "+
-		"(Dhuhr %s vs solar noon %s) — corrected",
-		k, loc, date.In(loc).Format("2006-01-02"),
-		t.Dhuhr, minutesToClock(int(math.Round(solarNoonLocalMinutes(date, loc)))))
 	return out, -k
 }

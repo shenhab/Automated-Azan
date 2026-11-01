@@ -164,6 +164,9 @@ func withExtraDevice(name string, sp *fakecast.Speaker) agentOpt {
 	}
 }
 
+// withEnv passes extra environment variables ("KEY=value") to the agent.
+func withEnv(kv ...string) agentOpt { return func(c *agentCfg) { c.env = append(c.env, kv...) } }
+
 func withFakeNow(rfc3339 string) agentOpt { return func(c *agentCfg) { c.fakeNow = rfc3339 } }
 
 func startAgent(t *testing.T, home, cfgFile string, sp *fakecast.Speaker, opts ...agentOpt) *agent {
@@ -279,6 +282,11 @@ func quoteJoin(ss []string) string {
 
 func writeConfig(t *testing.T, path string, webPort int, enabledPrayer string, extra ...string) {
 	t.Helper()
+	writeConfigAt(t, path, webPort, "naas", enabledPrayer, extra...)
+}
+
+func writeConfigAt(t *testing.T, path string, webPort int, location, enabledPrayer string, extra ...string) {
+	t.Helper()
 	flag := func(p string) string {
 		if enabledPrayer == "all" || strings.EqualFold(p, enabledPrayer) {
 			return "true"
@@ -289,7 +297,7 @@ func writeConfig(t *testing.T, path string, webPort int, enabledPrayer string, e
 group_name = %q
 
 [prayer]
-location = "naas"
+location = %q
 
 [prayer.enabled]
 fajr = %s
@@ -301,7 +309,7 @@ isha = %s
 [web]
 host = "127.0.0.1"
 port = %d
-`, speakerName, flag("Fajr"), flag("Dhuhr"), flag("Asr"), flag("Maghrib"), flag("Isha"), webPort)
+`, speakerName, location, flag("Fajr"), flag("Dhuhr"), flag("Asr"), flag("Maghrib"), flag("Isha"), webPort)
 	cfg += strings.Join(extra, "\n")
 	if err := os.WriteFile(path, []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)

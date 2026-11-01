@@ -19,7 +19,7 @@ test without it found and acted on real speakers on the LAN.)
 | Component | `internal/chromecast/*_test.go` | Speaker control against a fake speaker (right file per prayer, warm-up reused, dropped session, speaker returns mid-retry, failure reported) and TV-mute (idle TV muted/unmuted, playing TV paused/resumed, what the owner muted/paused is left alone, overlapping calls, dropped connection, unreachable TV) | `go test ./...` |
 | Fake speaker | `internal/fakecast` | A fake Google Cast receiver speaking the real CASTV2 protocol (checked with the same `go-chromecast` client the agent uses). Records messages, LOAD, mute/pause/play events with times, and downloads the media URL like a real speaker | used by the above |
 | End to end | `e2e/` (tag `e2e`) | The **real agent** (binary or Docker image) with fake speakers: a scheduled prayer plays the right MP3 at the right time exactly once and a browser gets the `prayer_fired` event; TVs are quieted and restored; the whole web UI/API (auth, pages, status, discovery, play/stop, settings validation and re-planning, media, uploads, websocket); and, on clock-change days with a fake clock (binary mode only, tag `azanfaketime`), the Athan fires at the right instant across the spring-forward gap and the 00:05 refresh runs once and schedules correctly on both nights | `go test -tags e2e ./e2e/` |
-| Live sources | `internal/prayer/live_test.go` (tag `live`) | The real Mawaqit / ICCI / Aladhan data still downloads, parses and schedules correctly; reports how many days a site publishes with a wrong GMT/IST changeover | weekly + on demand: `.github/workflows/live-sources.yml` |
+| Live sources | `internal/prayer/live_test.go` (tag `live`) | The real Mawaqit (Naas, Newbridge, Cork, Galway), MAI and Aladhan data still downloads, parses and schedules correctly; reports how many days a site publishes with a wrong GMT/IST changeover. (ICCI is not listed: its online timetable was discontinued.) | weekly + on demand: `.github/workflows/live-sources.yml` |
 
 CI (`.github/workflows/ci.yml`) runs everything except the live check; the Docker
 image is only published (`docker.yml`) if all of it, including both e2e modes,
@@ -37,7 +37,7 @@ E2E_DOCKER_IMAGE=azan-e2e:local go test -tags e2e ./e2e/ -v -parallel 16
 
 No real speaker, TV or timetable site is touched: timetables are fixtures written to
 the agent's data directory, speakers are addressed with `AZAN_STATIC_DEVICES`
-(`Name=host:port;Name2=host:port`) and `AZAN_DISABLE_MDNS=1` turns discovery off. The
+(`Name=host:port;Name2=host:port`) and `AZAN_DISABLE_MDNS=1` turns discovery off; `AZAN_MAI_URL` points the MAI source at a fake site. The
 fake clock (`AZAN_FAKE_NOW`) exists only in builds with the `azanfaketime` tag, which
 only the e2e harness uses; it is not called `faketime` because Go's runtime already
 uses that tag. A few tests are skipped in Docker mode (fake clock; uploads, since the
