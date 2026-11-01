@@ -111,7 +111,7 @@ func fetch(t time.Time) (*Date, error) {
 	var payload struct {
 		Data struct {
 			Hijri struct {
-				Day  string `json:"day"`
+				Day   string `json:"day"`
 				Month struct {
 					Number int    `json:"number"`
 					EN     string `json:"en"`

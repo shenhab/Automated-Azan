@@ -20,8 +20,8 @@ const StreamURL = "https://backup.qurango.net/radio/mahmoud_khalil_alhussary_war
 type Controller struct {
 	castMgr *chromecast.Manager
 
-	mu          sync.Mutex
-	speakerGen  uint64 // incremented on every StartSpeaker* call
+	mu            sync.Mutex
+	speakerGen    uint64 // incremented on every StartSpeaker* call
 	speakerActive bool
 	speakerCancel context.CancelFunc
 	localActive   bool

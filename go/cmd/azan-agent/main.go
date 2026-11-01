@@ -17,8 +17,8 @@ import (
 	"azan-agent/internal/appdirs"
 	"azan-agent/internal/chromecast"
 	"azan-agent/internal/config"
-	"azan-agent/internal/media"
 	"azan-agent/internal/localplay"
+	"azan-agent/internal/media"
 	"azan-agent/internal/notify"
 	"azan-agent/internal/prayer"
 	"azan-agent/internal/quran"
@@ -107,7 +107,7 @@ func (p *program) run() {
 		log.Printf("[main] warning: could not create app dirs: %v", err)
 	}
 
-	resolvedDataDir  := appdirs.Data()
+	resolvedDataDir := appdirs.Data()
 	resolvedMediaDir := filepath.Join(binDir(), "Media")
 	log.Printf("[main] config dir: %s", appdirs.Config())
 	log.Printf("[main] data dir:   %s", resolvedDataDir)
@@ -607,7 +607,7 @@ func runTrayForService(port int, svc service.Service) {
 		StopQuranSpeaker:   func() { quranActionFromAPI(port, "stop", "speaker") },
 		StreamQuranLocal:   func() error { return quranActionFromAPI(port, "play", "local") },
 		StopQuranLocal:     func() { quranActionFromAPI(port, "stop", "local") },
-		CheckUpdate: makeCheckUpdateFn(svc, nil),
+		CheckUpdate:        makeCheckUpdateFn(svc, nil),
 		Uninstall: func() {
 			doUninstall(svc, nil)
 		},

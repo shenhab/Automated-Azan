@@ -82,9 +82,9 @@ func onReady(cfg Config) {
 	if cfg.QuranStatus != nil {
 		systray.AddSeparator()
 		mQuranSpeaker = systray.AddMenuItem("▶  Quran on Speaker", "Stream Quran on Google speaker")
-		mQuranLocal   = systray.AddMenuItem("▶  Quran on This PC", "Stream Quran on this machine's audio")
+		mQuranLocal = systray.AddMenuItem("▶  Quran on This PC", "Stream Quran on this machine's audio")
 		quranSpeakerCh = mQuranSpeaker.ClickedCh
-		quranLocalCh   = mQuranLocal.ClickedCh
+		quranLocalCh = mQuranLocal.ClickedCh
 		refreshQuranItems(mQuranSpeaker, mQuranLocal, cfg.QuranStatus)
 	}
 
@@ -143,7 +143,6 @@ func onReady(cfg Config) {
 		}
 	}
 }
-
 
 func refreshQuranItems(speaker, local *systray.MenuItem, status func() (bool, bool)) {
 	spkActive, locActive := status()
