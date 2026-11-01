@@ -115,14 +115,18 @@ func (p *program) run() {
 	log.Printf("[main] log dir:    %s", appdirs.Logs())
 	log.Printf("[main] media dir:  %s", resolvedMediaDir)
 
-	// Verify media directory exists and list files for debugging
-	if entries, err := os.ReadDir(resolvedMediaDir); err != nil {
-		log.Printf("[main] WARNING: media dir not found (%s): %v — Chromecast playback will fail", resolvedMediaDir, err)
+	// Report where the audio comes from. A missing Media directory is normal (the
+	// program carries its own audio); only a file missing from both is a problem.
+	ms := media.Check(resolvedMediaDir, media.EmbeddedFS)
+	if problem := ms.Problem(); problem != "" {
+		log.Printf("[main] WARNING: %s", problem)
+	}
+	if ms.DirExists && len(ms.Local) > 0 {
+		log.Printf("[main] media: %d audio file(s) bundled in the program, plus %d of your own in %s: %s",
+			len(ms.Bundled), len(ms.Local), ms.Dir, strings.Join(ms.Local, ", "))
 	} else {
-		log.Printf("[main] media dir contains %d file(s):", len(entries))
-		for _, e := range entries {
-			log.Printf("[main]   %s", e.Name())
-		}
+		log.Printf("[main] media: using the %d audio file(s) bundled in the program (add your own by creating %s)",
+			len(ms.Bundled), ms.Dir)
 	}
 
 	// Prayer time fetcher
