@@ -5,10 +5,13 @@
 //   - only a change to what users run (the agent and its image) releases; tests,
 //     docs and CI do not;
 //   - the version is the highest vMAJOR.MINOR.PATCH tag plus a bump: patch by
-//     default, raised by a PR label (release:minor / release:major), a "feat:"
-//     title, or a breaking-change marker;
-//   - "[skip release]" or the label release:skip opts out; a person running the
-//     workflow by hand can force a release and choose the bump.
+//     default, raised by a "feat:" title or a breaking-change marker;
+//   - a PR label release:patch / release:minor / release:major is explicit intent:
+//     it forces a release even if nothing users run changed, and sets the bump
+//     (explicit labels win over what the title suggests; the highest label wins);
+//   - "[skip release]" or the label release:skip opts out, and beats a release
+//     label; a person running the workflow by hand can force a release and choose
+//     the bump.
 package main
 
 import (
@@ -121,7 +124,17 @@ func Decide(in Input) (Decision, error) {
 		return Decision{}, fmt.Errorf("invalid bump %q (use auto, patch, minor or major)", in.Bump)
 	}
 
+	// An explicit release label is explicit intent: it sets the bump and forces the
+	// release. The highest label wins.
+	labelBump := ""
+	for _, l := range []string{"patch", "minor", "major"} {
+		if hasLabel(in.Labels, "release:"+l) {
+			labelBump = l
+		}
+	}
+
 	lowerMsg := strings.ToLower(in.Message)
+	reason := ""
 	if !in.Force {
 		if strings.Contains(lowerMsg, "[skip release]") || hasLabel(in.Labels, "release:skip") {
 			return Decision{Reason: "opted out of releasing ([skip release] or label release:skip)"}, nil
@@ -133,17 +146,23 @@ func Decide(in Input) (Decision, error) {
 				break
 			}
 		}
-		if !shipped {
+		switch {
+		case shipped:
+		case labelBump != "":
+			reason = fmt.Sprintf("forced by the label release:%s (nothing users run changed)", labelBump)
+		default:
 			return Decision{Reason: "nothing users run changed (only tests, docs, CI or tooling)"}, nil
 		}
 	}
 
 	title := strings.TrimSpace(strings.SplitN(in.Message, "\n", 2)[0])
 	switch {
-	case bump != "":
-	case hasLabel(in.Labels, "release:major"), strings.Contains(in.Message, "BREAKING CHANGE"), breakingTitle.MatchString(title):
+	case bump != "": // chosen explicitly by a person running the workflow
+	case labelBump != "":
+		bump = labelBump
+	case strings.Contains(in.Message, "BREAKING CHANGE"), breakingTitle.MatchString(title):
 		bump = "major"
-	case hasLabel(in.Labels, "release:minor"), featTitle.MatchString(title):
+	case featTitle.MatchString(title):
 		bump = "minor"
 	default:
 		bump = "patch"
@@ -158,7 +177,10 @@ func Decide(in Input) (Decision, error) {
 	default:
 		next = version{next.major, next.minor, next.patch + 1}
 	}
-	return Decision{Release: true, Version: next.String(), Bump: bump, Reason: fmt.Sprintf("%s release", bump)}, nil
+	if reason == "" {
+		reason = fmt.Sprintf("%s release", bump)
+	}
+	return Decision{Release: true, Version: next.String(), Bump: bump, Reason: reason}, nil
 }
 
 func splitList(s string) []string {

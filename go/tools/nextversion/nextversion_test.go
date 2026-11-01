@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -174,5 +175,72 @@ func TestParseTagList(t *testing.T) {
 	got := splitList(" v1.0.0, v1.1.0 ,,x ")
 	if want := []string{"v1.0.0", "v1.1.0", "x"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("splitList = %q, want %q", got, want)
+	}
+}
+
+// ── explicit labels are explicit intent ──────────────────────────────────────
+
+func TestAReleaseLabelForcesAReleaseEvenWhenNothingShippedChanged(t *testing.T) {
+	docs := []string{"README.md", "go/TESTING.md", ".github/workflows/ci.yml"}
+	for _, c := range []struct {
+		label, version, bump string
+	}{
+		{"release:patch", "v1.2.8", "patch"},
+		{"release:minor", "v1.3.0", "minor"},
+		{"release:major", "v2.0.0", "major"},
+	} {
+		d, err := Decide(Input{Tags: []string{"v1.2.7"}, Message: "docs: tidy (#1)", Labels: []string{c.label}, Files: docs})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !d.Release || d.Version != c.version || d.Bump != c.bump {
+			t.Errorf("%s on a docs-only change: %+v, want release %s (%s)", c.label, d, c.version, c.bump)
+		}
+		if !strings.Contains(d.Reason, c.label) {
+			t.Errorf("reason %q does not say the label forced it", d.Reason)
+		}
+	}
+}
+
+func TestOnlyALabelForcesAReleaseNotATitle(t *testing.T) {
+	// A feat: title still only chooses the bump; with nothing shipped there is no release.
+	d, _ := Decide(Input{Tags: []string{"v1.2.7"}, Message: "feat: new docs (#1)", Files: []string{"README.md"}})
+	if d.Release {
+		t.Errorf("a feat: title alone forced a release: %+v", d)
+	}
+	// Unrelated labels do nothing.
+	d, _ = Decide(Input{Tags: []string{"v1.2.7"}, Message: "docs", Labels: []string{"documentation", "dependencies"}, Files: []string{"README.md"}})
+	if d.Release {
+		t.Errorf("unrelated labels forced a release: %+v", d)
+	}
+}
+
+func TestOptOutBeatsAReleaseLabel(t *testing.T) {
+	for name, in := range map[string]Input{
+		"skip label too": {Tags: []string{"v1.2.7"}, Message: "x", Labels: []string{"release:minor", "release:skip"}, Files: []string{"README.md"}},
+		"skip marker":    {Tags: []string{"v1.2.7"}, Message: "x [skip release]", Labels: []string{"release:minor"}, Files: []string{"go/go.mod"}},
+	} {
+		if d, _ := Decide(in); d.Release {
+			t.Errorf("%s: released although the change opted out: %+v", name, d)
+		}
+	}
+}
+
+func TestExplicitLabelsBeatWhatTheTitleSuggests(t *testing.T) {
+	code := []string{"go/internal/web/server.go"}
+	for _, c := range []struct {
+		name, msg string
+		labels    []string
+		want      string
+	}{
+		{"patch label over a feat title", "feat: x (#1)", []string{"release:patch"}, "v1.2.8"},
+		{"minor label over a breaking marker", "fix: x\n\nBREAKING CHANGE: y", []string{"release:minor"}, "v1.3.0"},
+		{"the highest of several labels", "x", []string{"release:patch", "release:major", "release:minor"}, "v2.0.0"},
+		{"labels are case-insensitive", "x", []string{"Release:Minor"}, "v1.3.0"},
+	} {
+		d, _ := Decide(Input{Tags: []string{"v1.2.7"}, Message: c.msg, Labels: c.labels, Files: code})
+		if d.Version != c.want {
+			t.Errorf("%s: got %s, want %s", c.name, d.Version, c.want)
+		}
 	}
 }
