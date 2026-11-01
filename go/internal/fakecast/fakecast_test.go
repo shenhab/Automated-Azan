@@ -134,3 +134,30 @@ func TestSpeakerRecordsUnreachableMedia(t *testing.T) {
 		t.Errorf("expected a recorded fetch error, got %+v", loads[0].Fetch)
 	}
 }
+
+// A real speaker is reached over Wi-Fi: it never answers in microseconds. A fake
+// that does exposes a race in the client library (it registers its listener after
+// sending a request, so an instant reply can be lost; CI hit this as "unable to
+// change to appID ... context deadline exceeded"). So the fake answers with a small,
+// realistic delay by default.
+
+func TestTheSpeakerAnswersLikeARealDeviceOverANetwork(t *testing.T) {
+	sp, app := startSpeaker(t)
+
+	start := time.Now()
+	if err := app.Update(); err != nil { // one request/response round trip
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took < 2*time.Millisecond {
+		t.Errorf("a round trip took %v; a real device over a network takes longer than that", took)
+	}
+
+	sp.SetReplyDelay(60 * time.Millisecond)
+	start = time.Now()
+	if err := app.Update(); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took < 60*time.Millisecond {
+		t.Errorf("with a 60 ms reply delay a round trip took only %v", took)
+	}
+}
