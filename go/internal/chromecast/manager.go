@@ -222,12 +222,20 @@ func (m *Manager) Discover(force bool) ([]Device, error) {
 	defer cancel()
 
 	found := make(map[string]Device)
-	ch, err := castdns.DiscoverCastDNSEntries(ctx, nil)
+	var ch <-chan castdns.CastEntry
+	var err error
+	if os.Getenv("AZAN_DISABLE_MDNS") != "" {
+		// Static devices only: never scan the network (used by tests, and by
+		// anyone who wants the agent to talk to exactly the speakers they list).
+		err = fmt.Errorf("mDNS disabled by AZAN_DISABLE_MDNS")
+	} else {
+		ch, err = castdns.DiscoverCastDNSEntries(ctx, nil)
+	}
 	if err != nil {
 		if len(m.static) == 0 {
 			return nil, fmt.Errorf("mDNS discover: %w", err)
 		}
-		log.Printf("[chromecast] mDNS discover failed (%v) — using static devices only", err)
+		log.Printf("[chromecast] mDNS discover skipped (%v) — using static devices only", err)
 	} else {
 		for entry := range ch {
 			d := Device{

@@ -37,6 +37,7 @@ func newRig(t *testing.T) (*Manager, *fakecast.Speaker) {
 	t.Cleanup(media.Close)
 
 	host, port := sp.Addr()
+	t.Setenv("AZAN_DISABLE_MDNS", "1") // tests must never reach real devices on the LAN
 	t.Setenv("AZAN_STATIC_DEVICES", fmt.Sprintf("Test Speaker=%s:%d", host, port))
 	m := NewManager("Test Speaker")
 	m.SetMediaBaseURL(media.URL + "/media/")
