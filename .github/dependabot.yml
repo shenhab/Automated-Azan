@@ -4,6 +4,9 @@ updates:
   # ── GitHub Actions ────────────────────────────────────────────────────────
   - package-ecosystem: github-actions
     directory: /
+    groups:
+      actions-patch:            # patch bumps arrive together and may auto-merge
+        update-types: ["patch"]
     schedule:
       interval: weekly      # check every Monday
       day: monday
@@ -17,6 +20,9 @@ updates:
   # ── Go modules ────────────────────────────────────────────────────────────
   - package-ecosystem: gomod
     directory: /go
+    groups:
+      go-minor-patch:           # one weekly PR for the safe updates; majors stay separate
+        update-types: ["minor", "patch"]
     schedule:
       interval: weekly
       day: monday
@@ -30,6 +36,9 @@ updates:
   # ── Docker base images (golang / alpine in go/Dockerfile) ─────────────────
   - package-ecosystem: docker
     directory: /go
+    groups:
+      docker-patch:
+        update-types: ["patch"]
     schedule:
       interval: weekly
       day: monday

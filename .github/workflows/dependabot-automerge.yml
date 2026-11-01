@@ -1,0 +1,67 @@
+name: Dependabot auto-merge
+
+# Merges a Dependabot pull request by itself when it is a SAFE kind of update and CI
+# has passed on it; everything else waits for a person.
+#
+#   Go dependencies  patch + minor   (batched into one weekly PR; also built for all
+#                                     six release targets)
+#   Docker base      patch only
+#   GitHub Actions   patch only
+#   majors, Go version/toolchain changes, unexpected files, ...  -> a person decides
+#
+# The policy is code with tests (go/tools/automerge); the steps are in
+# .github/scripts/dependabot-automerge.sh. It waits for the required checks on the
+# exact commit and merges only that commit. Because a merge made with the workflow
+# token does not start other workflows, it also starts the Release workflow when
+# the update changes what ships.
+#
+# Security: this runs on pull_request_target (it needs a write token), so it never
+# checks out or runs the pull request's code — only the tool from the default branch.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to evaluate"
+        required: true
+      dry_run:
+        description: "Only show the decision (works on closed PRs too); merge nothing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write         # merge
+  pull-requests: write    # merge
+  actions: write          # start the Release workflow afterwards
+  checks: read
+
+# A new push to the PR (Dependabot rebasing it) supersedes the run that is waiting.
+concurrency:
+  group: dependabot-automerge-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  automerge:
+    name: Decide and merge
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout the default branch (never the pull request)
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go/go.mod
+
+      - name: Decide, wait for CI, merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number || inputs.pr_number }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: .github/scripts/dependabot-automerge.sh

@@ -47,3 +47,26 @@ Opt out of releasing a merge with the label `release:skip` or `[skip release]` i
 * Pushing a tag `vX.Y.Z` yourself releases exactly that version.
 
 Releases are serialized (one at a time), so two quick merges can never get the same version.
+
+## Dependabot
+
+Dependabot opens the update PRs; safe ones **merge themselves** once CI is green
+(`.github/workflows/dependabot-automerge.yml`, policy in `go/tools/automerge`):
+
+| Update | Merges by itself? |
+|---|---|
+| Go dependencies, **patch and minor** (batched into one weekly PR) | yes — and also built for all six release targets first |
+| Docker base image, **patch** | yes |
+| GitHub Actions, **patch** | yes |
+| any **major**; a change of the Go version or toolchain; a PR touching unexpected files; anything without readable metadata | no — waits for you |
+
+It waits for the required checks on the exact commit and merges only that commit. A Go or
+Docker update then starts a release automatically (a merge made by a workflow doesn't start
+other workflows by itself, so it starts the Release workflow explicitly). Nothing redeploys
+your running container: that still happens only when you pull the new image.
+
+To see what it would do with any PR, including closed ones: *Actions → Dependabot auto-merge →
+Run workflow* with the PR number (dry run is the default).
+
+`main` requires a pull request and these passing checks: **Test**, **E2E (binary)**,
+**E2E (docker)**, **Docker build (no push)**.
