@@ -26,3 +26,16 @@ updates:
       - dependencies
     commit-message:
       prefix: "deps"
+
+  # ── Docker base images (golang / alpine in go/Dockerfile) ─────────────────
+  - package-ecosystem: docker
+    directory: /go
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/Dublin
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "deps"

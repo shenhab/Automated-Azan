@@ -1,0 +1,82 @@
+name: CI
+
+# Quality gate. Runs on every pull request, and is reused (workflow_call) by the
+# Docker publish and Release workflows so nothing ships without passing it.
+on:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.3
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.4.0
+        with:
+          go-version-file: go/go.mod
+          cache: true
+          cache-dependency-path: go/go.sum
+
+      - name: Check formatting (gofmt)
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-formatted (run 'gofmt -w .'):"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      # Two analyzers are switched off because of known, pre-existing findings
+      # that need a code change to fix properly:
+      #   copylocks — config.Config (contains a sync.RWMutex) is passed by value
+      #   hostport  — chromecast/manager.go builds "%s:%d" (breaks for IPv6)
+      # Everything else in `go vet` is enforced. Remove these flags once fixed.
+      - name: Vet
+        run: go vet -copylocks=false -hostport=false ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./... -count=1
+
+  # Pull requests only: prove the Dockerfile still builds. Nothing is pushed and
+  # no secrets are used. (Skipped when this workflow is called from Docker/Release,
+  # where github.event_name is the caller's event.)
+  docker-build:
+    name: Docker build (no push)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.4.1
+
+      - name: Build image
+        uses: docker/build-push-action@v7.2.0
+        with:
+          context: go
+          file: go/Dockerfile
+          push: false
+          platforms: linux/amd64
+          cache-from: type=gha
