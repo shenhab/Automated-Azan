@@ -172,3 +172,31 @@ func TestAthanIsDeliveredEvenIfTheSpeakersReplyIsLost(t *testing.T) {
 		t.Errorf("speaker did not get playable audio: %+v", loads[0].Fetch)
 	}
 }
+
+// The pre-connected session (opened 60 s before the Athan) must survive a lost
+// reply to the "launch app" request: the app is already launched on the speaker, so
+// asking again on the SAME session works. Reconnecting still delivers the Athan,
+// but needlessly throws away the warm connection — and this race (the client
+// library registers its listener after sending) is exactly what showed up as a
+// flaky "saw 2 connections" on a busy CI runner.
+func TestPreConnectedSessionIsKeptWhenALaunchReplyIsLost(t *testing.T) {
+	m, sp := newRig(t)
+	if err := m.PreConnect(); err != nil {
+		t.Fatalf("PreConnect: %v", err)
+	}
+	sp.DropReplies("LAUNCH", 1)
+
+	if err := m.PlayAthan("Dhuhr", ""); err != nil {
+		t.Fatalf("PlayAthan: %v", err)
+	}
+	loads, err := sp.WaitForLoads(1, 20*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loads[0].Fetch.LooksLikeAudio {
+		t.Errorf("speaker did not get playable audio: %+v", loads[0].Fetch)
+	}
+	if n := sp.Connections(); n != 1 {
+		t.Errorf("speaker saw %d connections, want 1: the warm session should have been retried, not dropped", n)
+	}
+}
