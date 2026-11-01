@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,11 +16,18 @@ import (
 )
 
 const (
-	discoveryCooldown    = 60 * time.Second
-	connectTimeout       = 10 * time.Second
-	maxRetries           = 3
+	discoveryCooldown = 60 * time.Second
+	connectTimeout    = 10 * time.Second
+	maxRetries        = 3
+)
+
+// Timing knobs. They are variables only so tests can shorten them; production
+// code never changes them.
+var (
 	backoffRetryInterval = 30 * time.Second // wait between backoff attempts
 	backoffMaxWait       = 3 * time.Minute  // total time to keep retrying
+	connectRetryPause    = 2 * time.Second  // pause between connect attempts
+	mdnsTimeout          = 8 * time.Second  // how long one mDNS scan listens
 )
 
 // QuranStation is the default live Quran recitation stream.
@@ -53,6 +63,11 @@ type Manager struct {
 
 	athanPlaying bool
 	quranPlaying bool
+
+	// static devices are always merged into discovery results (see
+	// parseStaticDevices); they let speakers be addressed directly where mDNS
+	// does not work (other VLANs, containers, CI).
+	static []Device
 }
 
 // NewManager creates a Manager targeting the named device.
@@ -60,7 +75,37 @@ func NewManager(deviceName string) *Manager {
 	return &Manager{
 		deviceName: deviceName,
 		devices:    make(map[string]Device),
+		static:     parseStaticDevices(os.Getenv("AZAN_STATIC_DEVICES")),
 	}
+}
+
+// parseStaticDevices parses AZAN_STATIC_DEVICES: a ';'-separated list of
+// "Name=host:port" entries, e.g. "Kitchen=192.168.2.10:8009;Hall=10.0.0.5:8009".
+// Malformed entries are logged and skipped.
+func parseStaticDevices(spec string) []Device {
+	var out []Device
+	for _, entry := range strings.Split(spec, ";") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		name, addr, ok := strings.Cut(entry, "=")
+		name = strings.TrimSpace(name)
+		host, portStr, err := net.SplitHostPort(strings.TrimSpace(addr))
+		port, perr := strconv.Atoi(portStr)
+		if !ok || name == "" || err != nil || perr != nil || port <= 0 || port > 65535 {
+			log.Printf("[chromecast] ignoring malformed AZAN_STATIC_DEVICES entry %q (want Name=host:port)", entry)
+			continue
+		}
+		out = append(out, Device{
+			UUID:      "static-" + strings.ToLower(strings.ReplaceAll(name, " ", "-")),
+			Name:      name,
+			Host:      host,
+			Port:      port,
+			ModelName: "Static device",
+		})
+	}
+	return out
 }
 
 // SetCacheDir sets the directory used to persist the device cache.
@@ -173,25 +218,32 @@ func (m *Manager) Discover(force bool) ([]Device, error) {
 	m.mu.Unlock()
 
 	log.Println("[chromecast] discovering devices via mDNS...")
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), mdnsTimeout)
 	defer cancel()
 
+	found := make(map[string]Device)
 	ch, err := castdns.DiscoverCastDNSEntries(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("mDNS discover: %w", err)
-	}
-
-	found := make(map[string]Device)
-	for entry := range ch {
-		d := Device{
-			UUID:      entry.UUID,
-			Name:      entry.DeviceName,
-			Host:      entry.AddrV4.String(),
-			Port:      entry.Port,
-			ModelName: entry.Device,
+		if len(m.static) == 0 {
+			return nil, fmt.Errorf("mDNS discover: %w", err)
 		}
-		found[entry.UUID] = d
-		log.Printf("[chromecast] found: %s (%s) at %s:%d", d.Name, d.ModelName, d.Host, d.Port)
+		log.Printf("[chromecast] mDNS discover failed (%v) — using static devices only", err)
+	} else {
+		for entry := range ch {
+			d := Device{
+				UUID:      entry.UUID,
+				Name:      entry.DeviceName,
+				Host:      entry.AddrV4.String(),
+				Port:      entry.Port,
+				ModelName: entry.Device,
+			}
+			found[entry.UUID] = d
+			log.Printf("[chromecast] found: %s (%s) at %s:%d", d.Name, d.ModelName, d.Host, d.Port)
+		}
+	}
+	for _, d := range m.static {
+		found[d.UUID] = d
+		log.Printf("[chromecast] static device: %s at %s:%d", d.Name, d.Host, d.Port)
 	}
 
 	m.mu.Lock()
@@ -517,7 +569,7 @@ func (m *Manager) connectWithRetry(dev Device) (*application.Application, error)
 		} else {
 			log.Printf("[chromecast] connect attempt %d/%d failed: %v", i+1, maxRetries, err)
 		}
-		time.Sleep(2 * time.Second)
+		time.Sleep(connectRetryPause)
 	}
 	return nil, fmt.Errorf("failed to connect after %d attempts", maxRetries)
 }
