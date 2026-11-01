@@ -16,6 +16,7 @@ package e2e
 import (
 	"bytes"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -114,16 +115,19 @@ func freePorts(t *testing.T) int {
 	t.Helper()
 	portMu.Lock()
 	defer portMu.Unlock()
-	for i := 0; i < 200; i++ {
-		l1, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			continue
-		}
-		p := l1.Addr().(*net.TCPAddr).Port
-		l1.Close()
+	// Ports come from 20000-29999, below the ephemeral range (32768+ on Linux), so
+	// no outbound connection on the machine can take one between the moment it is
+	// picked and the moment the agent binds it a few seconds later.
+	for i := 0; i < 400; i++ {
+		p := 20000 + rand.Intn(10000)
 		if portUsed[p] || portUsed[p+1] || portUsed[p-1] {
 			continue
 		}
+		l1, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
+		if err != nil {
+			continue
+		}
+		l1.Close()
 		l2, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p+1))
 		if err != nil {
 			continue
