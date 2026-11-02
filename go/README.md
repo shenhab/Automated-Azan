@@ -67,6 +67,46 @@ file_path = "logs/azan.log"
 
 The web dashboard is at `http://localhost:5000`.
 
+## The Journal
+
+Every prayer (and the pre-Fajr Quran, Friday Al-Kahf and manual plays) is recorded from about
+90 seconds before it starts until the playback is over, so a silent or cut-short Athan can be
+explained. Open **Journal** in the web app.
+
+For each recording the Journal keeps one timeline of:
+
+- what the **agent** did: connecting, asking the speaker to play, what the speaker confirmed,
+  retries, stops, muting and releasing TVs;
+- what the **devices** reported by themselves: the speaker, the display that hosts a Cast group,
+  the TVs being muted (state, app, volume, mute), read-only, twice a second;
+- the **audio file** being downloaded by the speaker (who, how much, whether all of it);
+- the devices' own **status pages** (uptime, firmware, Wi-Fi) before and after, so a reboot or a
+  firmware update between prayers shows up.
+
+Changes a device made that the agent did not cause (someone stopping the speaker from a phone, a
+volume change) are marked **not the agent** and make the result a warning. Each recording gets a
+verdict (all good / warning / failed) and a one-line explanation, written to the log as well,
+with an optional desktop notification when something looks wrong. After each Athan you can tell
+the Journal whether you actually heard it — the one thing no device can report.
+
+The raw message-by-message recording of each device can be downloaded, with a *shareable* version
+that has addresses, ids and names removed. Recordings are kept in `<data dir>/journal`, 30 days
+and 300 MB by default (both configurable). The Journal only ever asks devices for their status
+(`internal/castrecord` enforces it), and a failure in it cannot affect a playback.
+
+```toml
+[journal]
+enabled = true
+retention_days = 30
+max_mb = 300
+watch_tvs = true            # also record the TVs the mute feature handles
+watch_devices = []          # more devices, by name
+notify_on = "problems"      # or "failures", or "off"
+```
+
+The Cast client library is vendored and patched in [`third_party/go-chromecast`](third_party/go-chromecast/PATCHES.md):
+several connections in one process (the Athan, TVs, the Journal) used to lose each other's replies.
+
 ## Directory layout expected at runtime
 
 ```
@@ -90,6 +130,9 @@ logs/
 | `internal/prayer` | Fetch prayer times (ICCI/Naas), daily scheduler |
 | `internal/chromecast` | mDNS discovery, CASTV2 playback |
 | `internal/media` | HTTP file server for MP3s (Chromecast fetches from here) |
+| `internal/journal` | Records what the agent and devices did around each prayer; verdicts, retention, export |
+| `internal/trace` | How the rest of the agent reports events to the Journal without depending on it |
+| `internal/castrecord` | Read-only recording of the Cast protocol (only status requests are ever sent) |
 | `internal/web` | Dashboard, REST API, WebSocket live updates |
 | `internal/tray` | System tray icon |
 | `internal/timesync` | NTP time sync |

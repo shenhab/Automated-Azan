@@ -21,6 +21,7 @@ import (
 	"azan-agent/internal/clock"
 	"azan-agent/internal/config"
 	"azan-agent/internal/hijri"
+	"azan-agent/internal/journal"
 	"azan-agent/internal/media"
 	"azan-agent/internal/prayer"
 	"azan-agent/internal/quran"
@@ -58,6 +59,7 @@ type Server struct {
 	castMgr   *chromecast.Manager
 	quranCtrl QuranController
 	tvPause   *chromecast.TVPauseManager
+	journal   *journal.Journal
 	mediaDir  string // local directory for user media files
 	port      int
 
@@ -128,6 +130,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/chromecasts", s.requireAuth(s.handleChromecasts))
 	mux.HandleFunc("/settings", s.requireAuth(s.handleSettings))
 	mux.HandleFunc("/logs", s.requireAuth(s.handleLogs))
+	mux.HandleFunc("/journal", s.requireAuth(s.handleJournal))
 
 	// WebSocket (auth-protected)
 	mux.HandleFunc("/ws", s.requireAuth(s.handleWS))
@@ -154,6 +157,11 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/aladhan/methods", s.requireAPIAuth(s.handleAPIAladhanMethods))
 	mux.HandleFunc("/api/geo/countries", s.requireAPIAuth(s.handleAPIGeoCountries))
 	mux.HandleFunc("/api/geo/cities", s.requireAPIAuth(s.handleAPIGeoCities))
+	mux.HandleFunc("/api/journal/sessions", s.requireAPIAuth(s.handleAPIJournalSessions))
+	mux.HandleFunc("/api/journal/session", s.requireAPIAuth(s.handleAPIJournalSession))
+	mux.HandleFunc("/api/journal/live", s.requireAPIAuth(s.handleAPIJournalLive))
+	mux.HandleFunc("/api/journal/raw", s.requireAPIAuth(s.handleAPIJournalRaw))
+	mux.HandleFunc("/api/journal/note", s.requireAPIAuth(s.handleAPIJournalNote))
 	mux.HandleFunc("/api/tv-pause/status", s.requireAPIAuth(s.handleAPITVPauseStatus))
 	mux.HandleFunc("/api/tv-pause/config", s.requireAPIAuth(s.handleAPITVPauseConfig))
 	mux.HandleFunc("/api/tv-pause/resume", s.requireAPIAuth(s.handleAPITVPauseResume))
@@ -378,6 +386,9 @@ func (s *Server) mediaFileExists(name string) bool {
 // a bad value can never be saved (an unknown location, for example, would stop
 // every prayer from being scheduled).
 func (s *Server) validateConfigUpdate(body map[string]interface{}) error {
+	if err := validateJournalConfig(body); err != nil {
+		return err
+	}
 	if v, ok := body["location"].(string); ok && !config.IsValidLocation(v) {
 		return fmt.Errorf("unknown location %q (use one of %s)", v, strings.Join(config.Locations, ", "))
 	}
@@ -526,6 +537,7 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 		setBool(&s.cfg.Prayer.Channels.FridayKahf.Notify, "ch_friday_kahf_notify")
 		setBool(&s.cfg.Prayer.Channels.FridayKahf.BrowserNotify, "ch_friday_kahf_browser")
 		setBool(&s.cfg.Prayer.Channels.FridayKahf.BrowserAthan, "ch_friday_kahf_browser_athan")
+		s.applyJournalConfig(body)
 		if err := s.cfg.Save(); err != nil {
 			writeJSON(w, errResp(err))
 			return
@@ -619,6 +631,7 @@ func (s *Server) handleAPIPlayAthan(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, errResp(fmt.Errorf("%q is not an available audio file", body.Filename)))
 		return
 	}
+	s.beginManual(r, "Play button: "+body.Prayer+" Athan", 0)
 	if err := s.castMgr.PlayAthan(body.Prayer, body.Filename); err != nil {
 		writeJSON(w, errResp(err))
 		return
@@ -641,6 +654,7 @@ func (s *Server) handleAPITestWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[test-workflow] starting full workflow test for %s", body.Prayer)
+	s.beginManual(r, "Full workflow test: "+body.Prayer+" Athan", 0)
 
 	// Step 1 — pre-connect warmup (same as the scheduler does 60 s before prayer)
 	log.Printf("[test-workflow] step 1/3: pre-connect warmup")
@@ -696,6 +710,7 @@ func (s *Server) handleAPIStopPlayback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	s.noteManual(r, "Stop")
 	if err := s.castMgr.StopPlayback(); err != nil {
 		writeJSON(w, errResp(err))
 		return
@@ -768,6 +783,7 @@ func (s *Server) handleAPIQuranPlay(w http.ResponseWriter, r *http.Request) {
 	}
 	switch body.Target {
 	case "speaker":
+		s.beginManual(r, "Play button: Quran", 2*time.Hour)
 		if err := s.quranCtrl.StartSpeaker(0); err != nil {
 			writeJSON(w, errResp(err))
 			return
@@ -1102,6 +1118,7 @@ func (s *Server) handleAPITVPauseResume(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	s.noteManual(r, "Release the TVs")
 	go s.tvPause.ResumeAfterAthan()
 	writeJSON(w, map[string]interface{}{"success": true})
 }

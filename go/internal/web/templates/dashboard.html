@@ -61,6 +61,21 @@
   </div>
 </div>
 
+<!-- Last Athan (from the Journal) -->
+<div class="card mb-4" id="lastAthanCard" style="display:none">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span><i class="fas fa-book-open me-2" style="color:#40916C"></i>Last Athan</span>
+    <a href="/journal" class="small text-decoration-none">Open the Journal <i class="fas fa-arrow-right ms-1"></i></a>
+  </div>
+  <div class="card-body py-2 d-flex align-items-center flex-wrap gap-3">
+    <span id="laBadge" class="badge"></span>
+    <div>
+      <div style="font-weight:600" id="laTitle"></div>
+      <div class="text-muted" style="font-size:12px" id="laHeadline"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Prayer times pills -->
 <div class="card mb-4">
   <div class="card-header d-flex align-items-center justify-content-between">
@@ -437,5 +452,21 @@
   window.stopAll             = stopAll;
   window.testFullWorkflow    = testFullWorkflow;
 })();
+
+// Last Athan, from the Journal
+(function () {
+  fetch("/api/journal/sessions?days=3&kind=athan&limit=1").then(function (r) { return r.json(); }).then(function (d) {
+    if (!d.success || !d.sessions || !d.sessions.length) return;
+    var s = d.sessions[0], pad = function (n) { return (n < 10 ? "0" : "") + n; }, t = new Date(s.started);
+    var cls = { ok: "bg-success", warning: "bg-warning text-dark", failed: "bg-danger", running: "bg-primary" }[s.verdict] || "bg-secondary";
+    var txt = { ok: "All good", warning: "Warning", failed: "Failed", running: "Recording" }[s.verdict] || s.verdict;
+    document.getElementById("laBadge").className = "badge " + cls;
+    document.getElementById("laBadge").textContent = txt;
+    document.getElementById("laTitle").textContent = s.spec.label + " · " + pad(t.getHours()) + ":" + pad(t.getMinutes());
+    document.getElementById("laHeadline").textContent = s.headline;
+    document.getElementById("lastAthanCard").style.display = "";
+  }).catch(function () {});
+})();
+
 </script>
 {{end}}

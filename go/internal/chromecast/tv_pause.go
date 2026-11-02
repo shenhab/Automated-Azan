@@ -1,11 +1,14 @@
 package chromecast
 
 import (
+	"fmt"
 	"log"
 	"sync"
 	"time"
 
 	"github.com/vishen/go-chromecast/application"
+
+	"azan-agent/internal/trace"
 )
 
 // TVPauseManager quiets Cast-capable TVs/screens while the Athan plays, then puts
@@ -121,6 +124,7 @@ func (t *TVPauseManager) PauseForAthan(uuids []string, excludeName string) {
 			app, err := t.castMgr.connectWithRetry(dev)
 			if err != nil {
 				log.Printf("[tv-pause] connect to %q failed: %v", dev.Name, err)
+				trace.Error(trace.SourceTV, "tv-error", dev.Name, "could not reach "+dev.Name+" to mute it: "+err.Error(), "host", dev.Host)
 				return
 			}
 			pd := pausedDevice{device: dev, app: app}
@@ -129,26 +133,33 @@ func (t *TVPauseManager) PauseForAthan(uuids []string, excludeName string) {
 			playing := media != nil && (media.PlayerState == "PLAYING" || media.PlayerState == "BUFFERING")
 			switch {
 			case playing:
+				trace.From(trace.SourceTV, "pause-sent", dev.Name, "pausing "+dev.Name+" (it is playing something)", "host", dev.Host)
 				if err := app.Pause(); err != nil {
 					log.Printf("[tv-pause] pause %q failed: %v", dev.Name, err)
+					trace.Error(trace.SourceTV, "tv-error", dev.Name, "could not pause "+dev.Name+": "+err.Error(), "host", dev.Host)
 					app.Close(false)
 					return
 				}
 				pd.paused = true
 				log.Printf("[tv-pause] paused %q (%s)", dev.Name, dev.ModelName)
+				trace.From(trace.SourceTV, "tv-held", dev.Name, "paused "+dev.Name+" for the Athan", "host", dev.Host, "mode", "paused")
 			case vol != nil && vol.Muted:
 				// Muted by its owner: nothing for us to do, nothing to undo.
 				log.Printf("[tv-pause] %q is already muted — leaving it alone", dev.Name)
+				trace.From(trace.SourceTV, "tv-skipped", dev.Name, dev.Name+" is already muted — left alone", "host", dev.Host)
 				app.Close(false)
 				return
 			default:
+				trace.From(trace.SourceTV, "mute-sent", dev.Name, "muting "+dev.Name, "host", dev.Host)
 				if err := app.SetMuted(true); err != nil {
 					log.Printf("[tv-pause] mute %q failed: %v", dev.Name, err)
+					trace.Error(trace.SourceTV, "tv-error", dev.Name, "could not mute "+dev.Name+": "+err.Error(), "host", dev.Host)
 					app.Close(false)
 					return
 				}
 				pd.muted = true
 				log.Printf("[tv-pause] muted %q (%s)", dev.Name, dev.ModelName)
+				trace.From(trace.SourceTV, "tv-held", dev.Name, "muted "+dev.Name+" for the Athan", "host", dev.Host, "mode", "muted")
 			}
 			mu.Lock()
 			paused = append(paused, pd)
@@ -190,6 +201,7 @@ func (t *TVPauseManager) ResumeAfterAthan() {
 			app, err := t.castMgr.connectWithRetry(pd.device)
 			if err != nil {
 				log.Printf("[tv-pause] reconnect to %q failed: %v", pd.device.Name, err)
+				trace.Error(trace.SourceTV, "tv-error", pd.device.Name, "could not reach "+pd.device.Name+" to give its sound back: "+err.Error(), "host", pd.device.Host)
 				return
 			}
 			defer func() {
@@ -200,11 +212,14 @@ func (t *TVPauseManager) ResumeAfterAthan() {
 			case pd.muted:
 				releaseMute(app, pd.device)
 			case pd.paused:
+				trace.From(trace.SourceTV, "play-sent", pd.device.Name, "resuming "+pd.device.Name, "host", pd.device.Host)
 				if err := app.Unpause(); err != nil {
 					log.Printf("[tv-pause] unpause %q failed: %v", pd.device.Name, err)
+					trace.Error(trace.SourceTV, "tv-error", pd.device.Name, "could not resume "+pd.device.Name+": "+err.Error(), "host", pd.device.Host)
 					return
 				}
 				log.Printf("[tv-pause] resumed %q", pd.device.Name)
+				trace.From(trace.SourceTV, "tv-released", pd.device.Name, "resumed "+pd.device.Name, "host", pd.device.Host)
 			}
 		}()
 	}
@@ -265,6 +280,7 @@ func releaseMute(app *application.Application, dev Device) {
 		plainUnmute(app, dev)
 		return
 	}
+	trace.From(trace.SourceTV, "volume-set", dev.Name, fmt.Sprintf("nudging %s's volume %.2f → %.2f to give its sound back", dev.Name, level, target), "host", dev.Host)
 	if err := app.SetVolume(float32(target)); err != nil {
 		log.Printf("[tv-pause] volume nudge on %q failed: %v — sending a plain unmute", dev.Name, err)
 		plainUnmute(app, dev)
@@ -277,22 +293,28 @@ func releaseMute(app *application.Application, dev Device) {
 			stillMuted = v.Muted
 		}
 	}
+	trace.From(trace.SourceTV, "volume-set", dev.Name, fmt.Sprintf("putting %s's volume back to %.2f", dev.Name, level), "host", dev.Host)
 	if err := app.SetVolume(float32(level)); err != nil {
 		log.Printf("[tv-pause] restoring the volume of %q failed: %v", dev.Name, err)
+		trace.Error(trace.SourceTV, "tv-error", dev.Name, "could not restore the volume of "+dev.Name+": "+err.Error(), "host", dev.Host)
 	}
 	if stillMuted {
 		plainUnmute(app, dev)
 		return
 	}
 	log.Printf("[tv-pause] released %q (volume %.2f restored)", dev.Name, level)
+	trace.From(trace.SourceTV, "tv-released", dev.Name, fmt.Sprintf("released %s (volume %.2f restored)", dev.Name, level), "host", dev.Host)
 }
 
 func plainUnmute(app *application.Application, dev Device) {
+	trace.From(trace.SourceTV, "unmute-sent", dev.Name, "unmuting "+dev.Name, "host", dev.Host)
 	if err := app.SetMuted(false); err != nil {
 		log.Printf("[tv-pause] unmute %q failed: %v", dev.Name, err)
+		trace.Error(trace.SourceTV, "tv-error", dev.Name, "could not unmute "+dev.Name+": "+err.Error(), "host", dev.Host)
 		return
 	}
 	log.Printf("[tv-pause] unmuted %q", dev.Name)
+	trace.From(trace.SourceTV, "tv-released", dev.Name, "unmuted "+dev.Name, "host", dev.Host)
 }
 
 // ReleaseWhenAthanEnds hands the TVs back when the Athan really stops playing,
@@ -318,8 +340,10 @@ func (t *TVPauseManager) ReleaseWhenAthanEnds() {
 	t.mu.Unlock()
 
 	go func() {
+		trace.From(trace.SourceTV, "release-armed", pb.Speaker, "watching the speaker; the TVs are released "+releaseSettle.String()+" after it stops")
 		why := t.castMgr.WaitForPlaybackEnd(pb, maxAthanHold)
 		log.Printf("[tv-pause] Athan is over (%s) — releasing TVs in %v", why, releaseSettle)
+		trace.From(trace.SourceTV, "athan-over", pb.Speaker, "the Athan is over ("+why+")")
 		time.Sleep(releaseSettle)
 		t.ResumeAfterAthan()
 	}()

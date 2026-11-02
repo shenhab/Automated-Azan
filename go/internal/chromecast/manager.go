@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/vishen/go-chromecast/application"
 	castdns "github.com/vishen/go-chromecast/dns"
+
+	"azan-agent/internal/trace"
 )
 
 const (
@@ -61,6 +64,7 @@ type Manager struct {
 	lastDiscovery time.Time
 	app           *application.Application
 	currentDevice *Device
+	playingDev    Device // the speaker the current playback is on
 
 	// Pre-connect cache populated by PreConnect; consumed by the next playURL.
 	preApp *application.Application
@@ -203,6 +207,8 @@ func (m *Manager) PreConnect() error {
 	m.preDev = &devCopy
 	m.mu.Unlock()
 	log.Printf("[chromecast] pre-connected to %q (%s:%d)", dev.Name, dev.Host, dev.Port)
+	trace.Agent("pre-connect", dev.Name, fmt.Sprintf("connected to %s (%s:%d) ahead of the Athan", dev.Name, dev.Host, dev.Port),
+		"host", dev.Host, "port", dev.Port)
 	return nil
 }
 
@@ -271,6 +277,10 @@ func (m *Manager) Discover(force bool) ([]Device, error) {
 
 	return m.deviceList(), nil
 }
+
+// SpeakerDevice returns the speaker the manager plays on, from its device cache
+// when it can (no network scan at prayer time).
+func (m *Manager) SpeakerDevice() (Device, error) { return m.resolveDevice() }
 
 // Devices returns the currently cached device list without re-scanning.
 func (m *Manager) Devices() []Device {
@@ -376,11 +386,13 @@ func (m *Manager) PlayQuranStream() error {
 func (m *Manager) StopPlayback() error {
 	m.mu.Lock()
 	app := m.app
+	dev := m.playingDev
 	m.mu.Unlock()
 
 	if app == nil {
 		return nil
 	}
+	trace.Agent("stop-sent", dev.Name, "asked "+dev.Name+" to stop", "host", dev.Host)
 	return app.Stop()
 }
 
@@ -409,10 +421,14 @@ func (m *Manager) playURL(url, contentType string) error {
 		// has already done what was asked, so asking again on the same warm session
 		// normally works. Only if that fails too is it replaced.
 		for attempt := 1; attempt <= preConnectAttempts; attempt++ {
-			pb, err := m.loadAndVerify(preApp, preDev.Name, url, contentType)
+			if attempt > 1 {
+				trace.Warn(trace.SourceAgent, "retry", preDev.Name, "asking again on the pre-connected session", "host", preDev.Host)
+			}
+			pb, err := m.loadAndVerify(preApp, *preDev, url, contentType)
 			if err == nil {
 				m.mu.Lock()
 				m.app = preApp
+				m.playingDev = *preDev
 				m.mu.Unlock()
 				m.recordPlayback(pb, "pre-connect")
 				return nil
@@ -421,10 +437,12 @@ func (m *Manager) playURL(url, contentType string) error {
 		}
 		preApp.Close(false)
 		log.Printf("[chromecast] pre-connect session stale for %q — reconnecting", preDev.Name)
+		trace.Warn(trace.SourceAgent, "retry", preDev.Name, "the pre-connected session did not work — reconnecting", "host", preDev.Host)
 	}
 
 	dev, err := m.resolveDevice()
 	if err != nil {
+		trace.Error(trace.SourceAgent, "play-failed", "", "cannot find the speaker: "+err.Error(), "error", err.Error())
 		return fmt.Errorf("resolve device: %w", err)
 	}
 
@@ -438,6 +456,7 @@ func (m *Manager) playURL(url, contentType string) error {
 		var backoffDev Device
 		app, backoffDev, err = m.connectWithBackoff(dev.Name)
 		if err != nil {
+			trace.Error(trace.SourceAgent, "play-failed", dev.Name, "cannot connect to the speaker: "+err.Error(), "error", err.Error(), "host", dev.Host)
 			return fmt.Errorf("connect to %s: %w", dev.Name, err)
 		}
 		dev = backoffDev
@@ -449,10 +468,12 @@ func (m *Manager) playURL(url, contentType string) error {
 		m.mu.Lock()
 		m.lastPlayback = pb
 		m.mu.Unlock()
+		trace.Error(trace.SourceAgent, "play-failed", dev.Name, "could not play on "+dev.Name+": "+err.Error(), "error", err.Error(), "host", dev.Host)
 		return fmt.Errorf("load media on %s: %w", dev.Name, err)
 	}
 	m.mu.Lock()
 	m.app = app
+	m.playingDev = dev
 	m.mu.Unlock()
 	m.recordPlayback(pb, "")
 	return nil
@@ -478,7 +499,10 @@ func (m *Manager) loadWithRetry(dev Device, app *application.Application, url, c
 		err error
 	)
 	for attempt := 1; attempt <= loadAttempts; attempt++ {
-		if pb, err = m.loadAndVerify(app, dev.Name, url, contentType); err == nil {
+		if attempt > 1 {
+			trace.Warn(trace.SourceAgent, "retry", dev.Name, fmt.Sprintf("trying again (attempt %d of %d)", attempt, loadAttempts), "host", dev.Host)
+		}
+		if pb, err = m.loadAndVerify(app, dev, url, contentType); err == nil {
 			return app, pb, nil
 		}
 		log.Printf("[chromecast] play attempt %d/%d on %s failed: %v", attempt, loadAttempts, dev.Name, err)
@@ -530,19 +554,30 @@ func (m *Manager) recordPlayback(pb Playback, via string) {
 }
 
 // loadAndVerify asks the speaker to play url and then checks that it did.
-func (m *Manager) loadAndVerify(app *application.Application, speaker, url, contentType string) (Playback, error) {
+func (m *Manager) loadAndVerify(app *application.Application, dev Device, url, contentType string) (Playback, error) {
+	speaker := dev.Name
 	baseline := 0 // the media session already on the speaker, if any, is not ours
 	if md := app.Media(); md != nil {
 		baseline = md.MediaSessionId
 	}
+	trace.Agent("load-sent", speaker, "asked "+speaker+" to play "+path.Base(url), "host", dev.Host, "port", dev.Port, "url", url)
 	// detach=true so we return immediately without waiting for playback to finish
 	if err := app.Load(url, 0, contentType, false, true, false); err != nil {
+		trace.Warn(trace.SourceAgent, "attempt-failed", speaker, "the request was not accepted: "+err.Error(), "error", err.Error(), "host", dev.Host)
 		return Playback{Speaker: speaker}, err
 	}
 	pb, err := verifyPlayback(app, speaker, baseline)
 	if err != nil {
+		trace.Warn(trace.SourceAgent, "attempt-failed", speaker, "the speaker accepted the request but did not start playing: "+err.Error(), "error", err.Error(), "host", dev.Host)
 		return pb, fmt.Errorf("the speaker accepted the request but did not start playing: %w", err)
 	}
+	level := trace.Event{}.Level
+	if pb.Warning != "" {
+		level = "warn"
+	}
+	trace.Emit(trace.Event{Source: trace.SourceAgent, Kind: "verified", Device: speaker, Level: level,
+		Text:   fmt.Sprintf("%s is %s — volume %.2f%s", speaker, pb.State, pb.Level, mutedWord(pb.Muted)),
+		Fields: map[string]any{"state": pb.State, "volume": float64(pb.Level), "muted": pb.Muted, "warning": pb.Warning, "host": dev.Host}})
 	return pb, nil
 }
 
@@ -602,6 +637,13 @@ func verifyPlayback(app *application.Application, speaker string, baseline int) 
 		}
 		time.Sleep(verifyPollEvery)
 	}
+}
+
+func mutedWord(m bool) string {
+	if m {
+		return " (muted)"
+	}
+	return ""
 }
 
 // silenceWarning explains why a speaker that is playing may still be inaudible.

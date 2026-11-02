@@ -1,0 +1,427 @@
+{{template "base.html" .}}
+{{define "title"}}Journal — Automated Azan{{end}}
+{{define "page_title"}}Journal{{end}}
+{{define "page_sub"}}What the agent and your devices did around every Athan{{end}}
+{{define "topbar_actions"}}
+  <button class="btn btn-outline-secondary btn-sm btn-icon" onclick="JR.refresh()" title="Refresh">
+    <i class="fas fa-sync-alt"></i>
+  </button>
+{{end}}
+
+{{define "content"}}
+<style>
+  .jr-badge { display:inline-block; padding:2px 9px; border-radius:20px; font-size:11px; font-weight:700; letter-spacing:.3px; }
+  .jr-ok      { background:#D8F3DC; color:#1B4332; }
+  .jr-warning { background:#FEF3C7; color:#92400E; }
+  .jr-failed  { background:#FEE2E2; color:#991B1B; }
+  .jr-running { background:#DBEAFE; color:#1E40AF; }
+  .jr-row { cursor:pointer; }
+  .jr-row:hover { background:#F6FAF7; }
+  .jr-headline { max-width:520px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#4B5A6B; }
+  .jr-flag { display:inline-block; margin-right:6px; font-size:12px; }
+  .jr-live-dev { border:1px solid #E3EAF1; border-radius:10px; padding:8px 12px; background:#fff; min-width:200px; }
+  .jr-state { font-weight:700; font-size:12px; }
+  .jr-state.PLAYING { color:#2D6A4F; } .jr-state.BUFFERING { color:#B7791F; } .jr-state.PAUSED { color:#C05621; } .jr-state.IDLE { color:#718096; }
+  .jr-chip { border:1px solid #D5DEE8; background:#fff; border-radius:20px; padding:2px 12px; font-size:12px; cursor:pointer; user-select:none; }
+  .jr-chip.on { background:#1B4332; color:#fff; border-color:#1B4332; }
+  .jr-tl { list-style:none; margin:0; padding:0; position:relative; }
+  .jr-tl li { display:flex; gap:10px; padding:5px 0; border-bottom:1px solid #F0F3F7; font-size:13px; align-items:flex-start; }
+  .jr-tl .t { flex:0 0 118px; font-variant-numeric:tabular-nums; color:#6B7A8C; font-size:12px; }
+  .jr-tl .rel { flex:0 0 62px; text-align:right; color:#9AA7B6; font-size:11px; font-variant-numeric:tabular-nums; }
+  .jr-tl .src { flex:0 0 74px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; padding-top:2px; }
+  .jr-tl .src.agent{color:#2D6A4F} .jr-tl .src.device{color:#1E40AF} .jr-tl .src.tv{color:#7C3AED}
+  .jr-tl .src.media{color:#B7791F} .jr-tl .src.health{color:#0E7490} .jr-tl .src.system{color:#718096}
+  .jr-tl li.ext { background:#FFF5F5; }
+  .jr-tl li.warn .x { color:#92400E; } .jr-tl li.error .x { color:#991B1B; font-weight:600; }
+  .jr-tl .dev { color:#6B7A8C; font-size:11px; margin-left:6px; }
+  .jr-lane-label { font-size:11px; fill:#4B5A6B; }
+  .jr-legend span { display:inline-flex; align-items:center; margin-right:14px; font-size:11px; color:#6B7A8C; }
+  .jr-legend i { display:inline-block; width:11px; height:11px; border-radius:2px; margin-right:5px; }
+</style>
+
+{{if not .enabled}}
+<div class="alert alert-warning">
+  <i class="fas fa-book-open me-2"></i>The Journal is switched off.
+  Turn it on in <a href="/settings#journal">Settings → Journal</a> to record what happens around every Athan.
+</div>
+{{else}}
+
+<!-- Watching right now -->
+<div class="card mb-3" id="jrLiveCard" style="display:none">
+  <div class="card-header d-flex align-items-center gap-2">
+    <span style="width:9px;height:9px;border-radius:50%;background:#EF4444;box-shadow:0 0 0 3px rgba(239,68,68,.2)"></span>
+    <span>Recording now</span>
+  </div>
+  <div class="card-body" id="jrLiveBody"></div>
+</div>
+
+<!-- Summary -->
+<div class="row g-3 mb-3" id="jrStats">
+  <div class="col-6 col-md"><div class="stat-card h-100"><div class="stat-label">Recorded</div><div class="stat-value" id="stTotal">–</div><div class="stat-sub" id="stRange">&nbsp;</div></div></div>
+  <div class="col-6 col-md"><div class="stat-card h-100"><div class="stat-label">All good</div><div class="stat-value" style="color:#2D6A4F" id="stOk">–</div><div class="stat-sub">played as expected</div></div></div>
+  <div class="col-6 col-md"><div class="stat-card h-100"><div class="stat-label">Warnings</div><div class="stat-value" style="color:#B7791F" id="stWarn">–</div><div class="stat-sub">played, but something was off</div></div></div>
+  <div class="col-6 col-md"><div class="stat-card h-100"><div class="stat-label">Failed</div><div class="stat-value" style="color:#C53030" id="stFail">–</div><div class="stat-sub">did not play</div></div></div>
+  <div class="col-12 col-md"><div class="stat-card h-100"><div class="stat-label">You said</div><div class="stat-value" id="stHeard">–</div><div class="stat-sub" id="stMismatch">heard it / didn't</div></div></div>
+</div>
+
+<!-- Filters -->
+<div class="card mb-3">
+  <div class="card-body d-flex flex-wrap align-items-center gap-3 py-2">
+    <div class="d-flex align-items-center gap-2">
+      <label class="text-muted mb-0" style="font-size:12px">Show</label>
+      <select class="form-select form-select-sm" id="fDays" style="width:auto">
+        <option value="3">last 3 days</option><option value="7">last 7 days</option>
+        <option value="14" selected>last 14 days</option><option value="30">last 30 days</option>
+        <option value="90">last 90 days</option>
+      </select>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <select class="form-select form-select-sm" id="fKind" style="width:auto">
+        <option value="">Everything</option><option value="athan">Athans</option>
+        <option value="quran">Quran</option><option value="kahf">Al-Kahf</option><option value="manual">Manual plays</option>
+      </select>
+    </div>
+    <div class="d-flex gap-2" id="fVerdict">
+      <span class="jr-chip on" data-v="">All</span>
+      <span class="jr-chip" data-v="ok">All good</span>
+      <span class="jr-chip" data-v="warning">Warnings</span>
+      <span class="jr-chip" data-v="failed">Failed</span>
+    </div>
+  </div>
+</div>
+
+<!-- Sessions -->
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table mb-0 align-middle">
+        <thead><tr style="font-size:12px;color:#6B7A8C">
+          <th style="width:130px">When</th><th>What</th><th style="width:100px">Result</th><th>What the devices said</th><th style="width:120px">Flags</th>
+        </tr></thead>
+        <tbody id="jrRows"><tr><td colspan="5" class="text-center text-muted py-4">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Detail -->
+<div class="modal fade" id="jrModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1" id="jdTitle"></h5>
+          <div class="text-muted" style="font-size:12px" id="jdWhen"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert mb-3" id="jdHeadline" style="font-size:14px"></div>
+
+        <div class="card mb-3" id="jdHeardCard">
+          <div class="card-body py-2">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+              <strong style="font-size:13px">Did you hear it?</strong>
+              <div class="btn-group btn-group-sm" id="jdHeardBtns">
+                <button class="btn btn-outline-success" data-h="yes">Yes</button>
+                <button class="btn btn-outline-warning" data-h="partly">Partly</button>
+                <button class="btn btn-outline-danger"  data-h="no">No</button>
+              </div>
+              <input class="form-control form-control-sm" id="jdNoteText" maxlength="500" placeholder="Add a note (optional)" style="flex:1;min-width:200px">
+              <button class="btn btn-sm btn-success" id="jdNoteSave">Save</button>
+            </div>
+            <div class="mt-2" id="jdNotes" style="font-size:12px;color:#6B7A8C"></div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header py-2" style="font-size:13px">Devices over time</div>
+          <div class="card-body py-2">
+            <div id="jdChart"></div>
+            <div class="jr-legend mt-1">
+              <span><i style="background:#2D6A4F"></i>playing</span><span><i style="background:#E9C46A"></i>buffering</span>
+              <span><i style="background:#F4A261"></i>paused</span><span><i style="background:#CBD5E1"></i>idle</span>
+              <span><i style="background:#EEF2F6;border:1px solid #D5DEE8"></i>no app</span><span><i style="background:#E76F51"></i>unreachable</span>
+              <span>▲ asked to play</span><span>■ asked to stop</span><span style="color:#C53030">⚡ not the agent</span>
+            </div>
+          </div>
+        </div>
+
+        <ul class="nav nav-tabs mb-3" id="jdTabs">
+          <li class="nav-item"><a class="nav-link active" data-tab="timeline" href="#">Timeline</a></li>
+          <li class="nav-item"><a class="nav-link" data-tab="devices" href="#">Devices</a></li>
+          <li class="nav-item"><a class="nav-link" data-tab="raw" href="#">Recordings</a></li>
+        </ul>
+
+        <div id="tabTimeline">
+          <div class="d-flex flex-wrap gap-2 mb-2" id="jdFilters">
+            <span class="jr-chip on" data-s="">Everything</span>
+            <span class="jr-chip" data-s="agent">Agent</span>
+            <span class="jr-chip" data-s="device">Devices</span>
+            <span class="jr-chip" data-s="tv">TVs</span>
+            <span class="jr-chip" data-s="media">Audio file</span>
+            <span class="jr-chip" data-s="health">Health</span>
+            <span class="jr-chip" data-s="problems">Only problems</span>
+          </div>
+          <ul class="jr-tl" id="jdTimeline"></ul>
+        </div>
+        <div id="tabDevices" style="display:none"></div>
+        <div id="tabRaw" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}
+{{end}}
+
+{{define "scripts"}}
+{{if .enabled}}
+<script>
+(function () {
+  var state = { days: 14, kind: "", verdict: "", sessions: [], open: null, detail: null, src: "", timer: null };
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); };
+  var pad = function (n, w) { n = String(n); while (n.length < (w || 2)) n = "0" + n; return n; };
+  var clock = function (d, ms) { d = new Date(d); return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()) + (ms ? "." + pad(d.getMilliseconds(), 3) : ""); };
+  var dayLabel = function (d) { return new Date(d).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }); };
+  var dur = function (s) { s = Math.round(s); if (s < 60) return s + "s"; var m = Math.floor(s / 60); return m + "m" + pad(s % 60) + "s"; };
+  var badge = function (v) { var t = { ok: "ALL GOOD", warning: "WARNING", failed: "FAILED", running: "RECORDING" }[v] || v; return '<span class="jr-badge jr-' + esc(v) + '">' + t + '</span>'; };
+
+  function api(url, opts) { return fetch(url, opts).then(function (r) { return r.json(); }); }
+
+  // ── list ──────────────────────────────────────────────────────────────
+  function loadSessions() {
+    var q = "/api/journal/sessions?days=" + state.days + (state.kind ? "&kind=" + state.kind : "") + (state.verdict ? "&verdict=" + state.verdict : "");
+    return api(q).then(function (d) {
+      if (!d.success) { $("jrRows").innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">' + esc(d.error) + '</td></tr>'; return; }
+      state.sessions = d.sessions || [];
+      var st = d.stats;
+      $("stTotal").textContent = st.total; $("stRange").textContent = "last " + d.days + " days";
+      $("stOk").textContent = st.ok; $("stWarn").textContent = st.warning; $("stFail").textContent = st.failed;
+      $("stHeard").textContent = (st.heard_yes + st.heard_partly + st.heard_no) ? (st.heard_yes + " ✓  " + st.heard_no + " ✗") : "–";
+      $("stMismatch").innerHTML = st.mismatches ? '<span style="color:#C53030">' + st.mismatches + ' where you and the Journal disagree</span>' : "heard it / didn't";
+      renderRows();
+    });
+  }
+
+  function flags(s) {
+    var f = "", x = s.facts || {};
+    if (x.external && x.external.length) f += '<span class="jr-flag" title="Something other than the agent changed a device">⚡</span>';
+    if (x.retries) f += '<span class="jr-flag" title="' + x.retries + ' retries">↻</span>';
+    if (x.health && x.health.length) f += '<span class="jr-flag" title="' + esc(x.health.join("; ")) + '">🩺</span>';
+    if (s.heard) {
+      var mis = (s.heard === "no" && s.verdict === "ok") || (s.heard === "yes" && s.verdict === "failed");
+      f += '<span class="jr-flag" title="You said: ' + s.heard + (mis ? " — the Journal disagrees" : "") + '"' + (mis ? ' style="color:#C53030"' : "") + '>' + ({ yes: "👂", no: "🔇", partly: "👂?" }[s.heard]) + '</span>';
+    }
+    return f;
+  }
+
+  function renderRows() {
+    if (!state.sessions.length) { $("jrRows").innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">Nothing recorded for this selection yet. A recording starts about 90 seconds before every prayer.</td></tr>'; return; }
+    $("jrRows").innerHTML = state.sessions.map(function (s) {
+      var d = s.facts && s.facts.duration_sec ? " · " + dur(s.facts.duration_sec) : "";
+      return '<tr class="jr-row" data-id="' + esc(s.id) + '"><td><div style="font-weight:600">' + clock(s.started).slice(0, 5) + '</div><div class="text-muted" style="font-size:11px">' + esc(dayLabel(s.started)) + '</div></td>' +
+        '<td>' + esc(s.spec.label) + '<div class="text-muted" style="font-size:11px">' + esc(s.spec.kind) + d + '</div></td>' +
+        '<td>' + badge(s.verdict) + '</td><td><div class="jr-headline" title="' + esc(s.headline) + '">' + esc(s.headline) + '</div></td><td>' + flags(s) + '</td></tr>';
+    }).join("");
+  }
+
+  // ── live ──────────────────────────────────────────────────────────────
+  function loadLive() {
+    api("/api/journal/live").then(function (d) {
+      var live = (d && d.live) || [];
+      $("jrLiveCard").style.display = live.length ? "" : "none";
+      $("jrLiveBody").innerHTML = live.map(function (r) {
+        return '<div class="mb-2"><strong>' + esc(r.label) + '</strong> <span class="text-muted" style="font-size:12px">since ' + clock(r.started) + '</span>' +
+          '<div style="font-size:12px;color:#6B7A8C">' + esc(r.headline) + '</div>' +
+          '<div class="d-flex flex-wrap gap-2 mt-2">' + (r.devices || []).map(function (v) {
+            return '<div class="jr-live-dev"><div style="font-weight:600;font-size:13px">' + esc(v.name) + ' <span class="text-muted" style="font-weight:400;font-size:11px">' + esc(v.role) + '</span></div>' +
+              (v.reachable ? '<div><span class="jr-state ' + esc(v.state) + '">' + esc(v.state || (v.app ? "no media" : "no app")) + '</span> <span class="text-muted" style="font-size:11px">' + esc(v.app) + '</span></div><div class="text-muted" style="font-size:11px">volume ' + Number(v.level).toFixed(2) + (v.muted ? " · muted" : "") + '</div>'
+                : '<div style="color:#C53030;font-size:12px">not reachable yet</div>') + '</div>';
+          }).join("") + '</div></div>';
+      }).join("");
+    }).catch(function () {});
+  }
+
+  // ── detail ────────────────────────────────────────────────────────────
+  function openDetail(id) {
+    state.open = id; state.src = "";
+    document.querySelectorAll("#jdFilters .jr-chip").forEach(function (c) { c.classList.toggle("on", c.dataset.s === ""); });
+    selectTab("timeline");
+    fetchDetail(true);
+    clearInterval(state.timer);
+    state.timer = setInterval(function () { if (state.detail && state.detail.summary.verdict === "running") fetchDetail(false); }, 3000);
+  }
+
+  function fetchDetail(show) {
+    return api("/api/journal/session?id=" + encodeURIComponent(state.open)).then(function (d) {
+      if (!d.success) { return; }
+      state.detail = d.detail; renderDetail();
+      if (show) bootstrap.Modal.getOrCreateInstance($("jrModal")).show();
+    });
+  }
+
+  function renderDetail() {
+    var d = state.detail, s = d.summary;
+    $("jdTitle").innerHTML = esc(s.spec.label) + " " + badge(s.verdict);
+    var end = s.ended && s.ended.indexOf("0001") !== 0 ? s.ended : null;
+    $("jdWhen").textContent = dayLabel(s.started) + " · recorded " + clock(s.started) + (end ? "–" + clock(end) : " (still recording)") + (s.ended_by ? " · ended: " + s.ended_by : "");
+    var cls = { ok: "alert-success", warning: "alert-warning", failed: "alert-danger", running: "alert-info" }[s.verdict] || "alert-secondary";
+    $("jdHeadline").className = "alert mb-3 " + cls; $("jdHeadline").textContent = s.headline;
+    $("jdHeardCard").style.display = s.verdict === "running" ? "none" : "";
+    document.querySelectorAll("#jdHeardBtns button").forEach(function (b) { b.classList.toggle("active", b.dataset.h === (s.heard || "")); });
+    $("jdNotes").innerHTML = (d.notes || []).map(function (n) {
+      return clock(n.at) + " — " + (n.heard ? "<strong>" + ({ yes: "heard it", no: "did not hear it", partly: "partly heard it" }[n.heard]) + "</strong> " : "") + esc(n.text || "");
+    }).join("<br>");
+    renderChart(); renderTimeline(); renderDevices(); renderRaw();
+  }
+
+  function t0Of(d) {
+    var s = d.summary, first = null;
+    (d.events || []).forEach(function (e) { if (!first && e.source === "agent" && e.kind === "load-sent") first = new Date(e.at).getTime(); });
+    return first || new Date(s.started).getTime();
+  }
+
+  function renderTimeline() {
+    var d = state.detail, base = t0Of(d), rows = [];
+    (d.events || []).forEach(function (e) {
+      if (state.src === "problems") { if (!(e.external || e.level === "warn" || e.level === "error")) return; }
+      else if (state.src && e.source !== state.src) return;
+      var rel = (new Date(e.at).getTime() - base) / 1000;
+      var relTxt = (rel >= 0 ? "+" : "−") + Math.abs(rel).toFixed(1) + "s";
+      var cls = (e.external ? "ext " : "") + (e.level || "");
+      rows.push('<li class="' + cls + '"><span class="t">' + clock(e.at, true) + '</span><span class="rel" title="seconds from the first request to play">' + relTxt + '</span>' +
+        '<span class="src ' + esc(e.source) + '">' + esc(e.source === "device" ? "device" : e.source) + '</span>' +
+        '<span class="x">' + esc(e.text) + (e.device ? '<span class="dev">' + esc(e.device) + '</span>' : "") + (e.external ? ' <span class="jr-badge jr-failed">NOT THE AGENT</span>' : "") + '</span></li>');
+    });
+    $("jdTimeline").innerHTML = rows.join("") || '<li class="text-muted">Nothing to show for this filter.</li>';
+  }
+
+  var COLORS = { PLAYING: "#2D6A4F", BUFFERING: "#E9C46A", PAUSED: "#F4A261", IDLE: "#CBD5E1", NOAPP: "#EEF2F6", DOWN: "#E76F51", UNKNOWN: "#F7F9FB" };
+
+  function renderChart() {
+    var d = state.detail, s = d.summary, evs = d.events || [];
+    if (!evs.length) { $("jdChart").innerHTML = '<div class="text-muted" style="font-size:12px">No events recorded.</div>'; return; }
+    var start = new Date(s.started).getTime();
+    var end = (s.ended && s.ended.indexOf("0001") !== 0) ? new Date(s.ended).getTime() : new Date(evs[evs.length - 1].at).getTime();
+    evs.forEach(function (e) { var t = new Date(e.at).getTime(); if (t < start) start = t; if (t > end) end = t; });
+    end = Math.max(end, start + 1000);
+    var W = 900, L = 150, R = 10, laneH = 24, top = 18;
+    var devices = (s.targets || []).map(function (t) { return t.name; });
+    evs.forEach(function (e) { if (e.source === "device" && e.device && devices.indexOf(e.device) < 0) devices.push(e.device); });
+    var span = end - start, x = function (t) { return L + (t - start) / span * (W - L - R); };
+    var H = top + devices.length * (laneH + 6) + 24;
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" style="max-width:100%">';
+    // time axis
+    var step = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800][0];
+    [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800].some(function (c) { step = c; return span / 1000 / c <= 8; });
+    for (var tt = Math.ceil(start / 1000 / step) * step; tt * 1000 <= end; tt += step) {
+      svg += '<line x1="' + x(tt * 1000) + '" y1="' + (top - 4) + '" x2="' + x(tt * 1000) + '" y2="' + (H - 20) + '" stroke="#EDF1F5"/><text x="' + x(tt * 1000) + '" y="' + (H - 6) + '" font-size="10" fill="#8A97A8" text-anchor="middle">' + clock(tt * 1000) + '</text>';
+    }
+    devices.forEach(function (name, i) {
+      var y = top + i * (laneH + 6), cur = "UNKNOWN", since = start, hasApp = false, st = "";
+      var segs = [];
+      var flush = function (t) { if (t > since) segs.push({ a: since, b: t, c: cur }); since = t; };
+      evs.filter(function (e) { return e.source === "device" && e.device === name; }).forEach(function (e) {
+        var t = new Date(e.at).getTime(), f = e.fields || {}, next = cur;
+        if (e.kind === "unreachable") next = "DOWN";
+        else if (e.kind === "reconnected") next = hasApp ? (st || "IDLE") : "NOAPP";
+        else if (e.kind === "initial-state") { hasApp = !!f.app; next = hasApp ? "IDLE" : "NOAPP"; st = ""; }
+        else if (e.kind === "app-launched") { hasApp = true; st = ""; next = "IDLE"; }
+        else if (e.kind === "app-closed") { hasApp = false; st = ""; next = "NOAPP"; }
+        else if (e.kind === "player-state") { st = f.state || "IDLE"; next = st; }
+        if (next !== cur) { flush(t); cur = next; }
+      });
+      flush(end);
+      svg += '<text class="jr-lane-label" x="' + (L - 8) + '" y="' + (y + laneH / 2 + 4) + '" text-anchor="end">' + esc(name.length > 22 ? name.slice(0, 21) + "…" : name) + '</text>';
+      segs.forEach(function (g) {
+        svg += '<rect x="' + x(g.a) + '" y="' + y + '" width="' + Math.max(1, x(g.b) - x(g.a)) + '" height="' + laneH + '" fill="' + (COLORS[g.c] || COLORS.UNKNOWN) + '"' + (g.c === "NOAPP" ? ' stroke="#D5DEE8"' : "") + '><title>' + esc(name + ": " + g.c.toLowerCase() + " " + clock(g.a) + "–" + clock(g.b)) + '</title></rect>';
+      });
+    });
+    // markers
+    evs.forEach(function (e) {
+      var t = new Date(e.at).getTime(), cx = x(t), m = "";
+      if (e.external) m = '<text x="' + cx + '" y="' + (top - 5) + '" font-size="13" fill="#C53030" text-anchor="middle">⚡<title>' + esc(clock(e.at) + " " + e.text) + '</title></text>';
+      else if (e.source === "agent" && e.kind === "load-sent") m = '<text x="' + cx + '" y="' + (top - 5) + '" font-size="11" fill="#1B4332" text-anchor="middle">▲<title>' + esc(clock(e.at) + " " + e.text) + '</title></text>';
+      else if (e.source === "agent" && e.kind === "stop-sent") m = '<text x="' + cx + '" y="' + (top - 5) + '" font-size="11" fill="#7C3AED" text-anchor="middle">■<title>' + esc(clock(e.at) + " " + e.text) + '</title></text>';
+      svg += m;
+    });
+    $("jdChart").innerHTML = svg + "</svg>";
+  }
+
+  function renderDevices() {
+    var d = state.detail, s = d.summary, h = d.health || [];
+    var rows = (s.targets || []).map(function (t) { return '<tr><td>' + esc(t.name) + '</td><td>' + esc(t.role) + '</td><td class="text-muted">' + esc(t.host) + ':' + t.port + '</td></tr>'; }).join("");
+    var html = '<h6>Watched devices</h6><table class="table table-sm"><thead><tr><th>Device</th><th>Role</th><th>Address</th></tr></thead><tbody>' + (rows || '<tr><td colspan="3" class="text-muted">None</td></tr>') + '</tbody></table>';
+    if (h.length) {
+      html += '<h6 class="mt-3">Device status pages</h6><table class="table table-sm"><thead><tr><th>Device</th><th>When</th><th>Uptime</th><th>Firmware</th><th>Wi-Fi</th><th></th></tr></thead><tbody>' +
+        h.map(function (x) {
+          return '<tr><td>' + esc(x.name || x.host) + '</td><td>' + esc(x.phase) + ' ' + clock(x.at) + '</td>' + (x.reachable ?
+            '<td>' + dur(x.uptime_sec) + '</td><td class="text-muted">' + esc(x.build) + '</td><td>' + esc(x.ssid) + '</td><td>' + (x.connected ? "" : '<span class="jr-badge jr-failed">not connected</span>') + '</td>' :
+            '<td colspan="4" class="text-muted">no answer (some devices do not have a status page)</td>') + '</tr>';
+        }).join("") + '</tbody></table>';
+    }
+    var f = s.facts || {};
+    if (f.health && f.health.length) html += '<div class="alert alert-warning mt-2">' + f.health.map(esc).join("<br>") + '</div>';
+    $("tabDevices").innerHTML = html;
+  }
+
+  function renderRaw() {
+    var d = state.detail, raw = d.raw || [];
+    if (!raw.length) { $("tabRaw").innerHTML = '<div class="text-muted">No raw recording for this session.</div>'; return; }
+    $("tabRaw").innerHTML = '<p class="text-muted" style="font-size:12px">The raw recording is every message the device sent, as it arrived (one JSON object per line). ' +
+      'The <strong>private</strong> file contains your devices’ addresses and names; the <strong>shareable</strong> one has them removed.</p>' +
+      '<table class="table table-sm"><thead><tr><th>Device</th><th>Size</th><th></th></tr></thead><tbody>' + raw.map(function (r) {
+        var base = "/api/journal/raw?id=" + encodeURIComponent(d.summary.id) + "&device=" + encodeURIComponent(r.device);
+        return '<tr><td>' + esc(r.device) + ' <span class="text-muted" style="font-size:11px">' + esc(r.role) + '</span></td><td>' + Math.round(r.bytes / 1024) + ' KB (compressed)</td>' +
+          '<td class="text-end"><a class="btn btn-sm btn-outline-secondary me-1" href="' + base + '"><i class="fas fa-download me-1"></i>Private</a>' +
+          '<a class="btn btn-sm btn-outline-success" href="' + base + '&scrub=1"><i class="fas fa-share-alt me-1"></i>Shareable</a></td></tr>';
+      }).join("") + '</tbody></table>';
+  }
+
+  function selectTab(name) {
+    document.querySelectorAll("#jdTabs .nav-link").forEach(function (a) { a.classList.toggle("active", a.dataset.tab === name); });
+    $("tabTimeline").style.display = name === "timeline" ? "" : "none";
+    $("tabDevices").style.display = name === "devices" ? "" : "none";
+    $("tabRaw").style.display = name === "raw" ? "" : "none";
+  }
+
+  function saveNote(heard) {
+    var text = $("jdNoteText").value;
+    if (!heard && !text.trim()) return;
+    api("/api/journal/note", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: state.open, heard: heard || "", text: text }) })
+      .then(function (d) {
+        if (!d.success) { alert(d.error); return; }
+        $("jdNoteText").value = ""; state.detail = d.detail; renderDetail(); loadSessions();
+      });
+  }
+
+  // ── wiring ────────────────────────────────────────────────────────────
+  $("fDays").addEventListener("change", function () { state.days = +this.value; loadSessions(); });
+  $("fKind").addEventListener("change", function () { state.kind = this.value; loadSessions(); });
+  $("fVerdict").addEventListener("click", function (e) {
+    var c = e.target.closest(".jr-chip"); if (!c) return;
+    document.querySelectorAll("#fVerdict .jr-chip").forEach(function (x) { x.classList.toggle("on", x === c); });
+    state.verdict = c.dataset.v; loadSessions();
+  });
+  $("jrRows").addEventListener("click", function (e) { var r = e.target.closest(".jr-row"); if (r) openDetail(r.dataset.id); });
+  $("jdTabs").addEventListener("click", function (e) { e.preventDefault(); var a = e.target.closest(".nav-link"); if (a) selectTab(a.dataset.tab); });
+  $("jdFilters").addEventListener("click", function (e) {
+    var c = e.target.closest(".jr-chip"); if (!c) return;
+    document.querySelectorAll("#jdFilters .jr-chip").forEach(function (x) { x.classList.toggle("on", x === c); });
+    state.src = c.dataset.s; renderTimeline();
+  });
+  $("jdHeardBtns").addEventListener("click", function (e) { var b = e.target.closest("button"); if (b) saveNote(b.dataset.h); });
+  $("jdNoteSave").addEventListener("click", function () { saveNote(""); });
+  $("jrModal").addEventListener("hidden.bs.modal", function () { clearInterval(state.timer); state.open = null; });
+
+  var JR = { refresh: function () { loadSessions(); loadLive(); if (state.open) fetchDetail(false); } };
+  window.JR = JR;
+  document.addEventListener("journal_update", function () { JR.refresh(); });
+  JR.refresh();
+  setInterval(loadLive, 3000);
+  setInterval(loadSessions, 30000);
+})();
+</script>
+{{end}}
+{{end}}

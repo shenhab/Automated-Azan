@@ -18,12 +18,14 @@ import (
 	"azan-agent/internal/chromecast"
 	"azan-agent/internal/clock"
 	"azan-agent/internal/config"
+	"azan-agent/internal/journal"
 	"azan-agent/internal/localplay"
 	"azan-agent/internal/media"
 	"azan-agent/internal/notify"
 	"azan-agent/internal/prayer"
 	"azan-agent/internal/quran"
 	"azan-agent/internal/timesync"
+	"azan-agent/internal/trace"
 	"azan-agent/internal/tray"
 	"azan-agent/internal/web"
 
@@ -59,6 +61,7 @@ type program struct {
 	quranCtrl  *quran.Controller
 	cfgWatcher *config.Watcher
 	tvPause    *chromecast.TVPauseManager
+	journal    *journal.Journal
 }
 
 func (p *program) Start(s service.Service) error {
@@ -82,6 +85,12 @@ func (p *program) Stop(s service.Service) error {
 	// Resume any paused TVs so they don't stay frozen after the agent exits.
 	if p.tvPause != nil {
 		p.tvPause.ResumeAfterAthan()
+	}
+	if p.journal != nil {
+		trace.From(trace.SourceSystem, "agent-stop", "", "the agent is shutting down")
+		time.Sleep(time.Second) // let the TV release above reach the timeline
+		trace.SetSink(nil)
+		p.journal.Close()
 	}
 	return nil
 }
@@ -180,6 +189,27 @@ func (p *program) run() {
 		}
 	}
 
+	// The Journal records what the agent and the devices do around every prayer.
+	jr := journal.New(journal.Options{
+		Dir:           filepath.Join(resolvedDataDir, "journal"),
+		RetentionDays: cfg.Journal.RetentionDays,
+		MaxBytes:      int64(cfg.Journal.MaxMB) << 20,
+		NotifyOn:      cfg.Journal.NotifyOn,
+		Now:           clock.Now,
+		Notify:        fireNotify,
+		Targets:       func(journal.Spec) []journal.Target { return journalTargets(cfg, castMgr) },
+		OnChange: func() {
+			if p.webSrv != nil {
+				p.webSrv.Broadcast("journal_update", map[string]interface{}{})
+			}
+		},
+	})
+	p.journal = jr
+	if cfg.Journal.Enabled {
+		trace.SetSink(jr)
+		trace.From(trace.SourceSystem, "agent-start", "", "the agent started ("+version+")")
+	}
+
 	// muteForAthan is called by the scheduler muteLeadTime before each Athan.
 	muteForAthan := func() error {
 		if !cfg.TVPause.Enabled {
@@ -268,6 +298,11 @@ func (p *program) run() {
 
 	// Prayer scheduler
 	sched := prayer.NewScheduler(cfg, fetcher, playAthan, playQuran, stopQuran, playKahf, nil, castMgr.PreConnect, muteForAthan)
+	sched.SetSessionStart(func(prayer, label string, at time.Time) {
+		if cfg.Journal.Enabled {
+			jr.Begin(journalSpec(cfg, prayer, label, at))
+		}
+	})
 	if err := sched.Start(); err != nil {
 		log.Fatalf("[main] scheduler start: %v", err)
 	}
@@ -283,6 +318,7 @@ func (p *program) run() {
 	if err != nil {
 		log.Fatalf("[main] web server init: %v", err)
 	}
+	webSrv.SetJournal(jr)
 	if err := webSrv.Start(); err != nil {
 		log.Fatalf("[main] web server start: %v", err)
 	}
@@ -301,6 +337,14 @@ func (p *program) run() {
 			castMgr.SetCacheDir(resolvedDataDir)
 			castMgr.LoadCache(resolvedDataDir)
 			p.castMgr = castMgr
+		}
+
+		// Journal settings apply at once
+		jr.Configure(new.Journal.RetentionDays, int64(new.Journal.MaxMB)<<20, new.Journal.NotifyOn)
+		if new.Journal.Enabled {
+			trace.SetSink(jr)
+		} else {
+			trace.SetSink(nil)
 		}
 
 		// Reschedule prayers

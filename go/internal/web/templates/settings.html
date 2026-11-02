@@ -353,6 +353,55 @@
       <div id="notifMsg" class="px-3 pb-2 text-end" style="font-size:12px"></div>
     </div>
 
+    <!-- ── Journal ──────────────────────────────────────────────────────── -->
+    <div class="card mb-4" id="journal">
+      <div class="card-header">
+        <h5 class="mb-0"><i class="fas fa-book-open me-2"></i>Journal</h5>
+        <p class="text-muted mb-0 mt-1" style="font-size:12px">
+          Records what the agent and your devices do around every prayer, so a silent or cut-short Athan can be explained.
+          It only listens to your devices; it never sends them anything.
+        </p>
+      </div>
+      <div class="card-body">
+        <div class="d-flex flex-wrap align-items-center gap-4 mb-3">
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch" id="jrEnabled" style="cursor:pointer" {{if index .config "journal_enabled"}}checked{{end}}>
+            <label class="form-check-label" for="jrEnabled" style="cursor:pointer">Record around every prayer</label>
+          </div>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch" id="jrWatchTVs" style="cursor:pointer" {{if index .config "journal_watch_tvs"}}checked{{end}}>
+            <label class="form-check-label" for="jrWatchTVs" style="cursor:pointer">Also record the TVs that get muted</label>
+          </div>
+        </div>
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label class="form-label" style="font-size:13px">Keep recordings for</label>
+            <div class="input-group input-group-sm"><input type="number" class="form-control" id="jrDays" min="1" max="365" value="{{index .config "journal_retention_days"}}"><span class="input-group-text">days</span></div>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" style="font-size:13px">Size limit</label>
+            <div class="input-group input-group-sm"><input type="number" class="form-control" id="jrMB" min="10" max="5000" value="{{index .config "journal_max_mb"}}"><span class="input-group-text">MB</span></div>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" style="font-size:13px">Tell me when</label>
+            <select class="form-select form-select-sm" id="jrNotify">
+              <option value="problems" {{if eq (index .config "journal_notify_on") "problems"}}selected{{end}}>anything looks wrong</option>
+              <option value="failures" {{if eq (index .config "journal_notify_on") "failures"}}selected{{end}}>an Athan did not play</option>
+              <option value="off" {{if eq (index .config "journal_notify_on") "off"}}selected{{end}}>never</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" style="font-size:13px">Other devices to record</label>
+            <input type="text" class="form-control form-control-sm" id="jrExtra" placeholder="names, comma separated" value="{{range $i, $n := index .config "journal_watch_devices"}}{{if $i}}, {{end}}{{$n}}{{end}}">
+          </div>
+        </div>
+        <div class="mt-3 d-flex align-items-center gap-3">
+          <button class="btn btn-success btn-sm" onclick="saveJournalSettings()"><i class="fas fa-save me-1"></i>Save</button>
+          <a href="/journal" class="small text-decoration-none">Open the Journal</a>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Mute TVs During Athan ───────────────────────────────────────── -->
     <div class="card mb-4">
       <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
@@ -972,6 +1021,25 @@ window.onCountryChange               = onCountryChange;
 window.selectAllTVDevices            = selectAllTVDevices;
 window.saveTVPauseConfig             = saveTVPauseConfig;
 window.testResume                    = testResume;
+function saveJournalSettings() {
+  var extra = document.getElementById("jrExtra").value.split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+  fetch("/api/config", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      journal_enabled: document.getElementById("jrEnabled").checked,
+      journal_watch_tvs: document.getElementById("jrWatchTVs").checked,
+      journal_retention_days: parseInt(document.getElementById("jrDays").value, 10),
+      journal_max_mb: parseInt(document.getElementById("jrMB").value, 10),
+      journal_notify_on: document.getElementById("jrNotify").value,
+      journal_watch_devices: extra
+    })
+  }).then(function (r) { return r.json(); }).then(function (d) {
+    if (d.success) showToast("Journal settings saved", "success");
+    else showToast(d.error || "Could not save", "danger");
+  });
+}
+window.saveJournalSettings = saveJournalSettings;
+
 })();
 </script>
 {{end}}

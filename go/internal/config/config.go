@@ -163,6 +163,17 @@ type TVPauseConfig struct {
 	Devices         []string `toml:"devices"`              // UUIDs to pause; empty = all discovered
 }
 
+// JournalConfig controls the Journal, which records what the agent and the
+// devices did around every Athan.
+type JournalConfig struct {
+	Enabled       bool     `toml:"enabled"`
+	RetentionDays int      `toml:"retention_days"` // default 30
+	MaxMB         int      `toml:"max_mb"`         // size cap for all recordings, default 300
+	WatchTVs      bool     `toml:"watch_tvs"`      // also record the TVs the mute feature handles
+	WatchDevices  []string `toml:"watch_devices"`  // extra devices (by name) to record
+	NotifyOn      string   `toml:"notify_on"`      // "problems" (default), "failures" or "off"
+}
+
 // AuthConfig holds web authentication credentials.
 type AuthConfig struct {
 	Username     string `toml:"username"`
@@ -190,6 +201,7 @@ type Config struct {
 	Web     WebConfig     `toml:"web"`
 	Log     LogConfig     `toml:"log"`
 	TVPause TVPauseConfig `toml:"tv_pause"`
+	Journal JournalConfig `toml:"journal"`
 
 	mu       sync.RWMutex
 	filePath string
@@ -230,6 +242,7 @@ func (c *Config) setDefaults() {
 	}
 	c.Web = WebConfig{Host: "0.0.0.0", Port: 28426, SecretKey: "automated-azan-secret-key"}
 	c.TVPause = TVPauseConfig{Enabled: false, ResumeDelaySecs: 300}
+	c.Journal = JournalConfig{Enabled: true, RetentionDays: 30, MaxMB: 300, WatchTVs: true, NotifyOn: "problems"}
 	c.Log = LogConfig{
 		Level:    "INFO",
 		FilePath: filepath.Join(appdirs.Logs(), "azan.log"),
@@ -385,6 +398,13 @@ func (c *Config) AsWebDict() map[string]interface{} {
 		"tv_pause_enabled":    c.TVPause.Enabled,
 		"tv_pause_delay_secs": c.TVPause.ResumeDelaySecs,
 		"tv_pause_devices":    c.TVPause.Devices,
+		// Journal
+		"journal_enabled":        c.Journal.Enabled,
+		"journal_retention_days": c.Journal.RetentionDays,
+		"journal_max_mb":         c.Journal.MaxMB,
+		"journal_watch_tvs":      c.Journal.WatchTVs,
+		"journal_watch_devices":  c.Journal.WatchDevices,
+		"journal_notify_on":      c.Journal.NotifyOn,
 	}
 }
 
