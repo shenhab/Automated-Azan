@@ -46,6 +46,7 @@ const (
 	nsHeartbeat  = "urn:x-cast:com.google.cast.tp.heartbeat"
 	nsReceiver   = "urn:x-cast:com.google.cast.receiver"
 	nsMedia      = "urn:x-cast:com.google.cast.media"
+	nsMultizone  = "urn:x-cast:com.google.cast.multizone"
 
 	receiverID     = "receiver-0"
 	defaultMediaID = "CC1AD845" // Default Media Receiver app id
@@ -81,12 +82,13 @@ type Event struct {
 type Speaker struct {
 	Name string
 
-	mu          sync.Mutex
-	ln          net.Listener
-	conns       map[net.Conn]struct{}
-	senders     map[net.Conn]func(ns, src, dst string, payload any) // to push unsolicited messages
-	connections int                                                 // total accepted
-	closed      bool
+	mu           sync.Mutex
+	ln           net.Listener
+	groupMembers []GroupMember // answered to a multizone GET_STATUS; empty = not a group
+	conns        map[net.Conn]struct{}
+	senders      map[net.Conn]func(ns, src, dst string, payload any) // to push unsolicited messages
+	connections  int                                                 // total accepted
+	closed       bool
 
 	trace        []string
 	events       []Event
@@ -319,6 +321,22 @@ func (s *Speaker) SetVolumeState(level float64, muted bool) {
 	s.volume, s.muted = level, muted
 }
 
+// GroupMember is one device in a Cast group, as the group lists it.
+type GroupMember struct {
+	DeviceID string
+	Name     string
+	Level    float64
+	Muted    bool
+}
+
+// SetGroupMembers makes the speaker a Cast group with these members: it will
+// list them when asked for its multizone status.
+func (s *Speaker) SetGroupMembers(m ...GroupMember) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.groupMembers = append([]GroupMember(nil), m...)
+}
+
 // FinishPlayback ends the current media the way a real receiver does when the
 // file has played to its end: the player goes IDLE with idleReason FINISHED
 // (seen in testdata/traces/athan-playback).
@@ -541,6 +559,23 @@ func (s *Speaker) handle(m *pb.CastMessage, req *request, send func(ns, src, dst
 	case nsHeartbeat:
 		if req.Type == "PING" {
 			send(ns, dst, src, map[string]any{"type": "PONG"})
+		}
+
+	case nsMultizone:
+		// What a real Cast group (and a plain device, which lists itself) answers,
+		// seen live on 2026-11-02: MULTIZONE_STATUS with a "devices" list.
+		if req.Type == "GET_STATUS" {
+			s.mu.Lock()
+			devs := []any{}
+			for _, mb := range s.groupMembers {
+				devs = append(devs, map[string]any{
+					"capabilities": 196612, "deviceId": mb.DeviceID, "name": mb.Name,
+					"volume": map[string]any{"level": mb.Level, "muted": mb.Muted},
+				})
+			}
+			s.mu.Unlock()
+			send(ns, receiverID, src, map[string]any{"type": "MULTIZONE_STATUS", "requestId": req.RequestID,
+				"status": map[string]any{"devices": devs, "isMultichannel": false}})
 		}
 
 	case nsReceiver:

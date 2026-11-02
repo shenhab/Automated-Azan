@@ -286,3 +286,30 @@ func TestTheLiveViewShowsWhatEachWatchedDeviceIsDoingNow(t *testing.T) {
 		t.Errorf("a finished session is still live: %+v", got)
 	}
 }
+
+func TestAGroupMemberOnAnotherDeviceJoiningOurPlaybackIsNotInterference(t *testing.T) {
+	// The Isha group is hosted by the Nest display; its Kitchen speaker is a
+	// different device with its own address. When our Load makes it start the
+	// media receiver, that is the agent's doing, not a stranger's.
+	member := Target{Name: "Kitchen speaker", Host: "10.9.9.9", Port: 8009, Role: "member"}
+	r := newRig(t, func(o *Options) {
+		inner := o.Targets
+		o.Targets = func(s Spec) []Target { return append(inner(s), member) }
+	})
+	run := r.j.Begin(athanSpec)
+	r.agentLoads(t)
+	waitFor(t, "PLAYING", func() bool { return r.seen(run.ID(), "player-state", "PLAYING") })
+
+	run.deviceChange(member, change{At: time.Now(), Kind: "app-launched", Fields: map[string]any{"app": "Default Media Receiver"}})
+
+	d, _ := r.j.Detail(run.ID())
+	for _, e := range d.Events {
+		if e.Device == "Kitchen speaker" && e.Kind == "app-launched" {
+			if e.External {
+				t.Errorf("the member joining our playback was marked as outside interference: %+v", e)
+			}
+			return
+		}
+	}
+	t.Error("the member's event was not recorded")
+}

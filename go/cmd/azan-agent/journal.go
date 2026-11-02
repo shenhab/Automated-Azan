@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 type deviceSource interface {
 	SpeakerDevice() (chromecast.Device, error)
 	Devices() []chromecast.Device
+	SpeakerGroup() (chromecast.SpeakerGroup, error)
 }
 
 const maxWatchedTVs = 8
@@ -38,9 +40,21 @@ func journalTargets(cfg *config.Config, src deviceSource) []journal.Target {
 	speaker, err := src.SpeakerDevice()
 	if err == nil {
 		add(speaker, "speaker")
-		for _, d := range devices {
-			if d.Host == speaker.Host && d.Port != speaker.Port {
+		if group, gerr := src.SpeakerGroup(); gerr == nil && len(group.Members) > 0 {
+			// The group's own list of members, wherever they are on the network.
+			for _, d := range group.Devices {
 				add(d, "member")
+			}
+			for _, mb := range group.Missing {
+				log.Printf("[journal] %q is in the group %q but was not found on the network, so it cannot be watched", mb.Name, speaker.Name)
+			}
+		} else {
+			// The group could not be asked: fall back to what shares its address
+			// (a group is hosted by one of its members).
+			for _, d := range devices {
+				if d.Host == speaker.Host && d.Port != speaker.Port {
+					add(d, "member")
+				}
 			}
 		}
 	}

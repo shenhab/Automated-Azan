@@ -11,13 +11,18 @@ import (
 )
 
 type stubDevices struct {
-	speaker chromecast.Device
-	err     error
-	all     []chromecast.Device
+	speaker  chromecast.Device
+	err      error
+	all      []chromecast.Device
+	group    chromecast.SpeakerGroup
+	groupErr error
 }
 
 func (s stubDevices) SpeakerDevice() (chromecast.Device, error) { return s.speaker, s.err }
 func (s stubDevices) Devices() []chromecast.Device              { return s.all }
+func (s stubDevices) SpeakerGroup() (chromecast.SpeakerGroup, error) {
+	return s.group, s.groupErr
+}
 
 func dev(name, host string, port int, uuid string) chromecast.Device {
 	return chromecast.Device{Name: name, Host: host, Port: port, UUID: uuid}
@@ -31,9 +36,10 @@ func roles(cfg *config.Config, src deviceSource) string {
 	return strings.Join(out, ",")
 }
 
-func TestTheJournalWatchesTheSpeakerAndTheDeviceThatHostsTheGroup(t *testing.T) {
+func TestWhenTheGroupCannotBeAskedTheJournalWatchesTheDeviceThatHostsIt(t *testing.T) {
 	src := stubDevices{
-		speaker: dev("athan", "10.0.0.5", 32067, "g"),
+		groupErr: fmt.Errorf("no answer"),
+		speaker:  dev("athan", "10.0.0.5", 32067, "g"),
 		all: []chromecast.Device{
 			dev("athan", "10.0.0.5", 32067, "g"),
 			dev("Nest display", "10.0.0.5", 8009, "n"),
@@ -117,5 +123,29 @@ func TestEachKindOfJobGetsTheRightSessionSpec(t *testing.T) {
 	}
 	if k := journalSpec(cfg, "friday_kahf", "Friday Surah Al-Kahf", at); k.Kind != "kahf" || k.MaxDuration <= 0 {
 		t.Errorf("kahf = %+v", k)
+	}
+}
+
+func TestTheJournalWatchesTheGroupsRealMembersWhereverTheyAre(t *testing.T) {
+	// Measured live 2026-11-02: athan = Nest display + Kitchen speaker. The old
+	// rule (same address as the group) missed the Kitchen speaker and took in
+	// groups that merely live on the Nest display.
+	nest := dev("Nest display", "10.0.0.5", 8009, "n")
+	kitchen := dev("Kitchen speaker", "10.0.0.6", 8009, "k")
+	src := stubDevices{
+		speaker: dev("athan", "10.0.0.5", 32067, "g"),
+		all: []chromecast.Device{
+			dev("athan", "10.0.0.5", 32067, "g"), nest, kitchen,
+			dev("Upstairs", "10.0.0.5", 32003, "u"),
+		},
+		group: chromecast.SpeakerGroup{
+			Members: []chromecast.GroupMember{{Name: "Nest display"}, {Name: "Kitchen speaker"}},
+			Devices: []chromecast.Device{nest, kitchen},
+		},
+	}
+	cfg := &config.Config{}
+	cfg.Journal.Enabled = true
+	if got := roles(cfg, src); got != "athan=speaker,Nest display=member,Kitchen speaker=member" {
+		t.Errorf("targets = %s", got)
 	}
 }

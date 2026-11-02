@@ -203,7 +203,18 @@ func (r *Run) deviceChange(t Target, c change) {
 
 	r.mu.Lock()
 	external := false
-	if c.Kind != "initial-state" && !r.attr.Caused(t.Host, c) {
+	// The agent's commands go to the speaker (the group); a member is a device
+	// of its own, possibly at another address, that only reacts to them.
+	actionHost := t.Host
+	if t.Role == "member" {
+		for _, x := range r.targets {
+			if x.Role == "speaker" {
+				actionHost = x.Host
+				break
+			}
+		}
+	}
+	if c.Kind != "initial-state" && !r.attr.Caused(actionHost, c) {
 		switch t.Role {
 		case "speaker", "member":
 			external = !r.loadAt.IsZero() && (r.playEndAt.IsZero() || !c.At.After(r.playEndAt))
