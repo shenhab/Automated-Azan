@@ -30,6 +30,9 @@ type Target struct {
 	Host string `json:"host"`
 	Port int    `json:"port"`
 	Role string `json:"role"` // speaker | member | tv | extra
+	// NotJoined marks a member configured into the group but absent from the
+	// group's session when the recording began: the Athan will not reach it.
+	NotJoined bool `json:"not_joined,omitempty"`
 }
 
 // Facts are what the analysis found out.
@@ -48,6 +51,13 @@ type Facts struct {
 	AgentError     string    `json:"agent_error,omitempty"`
 	External       []string  `json:"external,omitempty"` // changes the agent did not cause
 	Health         []string  `json:"health,omitempty"`
+
+	// The speaker's group. Empty for a plain speaker.
+	Members            []string `json:"members,omitempty"`             // configured into the group
+	MembersNotJoined   []string `json:"members_not_joined,omitempty"`  // configured, not in the group's session
+	MembersPlayed      []string `json:"members_played,omitempty"`      // seen showing the group's session
+	MembersUnconfirmed []string `json:"members_unconfirmed,omitempty"` // joined, never seen showing it
+	MemberWarnings     []string `json:"member_warnings,omitempty"`     // e.g. a member that is muted
 }
 
 // Result is the outcome of analysing a session.

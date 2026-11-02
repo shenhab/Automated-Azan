@@ -232,6 +232,8 @@ func (r *Run) deviceChange(t Target, c change) {
 			r.playEndAt = c.At
 		}
 	}
+	r.noteAppSession(t, c)
+	played := r.membersNowPlaying()
 	r.mu.Unlock()
 
 	if external {
@@ -239,6 +241,52 @@ func (r *Run) deviceChange(t Target, c change) {
 		ev.Text += " — not caused by the agent"
 	}
 	r.add(ev)
+	for _, name := range played {
+		r.add(trace.Event{At: c.At, Source: trace.SourceDevice, Kind: "member-played", Device: name,
+			Text:   name + " is playing the group's session",
+			Fields: map[string]any{"role": "member", "app_session": r.currentSpeakerSession()}})
+	}
+}
+
+// noteAppSession remembers which app session a device is in. Call with r.mu held.
+func (r *Run) noteAppSession(t Target, c change) {
+	var session string
+	switch c.Kind {
+	case "initial-state", "app-launched", "app-session":
+		session, _ = c.Fields["app_session"].(string)
+	case "app-closed":
+	default:
+		return
+	}
+	switch t.Role {
+	case "speaker":
+		r.speakerSession = session
+	case "member":
+		r.memberSession[t.Name] = session
+	}
+}
+
+// membersNowPlaying returns the members newly seen in the speaker's session while
+// it plays. A member showing the group's sessionId is the proof it joined this
+// playback (real trace, Isha 2026-11-02). Call with r.mu held.
+func (r *Run) membersNowPlaying() []string {
+	if !r.playing || !r.playEndAt.IsZero() || r.speakerSession == "" {
+		return nil
+	}
+	var out []string
+	for _, x := range r.targets {
+		if x.Role == "member" && !r.memberPlayed[x.Name] && r.memberSession[x.Name] == r.speakerSession {
+			r.memberPlayed[x.Name] = true
+			out = append(out, x.Name)
+		}
+	}
+	return out
+}
+
+func (r *Run) currentSpeakerSession() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.speakerSession
 }
 
 // monitor ends the session by itself: after the playback is over (plus the tail),

@@ -27,10 +27,17 @@ func Analyze(spec Spec, events []trace.Event, healthIssues []string, ended bool)
 	var lastStop time.Time
 	var level float64
 	var levelKnown, muted bool
+	var joined []string
 
 	for _, e := range evs {
 		if e.Source == trace.SourceAgent {
 			switch e.Kind {
+			case "group-members":
+				f.Members, joined = fieldStrings(e, "configured"), fieldStrings(e, "joined")
+			case "member-not-joined":
+				f.MembersNotJoined = appendOnce(f.MembersNotJoined, e.Device)
+			case "member-silent":
+				f.MemberWarnings = appendOnce(f.MemberWarnings, e.Text)
 			case "load-sent":
 				if anchor.IsZero() {
 					anchor = e.At
@@ -42,6 +49,10 @@ func Analyze(spec Spec, events []trace.Event, healthIssues []string, ended bool)
 			case "play-failed":
 				f.AgentError = fieldString(e, "error", e.Text)
 			}
+			continue
+		}
+		if e.Source == trace.SourceDevice && e.Kind == "member-played" {
+			f.MembersPlayed = appendOnce(f.MembersPlayed, e.Device)
 			continue
 		}
 		if e.Source != trace.SourceDevice || fieldString(e, "role", "") != "speaker" {
@@ -93,6 +104,15 @@ func Analyze(spec Spec, events []trace.Event, healthIssues []string, ended bool)
 			continue
 		}
 		f.External = append(f.External, fmt.Sprintf("%s %s (%s)", e.At.Format("15:04:05"), e.Text, e.Device))
+	}
+
+	sort.Strings(f.MembersPlayed)
+	if f.Started {
+		for _, name := range joined {
+			if !contains(f.MembersPlayed, name) {
+				f.MembersUnconfirmed = append(f.MembersUnconfirmed, name)
+			}
+		}
 	}
 
 	if !ended {
@@ -157,6 +177,10 @@ func Analyze(spec Spec, events []trace.Event, healthIssues []string, ended bool)
 	if f.Retries > 0 {
 		warn = append(warn, fmt.Sprintf("needed %d retr%s", f.Retries, map[bool]string{true: "y", false: "ies"}[f.Retries == 1]))
 	}
+	for _, name := range f.MembersNotJoined {
+		warn = append(warn, name+" did not join the group")
+	}
+	warn = append(warn, f.MemberWarnings...)
 	warn = append(warn, healthIssues...)
 
 	head := strings.Join(parts, " — ")
@@ -164,6 +188,31 @@ func Analyze(spec Spec, events []trace.Event, healthIssues []string, ended bool)
 		return Result{Verdict: VerdictOK, Headline: head, Facts: f}
 	}
 	return Result{Verdict: VerdictWarning, Headline: head + "; " + strings.Join(warn, "; "), Facts: f}
+}
+
+// fieldStrings reads a list of names: []string in memory, []any once a session
+// has been through its JSON file.
+func fieldStrings(e trace.Event, key string) []string {
+	switch v := e.Fields[key].(type) {
+	case []string:
+		return append([]string(nil), v...)
+	case []any:
+		var out []string
+		for _, x := range v {
+			if s, ok := x.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func appendOnce(list []string, s string) []string {
+	if contains(list, s) {
+		return list
+	}
+	return append(list, s)
 }
 
 func fieldString(e trace.Event, key, def string) string {

@@ -3,7 +3,6 @@ package journal
 import (
 	"compress/gzip"
 	"crypto/rand"
-	"encoding/hex"
 	"io"
 	"os"
 	"path/filepath"
@@ -172,10 +171,12 @@ func TestOldAndOversizedSessionsArePrunedButNeverARunningOne(t *testing.T) {
 	running.End("x")
 }
 
+// noise is truly incompressible. (Hex text was not: gzip stored some of it at full
+// size and halved the rest, so "the size of one session" varied by run.)
 func noise(n int) string {
-	b := make([]byte, n/2)
+	b := make([]byte, n)
 	rand.Read(b)
-	return hex.EncodeToString(b)
+	return string(b)
 }
 
 func TestTheSizeCapDeletesTheOldestFirst(t *testing.T) {

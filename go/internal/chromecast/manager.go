@@ -59,12 +59,14 @@ type Manager struct {
 	mediaBaseURL string // e.g. http://192.168.1.x:5000/media/
 	cacheDir     string // data directory for devices.json cache
 
-	mu            sync.Mutex
-	devices       map[string]Device // uuid → Device
-	lastDiscovery time.Time
-	app           *application.Application
-	currentDevice *Device
-	playingDev    Device // the speaker the current playback is on
+	mu             sync.Mutex
+	lastMembership Membership
+	hasMembership  bool
+	devices        map[string]Device // uuid → Device
+	lastDiscovery  time.Time
+	app            *application.Application
+	currentDevice  *Device
+	playingDev     Device // the speaker the current playback is on
 
 	// Pre-connect cache populated by PreConnect; consumed by the next playURL.
 	preApp *application.Application
@@ -601,11 +603,6 @@ func (m *Manager) checkMembers(dev Device, pb *Playback) {
 		return // a plain device lists itself
 	}
 	pb.Members = members
-	names := make([]string, 0, len(members))
-	for _, mb := range members {
-		names = append(names, fmt.Sprintf("%s (volume %.2f%s)", mb.Name, mb.Level, mutedWord(mb.Muted)))
-	}
-	trace.Agent("group-members", dev.Name, dev.Name+" is a group of "+strings.Join(names, ", "), "host", dev.Host)
 	var warns []string
 	for _, mb := range members {
 		switch {
@@ -647,29 +644,6 @@ func (m *Manager) CheckGroupMembers() {
 		log.Printf("[chromecast] WARNING: %s", pb.Warning)
 		trace.Warn(trace.SourceAgent, "member-silent", dev.Name, pb.Warning, "host", dev.Host)
 	}
-}
-
-// SpeakerGroup is the speaker's real membership: who is in the group, which of
-// them are on the network, and which are not.
-type SpeakerGroup struct {
-	Members []GroupMember
-	Devices []Device      // the members found on the network (own endpoint each)
-	Missing []GroupMember // listed by the group but not discovered
-}
-
-// SpeakerGroup asks the speaker (a Cast group) for its members. A plain
-// speaker returns itself. The error is set when the group cannot be asked.
-func (m *Manager) SpeakerGroup() (SpeakerGroup, error) {
-	dev, err := m.resolveDevice()
-	if err != nil {
-		return SpeakerGroup{}, err
-	}
-	members, err := GroupMembers(dev.Host, dev.Port)
-	if err != nil {
-		return SpeakerGroup{}, err
-	}
-	found, missing := MatchMembers(members, m.Devices())
-	return SpeakerGroup{Members: members, Devices: found, Missing: missing}, nil
 }
 
 // verifyPlayback asks the speaker, until it answers, what it is doing. Playback

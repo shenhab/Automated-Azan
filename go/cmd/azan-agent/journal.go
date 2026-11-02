@@ -1,13 +1,17 @@
 package main
 
 import (
-	"log"
+	"context"
+	"errors"
+	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"azan-agent/internal/chromecast"
 	"azan-agent/internal/config"
 	"azan-agent/internal/journal"
+	"azan-agent/internal/trace"
 )
 
 // deviceSource is what the Journal needs to know about the network; the Cast
@@ -15,7 +19,7 @@ import (
 type deviceSource interface {
 	SpeakerDevice() (chromecast.Device, error)
 	Devices() []chromecast.Device
-	SpeakerGroup() (chromecast.SpeakerGroup, error)
+	Membership(ctx context.Context) (chromecast.Membership, error)
 }
 
 const maxWatchedTVs = 8
@@ -40,17 +44,24 @@ func journalTargets(cfg *config.Config, src deviceSource) []journal.Target {
 	speaker, err := src.SpeakerDevice()
 	if err == nil {
 		add(speaker, "speaker")
-		if group, gerr := src.SpeakerGroup(); gerr == nil && len(group.Members) > 0 {
-			// The group's own list of members, wherever they are on the network.
-			for _, d := range group.Devices {
-				add(d, "member")
+		ms, merr := src.Membership(context.Background())
+		if merr == nil && (len(ms.Configured) > 0 || len(ms.Joined) > 0) {
+			// Everyone configured into the group, or who the group says has
+			// joined, wherever they are on the network.
+			notJoined := map[string]bool{}
+			for _, d := range ms.NotJoined {
+				notJoined[d.Host+":"+itoa(d.Port)] = true
 			}
-			for _, mb := range group.Missing {
-				log.Printf("[journal] %q is in the group %q but was not found on the network, so it cannot be watched", mb.Name, speaker.Name)
+			for _, d := range append(append([]chromecast.Device(nil), ms.Configured...), ms.Joined...) {
+				before := len(out)
+				add(d, "member")
+				if len(out) > before {
+					out[before].NotJoined = notJoined[d.Host+":"+itoa(d.Port)]
+				}
 			}
 		} else {
-			// The group could not be asked: fall back to what shares its address
-			// (a group is hosted by one of its members).
+			// Neither the group nor its members could be asked: fall back to what
+			// shares the group's address (a group is hosted by one of its members).
 			for _, d := range devices {
 				if d.Host == speaker.Host && d.Port != speaker.Port {
 					add(d, "member")
@@ -86,6 +97,86 @@ func journalTargets(cfg *config.Config, src deviceSource) []journal.Target {
 		}
 	}
 	return out
+}
+
+// announceMembership puts who is in the group on the session's timeline, before
+// the cast: who is there, and above all who will not play.
+func announceMembership(ms chromecast.Membership) {
+	if !ms.IsGroup() {
+		return
+	}
+	live := map[string]chromecast.GroupMember{}
+	for _, l := range ms.Live {
+		live[strings.ToLower(l.Name)] = l
+	}
+	var parts, configured, joined, notJoined []string
+	for _, d := range ms.Configured {
+		configured = append(configured, d.Name)
+		part := d.Name
+		if l, ok := live[strings.ToLower(d.Name)]; ok {
+			part += fmt.Sprintf(" (volume %.2f)", l.Level)
+			if l.Muted {
+				part = d.Name + fmt.Sprintf(" (volume %.2f, muted)", l.Level)
+			}
+		} else if ms.LiveKnown {
+			part += " (not joined)"
+		}
+		parts = append(parts, part)
+	}
+	for _, d := range ms.Joined {
+		joined = append(joined, d.Name)
+		found := false
+		for _, c := range ms.Configured {
+			found = found || (c.Host == d.Host && c.Port == d.Port)
+		}
+		if !found { // its own page could not be read, but the group lists it
+			part := d.Name
+			if l, ok := live[strings.ToLower(d.Name)]; ok {
+				part += fmt.Sprintf(" (volume %.2f)", l.Level)
+			}
+			parts = append(parts, part)
+		}
+	}
+	for _, d := range ms.NotJoined {
+		notJoined = append(notJoined, d.Name)
+	}
+	var asked []string
+	for name := range ms.Errors {
+		asked = append(asked, name)
+	}
+	sort.Strings(asked)
+
+	text := ms.Group.Name + " is a group of " + strings.Join(parts, ", ")
+	if !ms.LiveKnown {
+		text += "; the group did not say who has joined"
+	}
+	trace.Agent("group-members", ms.Group.Name, text, "host", ms.Group.Host,
+		"configured", configured, "joined", joined, "not_joined", notJoined, "could_not_ask", asked)
+	for _, d := range ms.NotJoined {
+		trace.Warn(trace.SourceAgent, "member-not-joined", d.Name,
+			d.Name+" is in "+ms.Group.Name+" but has not joined — it will not play", "host", d.Host, "group", ms.Group.Name)
+	}
+	for _, u := range ms.Unknown {
+		trace.Warn(trace.SourceAgent, "member-unknown", u.Name,
+			u.Name+" has joined "+ms.Group.Name+" but was not found on the network, so it cannot be watched", "group", ms.Group.Name)
+	}
+}
+
+// cachedMembership answers with what is already known and refreshes in the
+// background: for a person who just pressed Play, who should not wait for every
+// device on the network to answer.
+type cachedMembership struct {
+	deviceSource
+	last    func() (chromecast.Membership, bool)
+	refresh func()
+}
+
+func (c cachedMembership) Membership(context.Context) (chromecast.Membership, error) {
+	go c.refresh()
+	if ms, ok := c.last(); ok {
+		return ms, nil
+	}
+	return chromecast.Membership{}, errors.New("group membership not known yet")
 }
 
 func itoa(n int) string {

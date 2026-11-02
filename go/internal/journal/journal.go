@@ -37,6 +37,9 @@ type Options struct {
 	Health func(host string) (HealthSnapshot, error)
 	// Notify announces a problem (a desktop notification). Nil = none.
 	Notify func(title, message string)
+	// AfterBegin is called once a session is open and recording, so what it emits
+	// through internal/trace lands in the session. Nil = nothing.
+	AfterBegin func(Spec)
 	// OnChange is called when a session starts or ends (for live dashboards).
 	OnChange func()
 	Logf     func(format string, args ...any)
@@ -226,6 +229,12 @@ type Run struct {
 	stop chan struct{}
 	wg   sync.WaitGroup
 	hs   *healthSession
+
+	// Who really played: the session the speaker's app is in, the one each member
+	// shows, and the members already recorded as playing. Guarded by mu.
+	speakerSession string
+	memberSession  map[string]string
+	memberPlayed   map[string]bool
 }
 
 type rawFile struct {
@@ -242,7 +251,8 @@ func (r *Run) ID() string { return r.id }
 // kept in memory.
 func (j *Journal) Begin(spec Spec) *Run {
 	now := j.o.Now()
-	r := &Run{j: j, spec: spec, started: now, raw: map[string]*rawFile{}, attr: newAttribution(), stop: make(chan struct{}), live: map[string]*DeviceLive{}}
+	r := &Run{j: j, spec: spec, started: now, raw: map[string]*rawFile{}, attr: newAttribution(), stop: make(chan struct{}), live: map[string]*DeviceLive{},
+		memberSession: map[string]string{}, memberPlayed: map[string]bool{}}
 	if j.o.Targets != nil {
 		r.targets = j.o.Targets(spec)
 	}
@@ -278,6 +288,9 @@ func (j *Journal) Begin(spec Spec) *Run {
 	}
 	j.o.Logf("[journal] recording %s (%s)", spec.Label, id)
 	r.start()
+	if j.o.AfterBegin != nil {
+		j.o.AfterBegin(spec)
+	}
 	if j.o.OnChange != nil {
 		j.o.OnChange()
 	}

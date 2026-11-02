@@ -3,9 +3,11 @@ package journal
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"azan-agent/internal/castrecord"
 	"azan-agent/internal/trace"
@@ -133,5 +135,31 @@ func TestFramesWeSentAreIgnored(t *testing.T) {
 	tr := newTracker()
 	if cs := tr.Feed(castrecord.Frame{Dir: castrecord.Out, Type: "GET_STATUS"}); len(cs) != 0 {
 		t.Errorf("outbound frame produced %v", cs)
+	}
+}
+
+func TestTheTrackerReportsTheAppSession(t *testing.T) {
+	// A member shows the group's sessionId while it plays (real trace, Isha
+	// 2026-11-02), which is how the Journal proves who really played.
+	status := func(appID, name, session string) castrecord.Frame {
+		return castrecord.Frame{At: time.Now(), Dir: castrecord.In, Type: "RECEIVER_STATUS", Payload: json.RawMessage(fmt.Sprintf(
+			`{"status":{"applications":[{"appId":%q,"displayName":%q,"sessionId":%q}],"volume":{"level":0.5}}}`, appID, name, session))}
+	}
+	tr := newTracker()
+	first := tr.Feed(status("E8C28D3C", "Backdrop", "b-1"))
+	if len(first) != 1 || first[0].Kind != "initial-state" || first[0].Fields["app_session"] != "b-1" {
+		t.Fatalf("first = %+v", first)
+	}
+	launched := tr.Feed(status("531A4F84", "Default Media Receiver", "s-1"))
+	if len(launched) != 2 || launched[1].Kind != "app-launched" || launched[1].Fields["app_session"] != "s-1" {
+		t.Fatalf("launched = %+v", launched)
+	}
+	if got := tr.Feed(status("531A4F84", "Default Media Receiver", "s-1")); len(got) != 0 {
+		t.Errorf("nothing changed, got %+v", got)
+	}
+	// The same app with a new session is a new playback.
+	again := tr.Feed(status("531A4F84", "Default Media Receiver", "s-2"))
+	if len(again) != 1 || again[0].Kind != "app-session" || again[0].Fields["app_session"] != "s-2" {
+		t.Errorf("again = %+v", again)
 	}
 }

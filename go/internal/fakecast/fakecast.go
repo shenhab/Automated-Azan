@@ -15,11 +15,13 @@ package fakecast
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/md5"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,11 +44,12 @@ import (
 const defaultReplyDelay = 3 * time.Millisecond
 
 const (
-	nsConnection = "urn:x-cast:com.google.cast.tp.connection"
-	nsHeartbeat  = "urn:x-cast:com.google.cast.tp.heartbeat"
-	nsReceiver   = "urn:x-cast:com.google.cast.receiver"
-	nsMedia      = "urn:x-cast:com.google.cast.media"
-	nsMultizone  = "urn:x-cast:com.google.cast.multizone"
+	nsConnection  = "urn:x-cast:com.google.cast.tp.connection"
+	nsHeartbeat   = "urn:x-cast:com.google.cast.tp.heartbeat"
+	nsReceiver    = "urn:x-cast:com.google.cast.receiver"
+	nsMedia       = "urn:x-cast:com.google.cast.media"
+	nsMultizone   = "urn:x-cast:com.google.cast.multizone"
+	memberMediaID = "531A4F84" // the media receiver as a group member reports it (real trace)
 
 	receiverID     = "receiver-0"
 	defaultMediaID = "CC1AD845" // Default Media Receiver app id
@@ -85,6 +88,8 @@ type Speaker struct {
 	mu           sync.Mutex
 	ln           net.Listener
 	groupMembers []GroupMember // answered to a multizone GET_STATUS; empty = not a group
+	joined       []*Speaker    // real speakers that joined this group (see JoinGroup)
+	memberOf     *Speaker      // the group this speaker joined
 	conns        map[net.Conn]struct{}
 	senders      map[net.Conn]func(ns, src, dst string, payload any) // to push unsolicited messages
 	connections  int                                                 // total accepted
@@ -337,6 +342,60 @@ func (s *Speaker) SetGroupMembers(m ...GroupMember) {
 	s.groupMembers = append([]GroupMember(nil), m...)
 }
 
+// DeviceID is the dashed id the speaker is known by in a group's member list.
+func (s *Speaker) DeviceID() string {
+	h := md5.Sum([]byte(s.Name))
+	x := hex.EncodeToString(h[:])
+	return x[:8] + "-" + x[8:12] + "-" + x[12:16] + "-" + x[16:20] + "-" + x[20:]
+}
+
+// JoinGroup makes this speaker a joined member of group g. The group lists it
+// in its multizone status, with this speaker's own volume, and while the group
+// plays this speaker reports the group's session, the way the real Nest display
+// did during Isha 2026-11-02: app 531A4F84 "Default Media Receiver", the group's
+// sessionId, no transportId. A media request to that empty transport makes the
+// device close the channel and never answer (see the nsMedia case).
+func (s *Speaker) JoinGroup(g *Speaker) {
+	s.mu.Lock()
+	s.memberOf = g
+	s.mu.Unlock()
+	g.mu.Lock()
+	g.joined = append(g.joined, s)
+	g.mu.Unlock()
+}
+
+// playingSession is the session the group's members show: the group's app
+// session for as long as the group's app is open. That outlives the media: during
+// Isha 2026-11-02 the Nest display still showed it 2.5 minutes after FINISHED.
+func (s *Speaker) playingSession() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.appLaunched {
+		return ""
+	}
+	return s.sessionID
+}
+
+// multizoneDevices is the group's "devices" list.
+func (s *Speaker) multizoneDevices() []any {
+	s.mu.Lock()
+	raw := append([]GroupMember(nil), s.groupMembers...)
+	joined := append([]*Speaker(nil), s.joined...)
+	s.mu.Unlock()
+	devs := []any{}
+	for _, j := range joined {
+		level, muted := j.Volume()
+		raw = append(raw, GroupMember{DeviceID: j.DeviceID(), Name: j.Name, Level: level, Muted: muted})
+	}
+	for _, mb := range raw {
+		devs = append(devs, map[string]any{
+			"capabilities": 196612, "deviceId": mb.DeviceID, "name": mb.Name,
+			"volume": map[string]any{"level": mb.Level, "muted": mb.Muted},
+		})
+	}
+	return devs
+}
+
 // FinishPlayback ends the current media the way a real receiver does when the
 // file has played to its end: the player goes IDLE with idleReason FINISHED
 // (seen in testdata/traces/athan-playback).
@@ -565,17 +624,8 @@ func (s *Speaker) handle(m *pb.CastMessage, req *request, send func(ns, src, dst
 		// What a real Cast group (and a plain device, which lists itself) answers,
 		// seen live on 2026-11-02: MULTIZONE_STATUS with a "devices" list.
 		if req.Type == "GET_STATUS" {
-			s.mu.Lock()
-			devs := []any{}
-			for _, mb := range s.groupMembers {
-				devs = append(devs, map[string]any{
-					"capabilities": 196612, "deviceId": mb.DeviceID, "name": mb.Name,
-					"volume": map[string]any{"level": mb.Level, "muted": mb.Muted},
-				})
-			}
-			s.mu.Unlock()
 			send(ns, receiverID, src, map[string]any{"type": "MULTIZONE_STATUS", "requestId": req.RequestID,
-				"status": map[string]any{"devices": devs, "isMultichannel": false}})
+				"status": map[string]any{"devices": s.multizoneDevices(), "isMultichannel": false}})
 		}
 
 	case nsReceiver:
@@ -631,6 +681,12 @@ func (s *Speaker) handle(m *pb.CastMessage, req *request, send func(ns, src, dst
 		send(ns, receiverID, src, s.receiverStatus(req.RequestID))
 
 	case nsMedia:
+		if dst == "" {
+			// Real device, Isha 2026-11-02: a request to a member's empty transport
+			// is answered with CLOSE on the connection namespace, then silence.
+			send(nsConnection, receiverID, src, map[string]any{"type": "CLOSE"})
+			return
+		}
 		switch req.Type {
 		case "GET_STATUS":
 		case "LOAD":
@@ -768,11 +824,26 @@ func fetch(url string) FetchResult {
 
 func (s *Speaker) receiverStatus(reqID int) map[string]any {
 	s.mu.Lock()
+	group := s.memberOf
+	s.mu.Unlock()
+	groupSession := ""
+	if group != nil {
+		groupSession = group.playingSession() // not under s.mu: it takes the group's lock
+	}
+	s.mu.Lock()
 	defer s.mu.Unlock()
 	// Like the real devices recorded in testdata/traces, an idle device has no
 	// "applications" key at all (not an empty list).
 	var apps []any
-	if s.appLaunched {
+	if groupSession != "" {
+		apps = append(apps, map[string]any{
+			"appId":        memberMediaID,
+			"displayName":  "Default Media Receiver",
+			"isIdleScreen": false,
+			"sessionId":    groupSession,
+			"statusText":   "Default Media Receiver",
+		})
+	} else if s.appLaunched {
 		apps = append(apps, map[string]any{
 			"appId":        defaultMediaID,
 			"displayName":  "Default Media Receiver",

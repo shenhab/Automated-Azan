@@ -1,27 +1,31 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"azan-agent/internal/chromecast"
 	"azan-agent/internal/config"
+	"azan-agent/internal/trace"
 )
 
 type stubDevices struct {
 	speaker  chromecast.Device
 	err      error
 	all      []chromecast.Device
-	group    chromecast.SpeakerGroup
+	ms       chromecast.Membership
 	groupErr error
 }
 
 func (s stubDevices) SpeakerDevice() (chromecast.Device, error) { return s.speaker, s.err }
 func (s stubDevices) Devices() []chromecast.Device              { return s.all }
-func (s stubDevices) SpeakerGroup() (chromecast.SpeakerGroup, error) {
-	return s.group, s.groupErr
+func (s stubDevices) Membership(context.Context) (chromecast.Membership, error) {
+	return s.ms, s.groupErr
 }
 
 func dev(name, host string, port int, uuid string) chromecast.Device {
@@ -126,26 +130,175 @@ func TestEachKindOfJobGetsTheRightSessionSpec(t *testing.T) {
 	}
 }
 
-func TestTheJournalWatchesTheGroupsRealMembersWhereverTheyAre(t *testing.T) {
-	// Measured live 2026-11-02: athan = Nest display + Kitchen speaker. The old
-	// rule (same address as the group) missed the Kitchen speaker and took in
+func TestTheJournalWatchesEveryMemberConfiguredOrJoinedWhereverTheyAre(t *testing.T) {
+	// Measured live 2026-11-02: athan is configured with the Nest display, the
+	// Kitchen speaker and the Playroom Speaker; only the first two had joined. The
+	// old rule (same address as the group) missed both Nest Minis and took in
 	// groups that merely live on the Nest display.
 	nest := dev("Nest display", "10.0.0.5", 8009, "n")
 	kitchen := dev("Kitchen speaker", "10.0.0.6", 8009, "k")
+	playroom := dev("Playroom Speaker", "10.0.0.7", 8009, "p")
 	src := stubDevices{
 		speaker: dev("athan", "10.0.0.5", 32067, "g"),
 		all: []chromecast.Device{
-			dev("athan", "10.0.0.5", 32067, "g"), nest, kitchen,
+			dev("athan", "10.0.0.5", 32067, "g"), nest, kitchen, playroom,
 			dev("Upstairs", "10.0.0.5", 32003, "u"),
 		},
-		group: chromecast.SpeakerGroup{
-			Members: []chromecast.GroupMember{{Name: "Nest display"}, {Name: "Kitchen speaker"}},
-			Devices: []chromecast.Device{nest, kitchen},
+		ms: chromecast.Membership{
+			Configured: []chromecast.Device{kitchen, nest, playroom},
+			Live:       []chromecast.GroupMember{{Name: "Nest display"}, {Name: "Kitchen speaker"}},
+			LiveKnown:  true,
+			Joined:     []chromecast.Device{kitchen, nest},
+			NotJoined:  []chromecast.Device{playroom},
 		},
 	}
 	cfg := &config.Config{}
 	cfg.Journal.Enabled = true
-	if got := roles(cfg, src); got != "athan=speaker,Nest display=member,Kitchen speaker=member" {
+	targets := journalTargets(cfg, src)
+	if got := roles(cfg, src); got != "athan=speaker,Kitchen speaker=member,Nest display=member,Playroom Speaker=member" {
 		t.Errorf("targets = %s", got)
+	}
+	for _, x := range targets {
+		if x.NotJoined != (x.Name == "Playroom Speaker") {
+			t.Errorf("%s: NotJoined = %v", x.Name, x.NotJoined)
+		}
+	}
+}
+
+func TestAMemberKnownOnlyFromOneSourceIsStillWatched(t *testing.T) {
+	kitchen := dev("Kitchen speaker", "10.0.0.6", 8009, "k")
+	playroom := dev("Playroom Speaker", "10.0.0.7", 8009, "p")
+	src := stubDevices{
+		speaker: dev("athan", "10.0.0.5", 32067, "g"),
+		all:     []chromecast.Device{dev("athan", "10.0.0.5", 32067, "g"), kitchen, playroom},
+		ms: chromecast.Membership{
+			Configured: []chromecast.Device{kitchen}, // the Playroom's page could not be read…
+			LiveKnown:  true,
+			Live:       []chromecast.GroupMember{{Name: "Playroom Speaker"}},
+			Joined:     []chromecast.Device{playroom}, // …but the group says it has joined
+		},
+	}
+	cfg := &config.Config{}
+	if got := roles(cfg, src); got != "athan=speaker,Kitchen speaker=member,Playroom Speaker=member" {
+		t.Errorf("targets = %s", got)
+	}
+}
+
+func recordEvents(t *testing.T) *eventLog {
+	t.Helper()
+	l := &eventLog{}
+	trace.SetSink(l)
+	t.Cleanup(func() { trace.SetSink(nil) })
+	return l
+}
+
+type eventLog struct {
+	mu  sync.Mutex
+	evs []trace.Event
+}
+
+func (l *eventLog) Event(e trace.Event) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.evs = append(l.evs, e)
+}
+
+func (l *eventLog) kind(k string) []trace.Event {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []trace.Event
+	for _, e := range l.evs {
+		if e.Kind == k {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func TestTheOwnerIsToldBeforeTheCastWhoWillNotPlay(t *testing.T) {
+	l := recordEvents(t)
+	nest := dev("Nest display", "10.0.0.5", 8009, "n")
+	kitchen := dev("Kitchen speaker", "10.0.0.6", 8009, "k")
+	playroom := dev("Playroom Speaker", "10.0.0.7", 8009, "p")
+	announceMembership(chromecast.Membership{
+		Group:      dev("athan", "10.0.0.5", 32067, "g"),
+		Configured: []chromecast.Device{kitchen, nest, playroom},
+		Live: []chromecast.GroupMember{
+			{Name: "Nest display", Level: 0.5},
+			{Name: "Kitchen speaker", Level: 0.8},
+			{Name: "Stranger", Level: 0.3},
+		},
+		LiveKnown: true,
+		Joined:    []chromecast.Device{kitchen, nest},
+		NotJoined: []chromecast.Device{playroom},
+		Unknown:   []chromecast.GroupMember{{Name: "Stranger"}},
+	})
+
+	gm := l.kind("group-members")
+	if len(gm) != 1 || gm[0].Source != trace.SourceAgent || gm[0].Level == "warn" {
+		t.Fatalf("group-members = %+v", gm)
+	}
+	for _, want := range []string{"athan", "Kitchen speaker (volume 0.80)", "Nest display (volume 0.50)", "Playroom Speaker (not joined)"} {
+		if !strings.Contains(gm[0].Text, want) {
+			t.Errorf("%q does not mention %q", gm[0].Text, want)
+		}
+	}
+	if got := gm[0].Fields["configured"]; !reflect.DeepEqual(got, []string{"Kitchen speaker", "Nest display", "Playroom Speaker"}) {
+		t.Errorf("configured = %v", got)
+	}
+	if got := gm[0].Fields["joined"]; !reflect.DeepEqual(got, []string{"Kitchen speaker", "Nest display"}) {
+		t.Errorf("joined = %v", got)
+	}
+	nj := l.kind("member-not-joined")
+	if len(nj) != 1 || nj[0].Device != "Playroom Speaker" || nj[0].Level != "warn" || !strings.Contains(nj[0].Text, "will not play") {
+		t.Errorf("member-not-joined = %+v", nj)
+	}
+	if u := l.kind("member-unknown"); len(u) != 1 || u[0].Device != "Stranger" || u[0].Level != "warn" {
+		t.Errorf("member-unknown = %+v", u)
+	}
+}
+
+func TestAPlainSpeakerIsNotAnnouncedAsAGroup(t *testing.T) {
+	l := recordEvents(t)
+	sp := dev("Kitchen speaker", "10.0.0.6", 8009, "k")
+	announceMembership(chromecast.Membership{Group: sp, Configured: []chromecast.Device{sp}, LiveKnown: true,
+		Live: []chromecast.GroupMember{{Name: "Kitchen speaker"}}, Joined: []chromecast.Device{sp}})
+	if n := len(l.kind("group-members")); n != 0 {
+		t.Errorf("%d group-members events", n)
+	}
+}
+
+func TestWithoutTheGroupsAnswerTheAnnouncementClaimsNothingAboutWhoJoined(t *testing.T) {
+	l := recordEvents(t)
+	nest := dev("Nest display", "10.0.0.5", 8009, "n")
+	announceMembership(chromecast.Membership{Group: dev("athan", "10.0.0.5", 32067, "g"),
+		Configured: []chromecast.Device{nest}, Errors: map[string]string{"athan": "no answer"}})
+	gm := l.kind("group-members")
+	if len(gm) != 1 || strings.Contains(gm[0].Text, "not joined") || !strings.Contains(gm[0].Text, "did not say") {
+		t.Errorf("group-members = %+v", gm)
+	}
+	if n := len(l.kind("member-not-joined")); n != 0 {
+		t.Errorf("%d member-not-joined events", n)
+	}
+}
+
+func TestAManualPlayIsNotHeldUpByTheMembershipCheck(t *testing.T) {
+	// A person pressed Play: use what is known, refresh in the background.
+	fresh := make(chan struct{}, 1)
+	known := chromecast.Membership{LiveKnown: true, Live: []chromecast.GroupMember{{Name: "Nest display"}}}
+	src := cachedMembership{last: func() (chromecast.Membership, bool) { return known, true },
+		refresh: func() { fresh <- struct{}{} }}
+	ms, err := src.Membership(context.Background())
+	if err != nil || len(ms.Live) != 1 {
+		t.Errorf("ms=%+v err=%v", ms, err)
+	}
+	select {
+	case <-fresh:
+	case <-time.After(2 * time.Second):
+		t.Error("no refresh in the background")
+	}
+	none := cachedMembership{last: func() (chromecast.Membership, bool) { return chromecast.Membership{}, false }, refresh: func() {}}
+	if _, err := none.Membership(context.Background()); err == nil {
+		t.Error("no error when nothing is known yet")
 	}
 }

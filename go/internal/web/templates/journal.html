@@ -351,7 +351,8 @@
 
   function renderDevices() {
     var d = state.detail, s = d.summary, h = d.health || [];
-    var rows = (s.targets || []).map(function (t) { return '<tr><td>' + esc(t.name) + '</td><td>' + esc(t.role) + '</td><td class="text-muted">' + esc(t.host) + ':' + t.port + '</td></tr>'; }).join("");
+    var played = (s.facts && s.facts.members_played) || [];
+    var rows = (s.targets || []).map(function (t) { return '<tr><td>' + esc(t.name) + (t.not_joined ? ' <span class="jr-badge jr-failed">NOT JOINED</span>' : '') + (played.indexOf(t.name) >= 0 ? ' <span class="jr-badge">PLAYED</span>' : '') + '</td><td>' + esc(t.role) + '</td><td class="text-muted">' + esc(t.host) + ':' + t.port + '</td></tr>'; }).join("");
     var html = '<h6>Watched devices</h6><table class="table table-sm"><thead><tr><th>Device</th><th>Role</th><th>Address</th></tr></thead><tbody>' + (rows || '<tr><td colspan="3" class="text-muted">None</td></tr>') + '</tbody></table>';
     if (h.length) {
       html += '<h6 class="mt-3">Device status pages</h6><table class="table table-sm"><thead><tr><th>Device</th><th>When</th><th>Uptime</th><th>Firmware</th><th>Wi-Fi</th><th></th></tr></thead><tbody>' +
