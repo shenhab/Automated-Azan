@@ -14,6 +14,9 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// DefaultSpeakerGroup is the speaker used when none has been configured.
+const DefaultSpeakerGroup = "athan"
+
 // SpeakerConfig holds speaker/device settings.
 type SpeakerConfig struct {
 	GroupName         string `toml:"group_name"`
@@ -225,7 +228,7 @@ func Get() *Config {
 }
 
 func (c *Config) setDefaults() {
-	c.Speaker = SpeakerConfig{GroupName: "athan"}
+	c.Speaker = SpeakerConfig{GroupName: DefaultSpeakerGroup}
 	defaultCh := ChannelConfig{Speaker: true, Local: false, Notify: false}
 	c.Prayer = PrayerConfig{
 		Location:       "naas",

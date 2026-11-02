@@ -15,6 +15,7 @@ import (
 	"github.com/vishen/go-chromecast/application"
 	castdns "github.com/vishen/go-chromecast/dns"
 
+	"azan-agent/internal/config"
 	"azan-agent/internal/trace"
 )
 
@@ -776,9 +777,9 @@ func (m *Manager) resolveDevice() (Device, error) {
 		return Device{}, fmt.Errorf("device %q not found", target)
 	}
 
-	// No name configured: prefer "Adahn", then first available
+	// No name configured: prefer the default group, then first available
 	for _, d := range devs {
-		if equalFold(d.Name, "Adahn") {
+		if equalFold(d.Name, config.DefaultSpeakerGroup) {
 			return d, nil
 		}
 	}

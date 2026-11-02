@@ -407,3 +407,13 @@ func TestReleaseWhenAthanEndsWithNothingHeldDoesNothing(t *testing.T) {
 		t.Error("nothing was paused")
 	}
 }
+
+func TestTheVolumeNudgeIsBiggerThanAnyKnownVolumeStep(t *testing.T) {
+	// The nudge goes to every TV, so it cannot be tuned to one model: a change
+	// smaller than a device's step may be rounded away and not give the sound back.
+	for model, step := range map[string]float64{"Nest speaker": 0.02, "Chromecast": 0.05, "SHIELD": 0.0667} {
+		if volumeNudge <= step {
+			t.Errorf("nudge %.3f is not bigger than the %.4f step of a %s", volumeNudge, step, model)
+		}
+	}
+}
