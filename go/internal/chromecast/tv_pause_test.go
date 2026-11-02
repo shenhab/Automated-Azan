@@ -229,3 +229,80 @@ func TestTestRigsNeverSeeRealDevices(t *testing.T) {
 		t.Errorf("discovery returned %+v, want exactly the two fakes", devs)
 	}
 }
+
+// The next tests are about a TV like the NVIDIA SHIELD, whose Cast mute is a
+// blind "toggle mute" key press (measured live, 2026-11-02): when the owner
+// unmutes with the remote during the Athan, the Cast session still says "muted",
+// and the old end-of-Athan "unmute" silenced the TV again.
+
+func TestRemoteUnmutedTVIsNotSilencedWhenTheAthanEnds(t *testing.T) {
+	r := newTVRig(t, "Living Room TV")
+	tv := r.tvs["Living Room TV"]
+	tv.ToggleMuteTV()
+	tv.SetVolumeState(0.13, false)
+
+	r.tvp.PauseForAthan(nil, "Test Speaker")
+	eventually(t, "TV silenced", func() bool { return !tv.Audible() })
+
+	tv.RemoteMuteButton() // the owner presses unmute on the remote mid-Athan
+	if !tv.Audible() {
+		t.Fatal("test set-up: the remote should have made the TV audible")
+	}
+
+	r.tvp.ResumeAfterAthan()
+	time.Sleep(1500 * time.Millisecond) // let every release command go out
+	if !tv.Audible() {
+		t.Error("the end-of-Athan release silenced a TV its owner had unmuted")
+	}
+}
+
+func TestToggleTVStaysSilentUntilReleaseThenIsAudible(t *testing.T) {
+	r := newTVRig(t, "Living Room TV")
+	tv := r.tvs["Living Room TV"]
+	tv.ToggleMuteTV()
+	tv.SetVolumeState(0.13, false)
+
+	r.tvp.PauseForAthan(nil, "Test Speaker")
+	eventually(t, "TV silenced", func() bool { return !tv.Audible() })
+
+	r.tvp.ResumeAfterAthan()
+	eventually(t, "TV audible again", func() bool { return tv.Audible() })
+}
+
+func TestReleaseRestoresTheExactVolume(t *testing.T) {
+	for _, level := range []float64{0.13, 0.5, 0.99, 1.0, 0.0} {
+		t.Run(fmt.Sprint(level), func(t *testing.T) {
+			r := newTVRig(t, "Living Room TV")
+			tv := r.tvs["Living Room TV"]
+			tv.ToggleMuteTV()
+			tv.SetVolumeState(level, false)
+
+			r.tvp.PauseForAthan(nil, "Test Speaker")
+			eventually(t, "TV silenced", func() bool { return !tv.Audible() })
+			r.tvp.ResumeAfterAthan()
+			eventually(t, "TV audible again", func() bool { return tv.Audible() })
+			time.Sleep(1500 * time.Millisecond)
+
+			got, _ := tv.Volume()
+			if d := got - level; d > 0.001 || d < -0.001 {
+				t.Errorf("volume after release = %.3f, want %.3f", got, level)
+			}
+		})
+	}
+}
+
+func TestOrdinaryTVStillGetsAPlainUnmute(t *testing.T) {
+	r := newTVRig(t, "Living Room TV")
+	tv := r.tvs["Living Room TV"]
+	r.tvp.PauseForAthan(nil, "Test Speaker")
+	eventually(t, "TV muted", func() bool { return muted(tv) })
+	r.tvp.ResumeAfterAthan()
+	eventually(t, "TV unmuted", func() bool { return !muted(tv) })
+	// The release nudges the volume for a moment and puts it straight back, so
+	// wait for the end state, then make sure it stays there.
+	eventually(t, "volume back at 0.5", func() bool { got, _ := tv.Volume(); return got == 0.5 })
+	time.Sleep(700 * time.Millisecond)
+	if got, _ := tv.Volume(); got != 0.5 {
+		t.Errorf("volume = %v, want it untouched at 0.5", got)
+	}
+}

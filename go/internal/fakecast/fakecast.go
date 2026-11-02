@@ -110,6 +110,13 @@ type Speaker struct {
 	volume          float64
 	muted           bool
 
+	// toggling models a TV whose Cast mute is a blind "toggle mute" key press
+	// (measured on an NVIDIA SHIELD on 2026-11-02): every change of the mute flag
+	// flips the real sound, the TV's own remote flips it without telling the Cast
+	// session, and a volume change makes the sound audible and clears the flag.
+	toggling bool
+	silent   bool // toggling TVs only: the sound is really off
+
 	wg sync.WaitGroup
 }
 
@@ -310,6 +317,33 @@ func (s *Speaker) SetVolumeState(level float64, muted bool) {
 	s.volume, s.muted = level, muted
 }
 
+// ToggleMuteTV makes the speaker behave like a TV whose Cast mute is a blind
+// toggle (see the toggling field). Only the mute and volume handling changes.
+func (s *Speaker) ToggleMuteTV() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.toggling = true
+}
+
+// RemoteMuteButton is someone pressing mute on the TV's own remote: the real
+// sound flips, the Cast status does not.
+func (s *Speaker) RemoteMuteButton() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.silent = !s.silent
+}
+
+// Audible reports whether sound really comes out. For an ordinary speaker that
+// is simply "not muted"; for a ToggleMuteTV it is the hidden real state.
+func (s *Speaker) Audible() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.toggling {
+		return !s.silent
+	}
+	return !s.muted
+}
+
 // Connections returns how many client connections have been accepted.
 func (s *Speaker) Connections() int {
 	s.mu.Lock()
@@ -488,8 +522,14 @@ func (s *Speaker) handle(m *pb.CastMessage, req *request, send func(ns, src, dst
 				if req.Volume.Level != nil {
 					s.volume = *req.Volume.Level
 					s.addEventLocked("volume")
+					if s.toggling {
+						s.silent, s.muted = false, false
+					}
 				}
 				if req.Volume.Muted != nil {
+					if s.toggling && *req.Volume.Muted != s.muted {
+						s.silent = !s.silent
+					}
 					s.muted = *req.Volume.Muted
 					if s.muted {
 						s.addEventLocked("mute")

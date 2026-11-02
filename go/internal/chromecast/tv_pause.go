@@ -186,11 +186,7 @@ func (t *TVPauseManager) ResumeAfterAthan() {
 			}()
 			switch {
 			case pd.muted:
-				if err := app.SetMuted(false); err != nil {
-					log.Printf("[tv-pause] unmute %q failed: %v", pd.device.Name, err)
-					return
-				}
-				log.Printf("[tv-pause] unmuted %q", pd.device.Name)
+				releaseMute(app, pd.device)
 			case pd.paused:
 				if err := app.Unpause(); err != nil {
 					log.Printf("[tv-pause] unpause %q failed: %v", pd.device.Name, err)
@@ -216,4 +212,73 @@ func (t *TVPauseManager) ScheduleResume(delay time.Duration) {
 	})
 	t.mu.Unlock()
 	log.Printf("[tv-pause] auto-resume scheduled in %v", delay)
+}
+
+// Releasing a mute must not be a blind "unmute". On an NVIDIA SHIELD (measured
+// 2026-11-02) a Cast mute is a toggle key press: its owner can unmute with the
+// remote during the Athan while the Cast session still says "muted", and the
+// old end-of-Athan unmute then silenced the TV again. A volume change is not a
+// toggle, so the release is a volume nudge: one step away from the current
+// level and straight back. If the TV was still muted by us the nudge unmutes
+// it; if its owner had already unmuted it, the volume ends up where it was.
+// Only a device that still reports itself muted after the nudge gets an
+// explicit unmute (devices where the nudge does not clear the flag).
+const (
+	volumeNudge       = 0.07 // a little over one step of the SHIELD's 0.0667
+	volumeNudgeSettle = 500 * time.Millisecond
+)
+
+func releaseMute(app *application.Application, dev Device) {
+	if err := app.Update(); err != nil {
+		log.Printf("[tv-pause] %q: cannot read its state (%v) — sending a plain unmute", dev.Name, err)
+		plainUnmute(app, dev)
+		return
+	}
+	vol := app.Volume()
+	level := float64(0)
+	if vol != nil {
+		level = float64(vol.Level)
+	}
+	// The library drops a level of 0 from the message, which would turn the
+	// nudge into a bare mute toggle; a TV at volume 0 is silent anyway.
+	if vol == nil || level <= 0 {
+		plainUnmute(app, dev)
+		return
+	}
+	target := level + volumeNudge
+	if target > 1 {
+		target = level - volumeNudge
+	}
+	if target <= 0 {
+		plainUnmute(app, dev)
+		return
+	}
+	if err := app.SetVolume(float32(target)); err != nil {
+		log.Printf("[tv-pause] volume nudge on %q failed: %v — sending a plain unmute", dev.Name, err)
+		plainUnmute(app, dev)
+		return
+	}
+	time.Sleep(volumeNudgeSettle)
+	stillMuted := false
+	if err := app.Update(); err == nil {
+		if v := app.Volume(); v != nil {
+			stillMuted = v.Muted
+		}
+	}
+	if err := app.SetVolume(float32(level)); err != nil {
+		log.Printf("[tv-pause] restoring the volume of %q failed: %v", dev.Name, err)
+	}
+	if stillMuted {
+		plainUnmute(app, dev)
+		return
+	}
+	log.Printf("[tv-pause] released %q (volume %.2f restored)", dev.Name, level)
+}
+
+func plainUnmute(app *application.Application, dev Device) {
+	if err := app.SetMuted(false); err != nil {
+		log.Printf("[tv-pause] unmute %q failed: %v", dev.Name, err)
+		return
+	}
+	log.Printf("[tv-pause] unmuted %q", dev.Name)
 }
