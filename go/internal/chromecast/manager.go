@@ -506,6 +506,7 @@ type Playback struct {
 	Level      float32   `json:"level"` // 0..1
 	Warning    string    `json:"warning,omitempty"`
 	At         time.Time `json:"at"`
+	Session    int       `json:"-"` // the media session that is ours; 0 if unknown
 }
 
 // LastPlayback returns what the speaker reported after the latest play request.
@@ -566,6 +567,7 @@ func verifyPlayback(app *application.Application, speaker string, baseline int) 
 		}
 		if md := app.Media(); md != nil && md.MediaSessionId != baseline {
 			pb.State, pb.IdleReason = md.PlayerState, md.IdleReason
+			pb.Session = md.MediaSessionId
 		}
 
 		switch pb.State {
@@ -791,4 +793,81 @@ func foldEqual(a, b string) bool {
 		}
 	}
 	return true
+}
+
+// WaitForPlaybackEnd blocks until the playback described by pb is over, or until
+// hold has passed, and says why it returned. It watches the speaker over a
+// connection of its own, so it never disturbs the one that started the Athan,
+// and it reconnects if that connection drops (a Wi-Fi blip is not the end of the
+// Athan). The playback is over when the speaker has no app, no media, an idle
+// player (finished, stopped, error) or a different media session (something
+// else took over).
+func (m *Manager) WaitForPlaybackEnd(pb Playback, hold time.Duration) string {
+	deadline := time.Now().Add(hold)
+	var app *application.Application
+	defer func() {
+		if app != nil {
+			app.Close(false)
+		}
+	}()
+	for time.Now().Before(deadline) {
+		if app == nil {
+			dev, err := m.resolveDevice()
+			if err == nil {
+				app, err = m.connectWithRetry(dev)
+			}
+			if err != nil {
+				time.Sleep(releasePoll)
+				continue
+			}
+		} else if err := updateWithin(app, pollTimeout); err != nil {
+			// A stopped app answers nothing, and so does a dropped connection:
+			// look again over a fresh connection, which sees the truth.
+			app.Close(false)
+			app = nil
+			continue
+		}
+		if why := playbackOver(app, pb); why != "" {
+			return why
+		}
+		time.Sleep(releasePoll)
+	}
+	return fmt.Sprintf("the %v hold limit was reached", hold)
+}
+
+func playbackOver(app *application.Application, pb Playback) string {
+	if a := app.App(); a == nil || a.IsIdleScreen {
+		return "the speaker has no app running"
+	}
+	md := app.Media()
+	switch {
+	case md == nil:
+		return "the speaker has nothing playing"
+	case pb.Session != 0 && md.MediaSessionId != pb.Session:
+		return "something else started playing on the speaker"
+	case md.PlayerState == "IDLE":
+		if md.IdleReason != "" {
+			return "playback ended (" + md.IdleReason + ")"
+		}
+		return "playback ended"
+	}
+	return ""
+}
+
+// pollTimeout bounds one status poll. The library retries a failing status
+// request for ~10 s, far too long to sit on a dropped connection.
+var pollTimeout = 4 * time.Second
+
+// updateWithin is app.Update() with a time limit. On timeout the connection is
+// closed, which also unblocks the abandoned call.
+func updateWithin(app *application.Application, limit time.Duration) error {
+	done := make(chan error, 1)
+	go func() { done <- app.Update() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(limit):
+		app.Close(false)
+		return fmt.Errorf("no answer from the speaker within %v", limit)
+	}
 }

@@ -33,6 +33,18 @@ type pausedDevice struct {
 	paused bool                     // we paused playing media: restore with Unpause
 }
 
+// How the TVs are released once the Athan is playing.
+var (
+	// releaseSettle is the pause between the Athan ending and the TVs coming back,
+	// so the last words are not cut off by a TV's sound returning.
+	releaseSettle = 2 * time.Second
+	// releasePoll is how often the speaker is asked what it is doing.
+	releasePoll = time.Second
+	// maxAthanHold is the longest the TVs are held after the Athan starts, however
+	// the speaker behaves: no failure may leave a TV muted for good.
+	maxAthanHold = 15 * time.Minute
+)
+
 // NewTVPauseManager returns a manager backed by the given Chromecast manager.
 func NewTVPauseManager(mgr *Manager) *TVPauseManager {
 	return &TVPauseManager{castMgr: mgr}
@@ -281,4 +293,34 @@ func plainUnmute(app *application.Application, dev Device) {
 		return
 	}
 	log.Printf("[tv-pause] unmuted %q", dev.Name)
+}
+
+// ReleaseWhenAthanEnds hands the TVs back when the Athan really stops playing,
+// instead of after a fixed time. Call it once the Athan has started (the
+// speaker's own report, see Manager.LastPlayback). It replaces any timer set by
+// ScheduleResume with a hard limit of maxAthanHold, then watches the speaker;
+// releaseSettle after it stops (finished, stopped by hand, error, taken over)
+// the TVs are released. Does nothing if no TV is held.
+func (t *TVPauseManager) ReleaseWhenAthanEnds() {
+	if !t.IsPaused() {
+		return
+	}
+	pb := t.castMgr.LastPlayback()
+
+	t.mu.Lock()
+	if t.resumeTimer != nil {
+		t.resumeTimer.Stop()
+	}
+	t.resumeTimer = time.AfterFunc(maxAthanHold, func() {
+		log.Printf("[tv-pause] hold limit of %v reached — releasing", maxAthanHold)
+		t.ResumeAfterAthan()
+	})
+	t.mu.Unlock()
+
+	go func() {
+		why := t.castMgr.WaitForPlaybackEnd(pb, maxAthanHold)
+		log.Printf("[tv-pause] Athan is over (%s) — releasing TVs in %v", why, releaseSettle)
+		time.Sleep(releaseSettle)
+		t.ResumeAfterAthan()
+	}()
 }
