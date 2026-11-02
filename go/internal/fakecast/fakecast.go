@@ -87,11 +87,12 @@ type Speaker struct {
 	connections int // total accepted
 	closed      bool
 
-	trace       []string
-	events      []Event
-	dropReplies map[string]int // request type -> replies still to swallow
-	replyDelay  time.Duration  // how long the speaker takes to answer
-	idleReason  string         // why the player is IDLE (ERROR, ...); empty = CANCELLED
+	trace        []string
+	events       []Event
+	dropReplies  map[string]int  // request type -> replies still to swallow
+	replyDelay   time.Duration   // how long the speaker takes to answer
+	idleReason   string          // why the player is IDLE (ERROR, ...); empty = CANCELLED
+	statusReplay json.RawMessage // if set, RECEIVER_STATUS answers with this recorded status object
 
 	// Misbehaviour to simulate, consumed one LOAD at a time.
 	ignoreLoads     int           // accept the LOAD but do nothing
@@ -235,6 +236,15 @@ func (s *Speaker) delay() time.Duration {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.replyDelay
+}
+
+// ReplayReceiverStatus makes the speaker answer every receiver status request with
+// the given recorded "status" object verbatim (as captured from a real device),
+// instead of its own. Pass nil to go back to normal.
+func (s *Speaker) ReplayReceiverStatus(status json.RawMessage) {
+	s.mu.Lock()
+	s.statusReplay = status
+	s.mu.Unlock()
 }
 
 // IgnoreNextLoads makes the speaker accept the next n LOAD requests and then do
@@ -517,6 +527,9 @@ func (s *Speaker) handle(m *pb.CastMessage, req *request, send func(ns, src, dst
 			s.setState("PLAYING", "play")
 		case "STOP":
 			s.setState("IDLE", "media-stop")
+			s.mu.Lock()
+			s.idleReason = "CANCELLED"
+			s.mu.Unlock()
 		}
 		if s.shouldDropReply(req.Type) {
 			return
@@ -566,7 +579,24 @@ func (s *Speaker) onLoad(req *request) string {
 
 	s.mediaSession++
 	session := s.mediaSession
-	s.playerState, s.idleReason = "PLAYING", ""
+	// A real speaker does not report PLAYING at once. The group recorded in
+	// testdata/traces answered a LOAD with IDLE (no idleReason: "just started"),
+	// then BUFFERING, then PLAYING.
+	s.playerState, s.idleReason = "IDLE", ""
+	for _, step := range []struct {
+		after time.Duration
+		from  string
+		to    string
+	}{{40 * time.Millisecond, "IDLE", "BUFFERING"}, {80 * time.Millisecond, "BUFFERING", "PLAYING"}} {
+		step := step
+		time.AfterFunc(step.after, func() {
+			s.mu.Lock()
+			if s.mediaSession == session && s.playerState == step.from && s.idleReason == "" {
+				s.playerState = step.to
+			}
+			s.mu.Unlock()
+		})
+	}
 	s.currentURL = req.Media.ContentID
 	s.currentType = req.Media.ContentType
 	if s.failAfterN > 0 {
@@ -620,7 +650,9 @@ func fetch(url string) FetchResult {
 func (s *Speaker) receiverStatus(reqID int) map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	apps := []any{}
+	// Like the real devices recorded in testdata/traces, an idle device has no
+	// "applications" key at all (not an empty list).
+	var apps []any
 	if s.appLaunched {
 		apps = append(apps, map[string]any{
 			"appId":        defaultMediaID,
@@ -631,14 +663,16 @@ func (s *Speaker) receiverStatus(reqID int) map[string]any {
 			"transportId":  s.sessionID,
 		})
 	}
-	return map[string]any{
-		"type":      "RECEIVER_STATUS",
-		"requestId": reqID,
-		"status": map[string]any{
-			"applications": apps,
-			"volume":       map[string]any{"level": s.volume, "muted": s.muted},
-		},
+	if s.statusReplay != nil {
+		return map[string]any{"type": "RECEIVER_STATUS", "requestId": reqID, "status": s.statusReplay}
 	}
+	status := map[string]any{
+		"volume": map[string]any{"controlType": "master", "level": s.volume, "muted": s.muted, "stepInterval": 0.02},
+	}
+	if apps != nil {
+		status["applications"] = apps
+	}
+	return map[string]any{"type": "RECEIVER_STATUS", "requestId": reqID, "status": status}
 }
 
 func (s *Speaker) mediaStatus(reqID int) map[string]any {
@@ -658,11 +692,11 @@ func (s *Speaker) mediaStatus(reqID int) map[string]any {
 			},
 		}
 		if s.playerState == "IDLE" {
-			reason := s.idleReason
-			if reason == "" {
-				reason = "CANCELLED"
+			// Absent while the player is IDLE only because it has just started
+			// (Cast reference; the real group did the same).
+			if s.idleReason != "" {
+				st["idleReason"] = s.idleReason
 			}
-			st["idleReason"] = reason
 		}
 		status = append(status, st)
 	}

@@ -16,6 +16,7 @@ package e2e
 import (
 	"bytes"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -25,6 +26,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -114,16 +116,19 @@ func freePorts(t *testing.T) int {
 	t.Helper()
 	portMu.Lock()
 	defer portMu.Unlock()
-	for i := 0; i < 200; i++ {
-		l1, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			continue
-		}
-		p := l1.Addr().(*net.TCPAddr).Port
-		l1.Close()
+	// Ports come from 20000-29999, below the ephemeral range (32768+ on Linux), so
+	// no outbound connection on the machine can take one between the moment it is
+	// picked and the moment the agent binds it a few seconds later.
+	for i := 0; i < 400; i++ {
+		p := 20000 + rand.Intn(10000)
 		if portUsed[p] || portUsed[p+1] || portUsed[p-1] {
 			continue
 		}
+		l1, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
+		if err != nil {
+			continue
+		}
+		l1.Close()
 		l2, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p+1))
 		if err != nil {
 			continue
@@ -134,6 +139,13 @@ func freePorts(t *testing.T) int {
 	}
 	t.Fatal("no free port pair")
 	return 0
+}
+
+var containerSeq atomic.Int64
+
+// containerName returns a Docker container name no other test in this run uses.
+func containerName() string {
+	return fmt.Sprintf("azan-e2e-%d-%d", os.Getpid(), containerSeq.Add(1))
 }
 
 // startAgent launches the agent (binary, or Docker image if E2E_DOCKER_IMAGE is
@@ -186,7 +198,7 @@ func startAgent(t *testing.T, home, cfgFile string, sp *fakecast.Speaker, opts .
 			t.Skip("needs the azanfaketime build; run in binary mode (unset E2E_DOCKER_IMAGE)")
 		}
 		u, _ := user.Current()
-		name := fmt.Sprintf("azan-e2e-%d-%d", os.Getpid(), time.Now().UnixNano()%100000)
+		name := containerName()
 		cmd = exec.Command("docker", "run", "--rm", "--name", name,
 			"--network", "host", "--user", u.Uid+":"+u.Gid,
 			"-e", "HOME=/home/e2e",
