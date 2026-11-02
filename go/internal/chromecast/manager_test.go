@@ -425,3 +425,24 @@ func TestAgentReadsVolumeAndMuteFromRealDeviceStatuses(t *testing.T) {
 		})
 	}
 }
+
+func namedDevices(t *testing.T, names ...string) {
+	t.Helper()
+	t.Setenv("AZAN_DISABLE_MDNS", "1")
+	var spec []string
+	for i, n := range names {
+		spec = append(spec, fmt.Sprintf("%s=127.0.0.1:%d", n, 20000+i))
+	}
+	t.Setenv("AZAN_STATIC_DEVICES", strings.Join(spec, ";"))
+}
+
+func TestWithNoSpeakerConfiguredTheAthanGroupIsPreferred(t *testing.T) {
+	namedDevices(t, "Kitchen", "Adahn", "ATHAN", "Hall")
+	got, err := NewManager("").SpeakerDevice()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "ATHAN" {
+		t.Errorf("speaker = %q, want the athan group (matched in any case), not Adahn", got.Name)
+	}
+}

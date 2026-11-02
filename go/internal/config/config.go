@@ -14,6 +14,9 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// DefaultSpeakerGroup is the speaker used when none has been configured.
+const DefaultSpeakerGroup = "athan"
+
 // SpeakerConfig holds speaker/device settings.
 type SpeakerConfig struct {
 	GroupName         string `toml:"group_name"`
@@ -142,7 +145,7 @@ func (j JobChannelsConfig) ForPrayer(name string) ChannelConfig {
 
 // PrayerConfig holds prayer scheduling settings.
 type PrayerConfig struct {
-	// Location is either a preloaded key ("naas","icci","newbridge")
+	// Location is either a preloaded key (see Locations)
 	// or "aladhan" to use the Aladhan API.
 	Location          string              `toml:"location"`
 	AladhanCity       string              `toml:"aladhan_city"`
@@ -182,10 +185,9 @@ type AuthConfig struct {
 
 // WebConfig holds web server settings.
 type WebConfig struct {
-	Host      string     `toml:"host"`
-	Port      int        `toml:"port"`
-	SecretKey string     `toml:"secret_key"`
-	Auth      AuthConfig `toml:"auth"`
+	Host string     `toml:"host"`
+	Port int        `toml:"port"`
+	Auth AuthConfig `toml:"auth"`
 }
 
 // LogConfig holds logging settings.
@@ -225,11 +227,11 @@ func Get() *Config {
 }
 
 func (c *Config) setDefaults() {
-	c.Speaker = SpeakerConfig{GroupName: "athan"}
+	c.Speaker = SpeakerConfig{GroupName: DefaultSpeakerGroup}
 	defaultCh := ChannelConfig{Speaker: true, Local: false, Notify: false}
 	c.Prayer = PrayerConfig{
-		Location:       "naas",
-		AladhanMethod:  3, // Muslim World League
+		Location:       "mai", // Dublin's live source
+		AladhanMethod:  3,     // Muslim World League
 		PreFajrMinutes: 30,
 		Enabled: PrayerEnabledConfig{
 			Fajr: true, Dhuhr: true, Asr: true, Maghrib: true, Isha: true,
@@ -240,7 +242,7 @@ func (c *Config) setDefaults() {
 			PreFajr: defaultCh, FridayKahf: defaultCh,
 		},
 	}
-	c.Web = WebConfig{Host: "0.0.0.0", Port: 28426, SecretKey: "automated-azan-secret-key"}
+	c.Web = WebConfig{Host: "0.0.0.0", Port: 28426}
 	c.TVPause = TVPauseConfig{Enabled: false, ResumeDelaySecs: 300}
 	c.Journal = JournalConfig{Enabled: true, RetentionDays: 30, MaxMB: 300, WatchTVs: true, NotifyOn: "problems"}
 	c.Log = LogConfig{

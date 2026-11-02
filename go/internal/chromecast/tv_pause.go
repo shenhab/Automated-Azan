@@ -245,13 +245,13 @@ func (t *TVPauseManager) ScheduleResume(delay time.Duration) {
 // 2026-11-02) a Cast mute is a toggle key press: its owner can unmute with the
 // remote during the Athan while the Cast session still says "muted", and the
 // old end-of-Athan unmute then silenced the TV again. A volume change is not a
-// toggle, so the release is a volume nudge: one step away from the current
+// toggle, so the release is a volume nudge: a small move away from the current
 // level and straight back. If the TV was still muted by us the nudge unmutes
 // it; if its owner had already unmuted it, the volume ends up where it was.
 // Only a device that still reports itself muted after the nudge gets an
 // explicit unmute (devices where the nudge does not clear the flag).
 const (
-	volumeNudge       = 0.07 // a little over one step of the SHIELD's 0.0667
+	volumeNudge       = 0.10 // the same for every TV; bigger than any volume step seen on a device
 	volumeNudgeSettle = 500 * time.Millisecond
 )
 

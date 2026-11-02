@@ -31,7 +31,8 @@ type Server struct {
 	httpSrv *http.Server
 }
 
-// NewServer creates a media server that serves files from dir on the given port.
+// NewServer creates a media server that serves files from dir. It prefers the given
+// port and takes a random free one if that is taken; BaseURL says which it got.
 func NewServer(dir string, port int) *Server {
 	return &Server{dir: dir, port: port, localIP: detectLANIP()}
 }
@@ -48,8 +49,16 @@ func (s *Server) Start() error {
 
 	ln, err := net.Listen("tcp", s.httpSrv.Addr)
 	if err != nil {
-		return fmt.Errorf("media server listen on %s: %w", s.httpSrv.Addr, err)
+		// The port is taken in this home: any port will do, since speakers are told
+		// the address in every play request (see BaseURL).
+		log.Printf("[media] cannot use port %d (%v) — using a random free port", s.port, err)
+		ln, err = net.Listen("tcp", "0.0.0.0:0")
+		if err != nil {
+			return fmt.Errorf("media server listen: %w", err)
+		}
 	}
+	s.port = ln.Addr().(*net.TCPAddr).Port
+	s.httpSrv.Addr = fmt.Sprintf("0.0.0.0:%d", s.port)
 
 	go func() {
 		log.Printf("[media] serving %s on %s (embedded fallback enabled)", s.dir, s.httpSrv.Addr)
