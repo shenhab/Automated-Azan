@@ -1,3 +1,5 @@
+//go:build e2e
+
 package e2e
 
 import "testing"
@@ -21,5 +23,25 @@ func TestPickedPortsAvoidTheEphemeralRangeAndNeverRepeat(t *testing.T) {
 			t.Fatalf("port %d (or a neighbour) was handed out twice", p)
 		}
 		seen[p], seen[p+1] = true, true
+	}
+}
+
+// Parallel tests start containers at the same instant; their names must never
+// collide (a clash makes the second `docker run` fail and its test time out).
+func TestContainerNamesAreUniqueEvenWhenStartedAtTheSameInstant(t *testing.T) {
+	const n = 2000
+	names := make(chan string, n)
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		go func() { <-start; names <- containerName() }()
+	}
+	close(start)
+	seen := map[string]bool{}
+	for i := 0; i < n; i++ {
+		nm := <-names
+		if seen[nm] {
+			t.Fatalf("container name %q was generated twice", nm)
+		}
+		seen[nm] = true
 	}
 }

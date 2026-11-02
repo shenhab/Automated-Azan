@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -140,6 +141,13 @@ func freePorts(t *testing.T) int {
 	return 0
 }
 
+var containerSeq atomic.Int64
+
+// containerName returns a Docker container name no other test in this run uses.
+func containerName() string {
+	return fmt.Sprintf("azan-e2e-%d-%d", os.Getpid(), containerSeq.Add(1))
+}
+
 // startAgent launches the agent (binary, or Docker image if E2E_DOCKER_IMAGE is
 // set) with the given home directory, config file and speaker, and stops it when
 // the test ends.
@@ -190,7 +198,7 @@ func startAgent(t *testing.T, home, cfgFile string, sp *fakecast.Speaker, opts .
 			t.Skip("needs the azanfaketime build; run in binary mode (unset E2E_DOCKER_IMAGE)")
 		}
 		u, _ := user.Current()
-		name := fmt.Sprintf("azan-e2e-%d-%d", os.Getpid(), time.Now().UnixNano()%100000)
+		name := containerName()
 		cmd = exec.Command("docker", "run", "--rm", "--name", name,
 			"--network", "host", "--user", u.Uid+":"+u.Gid,
 			"-e", "HOME=/home/e2e",
