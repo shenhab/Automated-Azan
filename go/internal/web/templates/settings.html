@@ -67,7 +67,7 @@
             <!-- Ireland mosque picker -->
             <div id="irelandSection" {{if eq (index .config "location") "aladhan"}}style="display:none"{{end}}>
               <input type="hidden" name="location" id="locationHidden"
-                value="{{if ne (index .config "location") "aladhan"}}{{index .config "location"}}{{else}}naas{{end}}">
+                value="{{if ne (index .config "location") "aladhan"}}{{index .config "location"}}{{else}}mai{{end}}">
               <select class="form-select" id="irelandSelect"
                 onchange="document.getElementById('locationHidden').value=this.value">
                 <optgroup label="Ireland">

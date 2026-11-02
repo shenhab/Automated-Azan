@@ -51,21 +51,21 @@ On first run, place `azan.toml` next to the binary (or set `AZAN_CONFIG_FILE`):
 group_name = "athan"
 
 [prayer]
-location = "naas"          # naas or icci
+location = "mai"           # mai (Dublin), naas, icci, newbridge, cork, galway or aladhan
 pre_fajr_enabled = true
 pre_fajr_minutes = 30
 friday_kahf_enabled = false
 
 [web]
 host = "0.0.0.0"
-port = 5000
+port = 28426
 
 [log]
 level = "INFO"
 file_path = "logs/azan.log"
 ```
 
-The web dashboard is at `http://localhost:5000`.
+The web dashboard is at `http://localhost:28426`.
 
 ## The Journal
 
