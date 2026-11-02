@@ -29,6 +29,13 @@ being loaded delays the Athan.
      device PING could land between them and corrupt the stream. They are now one write under a
      lock.
 
+3. `application/application.go`, `updateMediaStatus` — an empty media-status list now clears the
+   cached media (`PATCHED`). A real receiver answers `{"status": []}` for ~5 minutes after the media
+   FINISHED while its app stays open; the old code kept the last media, so `Media()` reported
+   PLAYING until the app closed and the TVs were released 5 minutes late (Isha 2026-11-02).
+   Test: `TestTVStaysMutedWhileTheAthanPlaysAndIsReleasedSecondsAfterItEnds` (the fake speaker
+   answers like the real one).
+
 **Test.** `go/internal/chromecast/concurrent_requests_test.go` fails on the unpatched library
 (four concurrent connections lose replies in the first round) and passes with these patches.
 

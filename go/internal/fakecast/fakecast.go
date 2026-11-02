@@ -84,7 +84,8 @@ type Speaker struct {
 	mu          sync.Mutex
 	ln          net.Listener
 	conns       map[net.Conn]struct{}
-	connections int // total accepted
+	senders     map[net.Conn]func(ns, src, dst string, payload any) // to push unsolicited messages
+	connections int                                                 // total accepted
 	closed      bool
 
 	trace        []string
@@ -125,6 +126,7 @@ func New(name string) *Speaker {
 	return &Speaker{
 		Name:        name,
 		conns:       make(map[net.Conn]struct{}),
+		senders:     make(map[net.Conn]func(ns, src, dst string, payload any)),
 		volume:      0.5,
 		playerState: "IDLE",
 		replyDelay:  defaultReplyDelay,
@@ -320,10 +322,29 @@ func (s *Speaker) SetVolumeState(level float64, muted bool) {
 // FinishPlayback ends the current media the way a real receiver does when the
 // file has played to its end: the player goes IDLE with idleReason FINISHED
 // (seen in testdata/traces/athan-playback).
+//
+// Like the real receiver, it announces the end once to every connected sender
+// (an unsolicited MEDIA_STATUS with requestId 0), and from then on answers
+// GET_STATUS with an empty list while its app stays open (see mediaStatus).
 func (s *Speaker) FinishPlayback() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.playerState, s.idleReason = "IDLE", "FINISHED"
+	msg := map[string]any{"type": "MEDIA_STATUS", "requestId": 0, "status": []any{map[string]any{
+		"mediaSessionId": s.mediaSession,
+		"playerState":    "IDLE",
+		"idleReason":     "FINISHED",
+		"currentTime":    0,
+		"volume":         map[string]any{"level": s.volume, "muted": s.muted},
+	}}}
+	transport := s.sessionID
+	sends := make([]func(ns, src, dst string, payload any), 0, len(s.senders))
+	for _, f := range s.senders {
+		sends = append(sends, f)
+	}
+	s.mu.Unlock()
+	for _, f := range sends {
+		go f(nsMedia, transport, "sender-0", msg)
+	}
 }
 
 // ToggleMuteTV makes the speaker behave like a TV whose Cast mute is a blind
@@ -467,6 +488,14 @@ func (s *Speaker) serve(c net.Conn) {
 		defer wmu.Unlock()
 		c.Write(frame)
 	}
+	s.mu.Lock()
+	s.senders[c] = send
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.senders, c)
+		s.mu.Unlock()
+	}()
 
 	for {
 		var hdr [4]byte
@@ -734,7 +763,11 @@ func (s *Speaker) mediaStatus(reqID int) map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	status := []any{}
-	if s.mediaSession > 0 {
+	// A real receiver, once the media has FINISHED, announces it once and then
+	// answers every GET_STATUS with an EMPTY list while its app stays open for
+	// minutes (seen in the Isha 2026-11-02 journal: MEDIA_STATUS {"status": []}).
+	finished := s.playerState == "IDLE" && s.idleReason == "FINISHED"
+	if s.mediaSession > 0 && !finished {
 		st := map[string]any{
 			"mediaSessionId": s.mediaSession,
 			"playerState":    s.playerState,

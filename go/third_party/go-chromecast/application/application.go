@@ -434,6 +434,12 @@ func (a *Application) updateMediaStatus() error {
 	if err != nil {
 		return err
 	}
+	// PATCHED: an empty list means there is no media any more (a real receiver answers
+	// like that for minutes after the media FINISHED, with its app still open).
+	// Keeping the last media would report a stale PLAYING forever.
+	if len(mediaStatus.Status) == 0 {
+		a.media = nil
+	}
 	for _, media := range mediaStatus.Status {
 		a.media = &media
 		a.volumeMedia = &media.Volume
