@@ -61,7 +61,7 @@ func (a *attribution) Add(e trace.Event) {
 func (a *attribution) Caused(host string, c change) bool {
 	kinds := explains[c.Kind]
 	switch c.Kind {
-	case "initial-state":
+	case "initial-state", "app-session":
 		return true
 	case "app-closed":
 		// Our Load launches the media receiver, which closes whatever was open

@@ -580,14 +580,19 @@ func (s *Server) handleAPIPrayerTimes(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAPISchedulerStatus(w http.ResponseWriter, r *http.Request) {
 	name, at, ok := s.scheduler.NextPrayer()
-	writeJSON(w, map[string]interface{}{
+	resp := map[string]interface{}{
 		"success":     true,
 		"jobs":        s.scheduler.Status(),
 		"next_prayer": map[string]interface{}{"name": name, "time": at.Format("15:04"), "found": ok},
 		// What the speaker reported after the latest play request (did it really
 		// start? is it muted?). Empty until something has been played.
 		"last_playback": s.castMgr.LastPlayback(),
-	})
+	}
+	// Who is in the speaker's group: configured, joined, and who will not play.
+	if ms, known := s.castMgr.LastMembership(); known {
+		resp["membership"] = ms
+	}
+	writeJSON(w, resp)
 }
 
 func (s *Server) handleAPIDevices(w http.ResponseWriter, r *http.Request) {

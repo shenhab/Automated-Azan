@@ -420,6 +420,13 @@ func (a *Application) Update() error {
 	if a.application == nil || a.application.IsIdleScreen {
 		return nil
 	}
+	// PATCHED: a group member's app has no transport, so it cannot be asked for
+	// media status. A request to the empty address makes the device close the
+	// channel and go silent, and the caller then sees a dead device.
+	if a.application.TransportId == "" {
+		a.media = nil
+		return nil
+	}
 
 	a.updateMediaStatus()
 

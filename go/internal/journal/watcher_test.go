@@ -286,3 +286,121 @@ func TestTheLiveViewShowsWhatEachWatchedDeviceIsDoingNow(t *testing.T) {
 		t.Errorf("a finished session is still live: %+v", got)
 	}
 }
+
+func TestAGroupMemberOnAnotherDeviceJoiningOurPlaybackIsNotInterference(t *testing.T) {
+	// The Isha group is hosted by the Nest display; its Kitchen speaker is a
+	// different device with its own address. When our Load makes it start the
+	// media receiver, that is the agent's doing, not a stranger's.
+	member := Target{Name: "Kitchen speaker", Host: "10.9.9.9", Port: 8009, Role: "member"}
+	r := newRig(t, func(o *Options) {
+		inner := o.Targets
+		o.Targets = func(s Spec) []Target { return append(inner(s), member) }
+	})
+	run := r.j.Begin(athanSpec)
+	r.agentLoads(t)
+	waitFor(t, "PLAYING", func() bool { return r.seen(run.ID(), "player-state", "PLAYING") })
+
+	run.deviceChange(member, change{At: time.Now(), Kind: "app-launched", Fields: map[string]any{"app": "Default Media Receiver"}})
+
+	d, _ := r.j.Detail(run.ID())
+	for _, e := range d.Events {
+		if e.Device == "Kitchen speaker" && e.Kind == "app-launched" {
+			if e.External {
+				t.Errorf("the member joining our playback was marked as outside interference: %+v", e)
+			}
+			return
+		}
+	}
+	t.Error("the member's event was not recorded")
+}
+
+// memberRig: a group plus one joined member and one that is not.
+func newMemberRig(t *testing.T) (*rig, *fakecast.Speaker, *fakecast.Speaker) {
+	t.Helper()
+	start := func(name string) *fakecast.Speaker {
+		s := fakecast.New(name)
+		if err := s.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(s.Close)
+		return s
+	}
+	joined, out := start("Kitchen speaker"), start("Playroom Speaker")
+	jh, jp := joined.Addr()
+	oh, op := out.Addr()
+	r := newRig(t, func(o *Options) {
+		inner := o.Targets
+		o.Targets = func(s Spec) []Target {
+			return append(inner(s),
+				Target{Name: "Kitchen speaker", Host: jh, Port: jp, Role: "member"},
+				Target{Name: "Playroom Speaker", Host: oh, Port: op, Role: "member", NotJoined: true})
+		}
+	})
+	joined.JoinGroup(r.sp)
+	return r, joined, out
+}
+
+func TestAMemberShowingTheGroupsSessionIsRecordedAsHavingPlayed(t *testing.T) {
+	r, _, _ := newMemberRig(t)
+	run := r.j.Begin(athanSpec)
+	r.agentLoads(t)
+	waitFor(t, "the member to be seen playing", func() bool { return r.seen(run.ID(), "member-played", "Kitchen speaker") })
+	r.sp.FinishPlayback()
+	s := r.finished(t)
+	if strings.Join(s.Facts.MembersPlayed, ",") != "Kitchen speaker" {
+		t.Errorf("played = %v", s.Facts.MembersPlayed)
+	}
+	d, _ := r.j.Detail(s.ID)
+	n := 0
+	for _, e := range d.Events {
+		if e.Kind == "member-played" {
+			n++
+			if e.Device != "Kitchen speaker" {
+				t.Errorf("%+v", e)
+			}
+		}
+		if e.External {
+			t.Errorf("marked as outside interference: %+v", e)
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d member-played events, want 1", n)
+	}
+}
+
+func TestSessionsDoNotConfuseAMemberPlayingSomethingElse(t *testing.T) {
+	r, _, out := newMemberRig(t)
+	run := r.j.Begin(athanSpec)
+	r.agentLoads(t)
+	// The Playroom Speaker is busy with something of its own, in another session.
+	host, port := out.Addr()
+	other := application.NewApplication()
+	if err := other.Start(host, port); err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close(false)
+	if err := other.Load(r.media, 0, "audio/mpeg", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the joined member", func() bool { return r.seen(run.ID(), "member-played", "Kitchen speaker") })
+	time.Sleep(200 * time.Millisecond)
+	if r.seen(run.ID(), "member-played", "Playroom Speaker") {
+		t.Error("a speaker in its own session was recorded as having played the Athan")
+	}
+}
+
+func TestAMembersWatcherKeepsWatchingWhileTheGroupPlays(t *testing.T) {
+	// Isha 2026-11-02: as the group started, the Nest display's watcher asked for
+	// the media status of an app with no transport, the device closed the channel
+	// and the watcher reported "lost contact" and saw nothing more for 3 minutes.
+	r, kitchen, _ := newMemberRig(t)
+	run := r.j.Begin(athanSpec)
+	r.agentLoads(t)
+	waitFor(t, "the member to be seen playing", func() bool { return r.seen(run.ID(), "member-played", "Kitchen speaker") })
+	time.Sleep(pollTimeout + 500*time.Millisecond)
+	if r.seen(run.ID(), "unreachable", "") {
+		t.Error("the member's watcher lost contact while the group played")
+	}
+	kitchen.SetVolumeState(0.1, false)
+	waitFor(t, "the member's volume change", func() bool { return r.seen(run.ID(), "volume", "0.10") })
+}

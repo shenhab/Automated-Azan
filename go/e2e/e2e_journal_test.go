@@ -75,11 +75,18 @@ type jrDetail struct {
 // everything a Journal test needs.
 func journalAgent(t *testing.T, extraCfg string) (*fakecast.Speaker, *client, time.Time) {
 	t.Helper()
+	return journalAgentWith(t, extraCfg, func(*fakecast.Speaker) {})
+}
+
+// journalAgentWith is journalAgent with the speaker prepared before the agent starts.
+func journalAgentWith(t *testing.T, extraCfg string, prepare func(*fakecast.Speaker)) (*fakecast.Speaker, *client, time.Time) {
+	t.Helper()
 	sp := fakecast.New(speakerName)
 	if err := sp.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(sp.Close)
+	prepare(sp)
 	home, cfgFile, webPort := t.TempDir(), filepath.Join(t.TempDir(), "azan.toml"), freePorts(t)
 	fireAt := nextFireTime(100 * time.Second)
 	writeNaasTimetable(t, home, fireAt, "Asr")
@@ -398,5 +405,45 @@ func TestAPlayFromTheWebAppIsRecordedLikeAScheduledOne(t *testing.T) {
 	d := journalDetail(t, api, s.ID)
 	if !hasEvent(d.Detail.Events, "system", "manual-action", "Play button") || !hasEvent(d.Detail.Events, "agent", "load-sent", "") {
 		t.Errorf("the request and the Load are not on the timeline: %d events", len(d.Detail.Events))
+	}
+}
+
+func TestTheGroupsMembersAreOnTheTimelineBeforeTheCastAndInTheAPI(t *testing.T) {
+	t.Parallel()
+	sp, api, fireAt := journalAgentWith(t, "", func(sp *fakecast.Speaker) {
+		sp.SetGroupMembers(fakecast.GroupMember{DeviceID: "aaaaaaaa-0000-0000-0000-000000000009", Name: "Not On The Network", Level: 0.4})
+	})
+	var id string
+	waitJournal(t, "the session to announce the group", time.Until(fireAt)+30*time.Second, func() bool {
+		l := journalSessions(api)
+		if len(l.Sessions) == 0 {
+			return false
+		}
+		id = l.Sessions[0].ID
+		return hasEvent(journalDetail(t, api, id).Detail.Events, "agent", "group-members", speakerName)
+	})
+	evs := journalDetail(t, api, id).Detail.Events
+	if !hasEvent(evs, "agent", "member-unknown", "Not On The Network") {
+		t.Errorf("the unknown member was not reported: %+v", evs)
+	}
+	if n := len(sp.Loads()); n != 0 || indexOf(evs, "agent", "load-sent", "") >= 0 {
+		t.Error("the group was announced only after the cast")
+	}
+
+	var status struct {
+		Membership *struct {
+			Group struct {
+				Name string `json:"name"`
+			} `json:"group"`
+			LiveKnown bool `json:"live_known"`
+			Live      []struct {
+				Name string `json:"name"`
+			} `json:"live"`
+		} `json:"membership"`
+	}
+	api.getJSON("/api/scheduler-status", &status)
+	m := status.Membership
+	if m == nil || m.Group.Name != speakerName || !m.LiveKnown || len(m.Live) != 1 || m.Live[0].Name != "Not On The Network" {
+		t.Errorf("membership in the API = %+v", m)
 	}
 }

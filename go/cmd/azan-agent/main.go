@@ -1,7 +1,14 @@
+// The JBL Bar's Cast firmware presents a certificate with a negative serial number,
+// which Go refuses to parse even when not verifying it, so that speaker could not
+// report its groups (measured 2026-11-02). This only allows parsing such a
+// certificate; verification of public HTTPS sites is unchanged.
+//
+//go:debug x509negativeserial=1
 package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -173,6 +180,10 @@ func (p *program) run() {
 			return
 		}
 		log.Printf("[main] found %d chromecast device(s)", len(devs))
+		// Who is in the speaker's group, in the log from the start (read-only).
+		if _, err := castMgr.Membership(context.Background()); err != nil {
+			log.Printf("[main] group membership: %v", err)
+		}
 	}()
 
 	// Health monitor: probes the speaker's port every 3 minutes and
@@ -197,7 +208,22 @@ func (p *program) run() {
 		NotifyOn:      cfg.Journal.NotifyOn,
 		Now:           clock.Now,
 		Notify:        fireNotify,
-		Targets:       func(journal.Spec) []journal.Target { return journalTargets(cfg, castMgr) },
+		Targets: func(spec journal.Spec) []journal.Target {
+			var src deviceSource = castMgr
+			if spec.Kind == "manual" {
+				src = cachedMembership{deviceSource: castMgr, last: castMgr.LastMembership, refresh: func() {
+					if _, err := castMgr.Membership(context.Background()); err != nil {
+						log.Printf("[main] group membership: %v", err)
+					}
+				}}
+			}
+			return journalTargets(cfg, src)
+		},
+		AfterBegin: func(journal.Spec) {
+			if ms, ok := castMgr.LastMembership(); ok {
+				announceMembership(ms)
+			}
+		},
 		OnChange: func() {
 			if p.webSrv != nil {
 				p.webSrv.Broadcast("journal_update", map[string]interface{}{})
@@ -237,9 +263,12 @@ func (p *program) run() {
 		if ch.Speaker {
 			if err := castMgr.PlayAthan(prayerName, filename); err != nil {
 				log.Printf("[main] speaker athan (%s): %v", prayerName, err)
-			} else if cfg.TVPause.Enabled {
-				// The Athan is really playing: hand the TVs back when it stops.
-				tvPauseMgr.ReleaseWhenAthanEnds()
+			} else {
+				go castMgr.CheckGroupMembers() // is any speaker of the group muted or at 0?
+				if cfg.TVPause.Enabled {
+					// The Athan is really playing: hand the TVs back when it stops.
+					tvPauseMgr.ReleaseWhenAthanEnds()
+				}
 			}
 		}
 		if ch.Local {

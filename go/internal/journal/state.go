@@ -12,7 +12,7 @@ import (
 // change is one thing a device's own reports say has changed.
 type change struct {
 	At     time.Time
-	Kind   string // initial-state | app-launched | app-closed | player-state | volume
+	Kind   string // initial-state | app-launched | app-closed | app-session | player-state | volume
 	Text   string
 	Fields map[string]any
 }
@@ -31,6 +31,7 @@ type tracker struct {
 	seeded   bool
 	appID    string
 	appName  string
+	appSess  string // the app's sessionId: a group's members show the group's
 	hasApp   bool
 	hasMedia bool
 	session  int
@@ -49,6 +50,7 @@ type receiverStatus struct {
 			AppID        string `json:"appId"`
 			DisplayName  string `json:"displayName"`
 			IsIdleScreen bool   `json:"isIdleScreen"`
+			SessionID    string `json:"sessionId"`
 		} `json:"applications"`
 		Volume struct {
 			Level       float64 `json:"level"`
@@ -102,24 +104,24 @@ func (t *tracker) Feed(f castrecord.Frame) []change {
 
 func (t *tracker) receiver(at time.Time, rs receiverStatus) []change {
 	var out []change
-	var appID, appName string
+	var appID, appName, appSess string
 	hasApp := len(rs.Status.Applications) > 0
 	if hasApp {
 		a := rs.Status.Applications[len(rs.Status.Applications)-1]
-		appID, appName = a.AppID, a.DisplayName
+		appID, appName, appSess = a.AppID, a.DisplayName, a.SessionID
 	}
 	v := rs.Status.Volume
 
 	if !t.seeded {
 		t.seeded = true
-		t.appID, t.appName, t.hasApp = appID, appName, hasApp
+		t.appID, t.appName, t.appSess, t.hasApp = appID, appName, appSess, hasApp
 		t.level, t.muted, t.control = v.Level, v.Muted, v.ControlType
 		what := "no app running"
 		if hasApp {
 			what = "app " + appName
 		}
 		return []change{{At: at, Kind: "initial-state", Text: fmt.Sprintf("%s, volume %.2f%s", what, v.Level, mutedSuffix(v.Muted)),
-			Fields: map[string]any{"app": appName, "level": v.Level, "muted": v.Muted, "control_type": v.ControlType}}}
+			Fields: map[string]any{"app": appName, "app_session": appSess, "level": v.Level, "muted": v.Muted, "control_type": v.ControlType}}}
 	}
 
 	if hasApp != t.hasApp || appID != t.appID {
@@ -127,10 +129,13 @@ func (t *tracker) receiver(at time.Time, rs receiverStatus) []change {
 			out = append(out, change{At: at, Kind: "app-closed", Text: "app closed: " + t.appName, Fields: map[string]any{"app": t.appName}})
 		}
 		if hasApp {
-			out = append(out, change{At: at, Kind: "app-launched", Text: "app launched: " + appName, Fields: map[string]any{"app": appName}})
+			out = append(out, change{At: at, Kind: "app-launched", Text: "app launched: " + appName, Fields: map[string]any{"app": appName, "app_session": appSess}})
 		}
 		t.hasMedia, t.state, t.reason, t.session = false, "", "", 0 // a new app instance starts from nothing
-		t.appID, t.appName, t.hasApp = appID, appName, hasApp
+		t.appID, t.appName, t.appSess, t.hasApp = appID, appName, appSess, hasApp
+	} else if hasApp && appSess != t.appSess {
+		out = append(out, change{At: at, Kind: "app-session", Text: "new session of " + appName, Fields: map[string]any{"app": appName, "app_session": appSess}})
+		t.appSess = appSess
 	}
 
 	if v.Level != t.level || v.Muted != t.muted {

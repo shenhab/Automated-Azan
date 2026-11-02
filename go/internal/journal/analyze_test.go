@@ -168,3 +168,95 @@ func TestSessionsThatExpectNothingAreOK(t *testing.T) {
 		t.Fatalf("verdict = %s", r.Verdict)
 	}
 }
+
+func memberEvents(kv ...trace.Event) []trace.Event {
+	base := []trace.Event{
+		{At: at(-90), Source: trace.SourceAgent, Kind: "group-members", Device: "athan", Fields: map[string]any{
+			"configured": []string{"Kitchen speaker", "Nest display", "Playroom Speaker"},
+			"joined":     []string{"Kitchen speaker", "Nest display"}}},
+		{At: at(0), Source: trace.SourceAgent, Kind: "load-sent", Device: "athan"},
+		{At: at(3), Source: trace.SourceDevice, Kind: "player-state", Device: "athan", Fields: map[string]any{"role": "speaker", "state": "PLAYING"}},
+		{At: at(153), Source: trace.SourceDevice, Kind: "player-state", Device: "athan", Fields: map[string]any{"role": "speaker", "state": "IDLE", "idle_reason": "FINISHED"}},
+	}
+	return append(base, kv...)
+}
+
+func played(sec float64, name string) trace.Event {
+	return trace.Event{At: at(sec), Source: trace.SourceDevice, Kind: "member-played", Device: name, Fields: map[string]any{"role": "member"}}
+}
+
+func TestAMemberThatDidNotJoinMakesTheAthanAWarning(t *testing.T) {
+	evs := memberEvents(played(3, "Nest display"), played(3, "Kitchen speaker"),
+		trace.Event{At: at(-90), Source: trace.SourceAgent, Kind: "member-not-joined", Device: "Playroom Speaker", Level: "warn"})
+	res := Analyze(athanSpec, evs, nil, true)
+	if res.Verdict != VerdictWarning || !strings.Contains(res.Headline, "Playroom Speaker did not join the group") {
+		t.Errorf("%s: %s", res.Verdict, res.Headline)
+	}
+	f := res.Facts
+	if strings.Join(f.Members, ",") != "Kitchen speaker,Nest display,Playroom Speaker" ||
+		strings.Join(f.MembersNotJoined, ",") != "Playroom Speaker" ||
+		strings.Join(f.MembersPlayed, ",") != "Kitchen speaker,Nest display" || len(f.MembersUnconfirmed) != 0 {
+		t.Errorf("%+v", f)
+	}
+}
+
+func TestEveryConfiguredMemberPlayingIsOK(t *testing.T) {
+	evs := []trace.Event{
+		{At: at(-90), Source: trace.SourceAgent, Kind: "group-members", Fields: map[string]any{
+			"configured": []string{"Kitchen speaker", "Nest display"}, "joined": []string{"Kitchen speaker", "Nest display"}}},
+		{At: at(0), Source: trace.SourceAgent, Kind: "load-sent"},
+		{At: at(3), Source: trace.SourceDevice, Kind: "player-state", Fields: map[string]any{"role": "speaker", "state": "PLAYING"}},
+		{At: at(153), Source: trace.SourceDevice, Kind: "player-state", Fields: map[string]any{"role": "speaker", "state": "IDLE", "idle_reason": "FINISHED"}},
+		played(3, "Nest display"), played(3, "Kitchen speaker"),
+	}
+	res := Analyze(athanSpec, evs, nil, true)
+	if res.Verdict != VerdictOK {
+		t.Errorf("%s: %s", res.Verdict, res.Headline)
+	}
+}
+
+func TestAJoinedMemberNeverSeenPlayingIsNotedButNotAWarningYet(t *testing.T) {
+	// Only the Nest display has been observed showing the group's session on real
+	// hardware. Until a real trace shows a Nest Mini doing the same, not seeing it
+	// is not evidence of silence, so it must not raise an alarm at every prayer.
+	evs := memberEvents(played(3, "Nest display"),
+		trace.Event{At: at(-90), Source: trace.SourceAgent, Kind: "member-not-joined", Device: "Playroom Speaker", Level: "warn"})
+	res := Analyze(athanSpec, evs, nil, true)
+	if strings.Join(res.Facts.MembersUnconfirmed, ",") != "Kitchen speaker" {
+		t.Errorf("unconfirmed = %v", res.Facts.MembersUnconfirmed)
+	}
+	if strings.Contains(res.Headline, "Kitchen speaker") {
+		t.Errorf("headline = %s", res.Headline)
+	}
+}
+
+func TestAMemberReportedSilentMakesTheAthanAWarning(t *testing.T) {
+	evs := memberEvents(trace.Event{At: at(5), Source: trace.SourceAgent, Kind: "member-silent", Device: "athan", Level: "warn",
+		Text: "Kitchen speaker (in athan) is MUTED — it will not be heard"})
+	res := Analyze(athanSpec, evs, nil, true)
+	if res.Verdict != VerdictWarning || !strings.Contains(res.Headline, "Kitchen speaker (in athan) is MUTED") {
+		t.Errorf("%s: %s", res.Verdict, res.Headline)
+	}
+}
+
+func TestMemberNamesSurviveBeingReadBackFromDisk(t *testing.T) {
+	// A session re-analysed from events.jsonl has []any, not []string.
+	evs := []trace.Event{{At: at(-90), Source: trace.SourceAgent, Kind: "group-members", Fields: map[string]any{
+		"configured": []any{"Nest display"}, "joined": []any{"Nest display"}}}}
+	res := Analyze(athanSpec, evs, nil, true)
+	if strings.Join(res.Facts.Members, ",") != "Nest display" {
+		t.Errorf("members = %v", res.Facts.Members)
+	}
+}
+
+func TestAMemberThatCouldNotBeReachedMakesTheAthanAWarning(t *testing.T) {
+	evs := memberEvents(played(3, "Nest display"), played(3, "Kitchen speaker"),
+		trace.Event{At: at(-90), Source: trace.SourceAgent, Kind: "member-offline", Device: "Playroom Speaker", Level: "warn"})
+	res := Analyze(athanSpec, evs, nil, true)
+	if res.Verdict != VerdictWarning || !strings.Contains(res.Headline, "Playroom Speaker could not be reached") {
+		t.Errorf("%s: %s", res.Verdict, res.Headline)
+	}
+	if strings.Join(res.Facts.MembersOffline, ",") != "Playroom Speaker" {
+		t.Errorf("offline = %v", res.Facts.MembersOffline)
+	}
+}

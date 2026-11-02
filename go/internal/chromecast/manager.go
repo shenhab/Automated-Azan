@@ -60,12 +60,16 @@ type Manager struct {
 	mediaBaseURL string // e.g. http://192.168.1.x:5000/media/
 	cacheDir     string // data directory for devices.json cache
 
-	mu            sync.Mutex
-	devices       map[string]Device // uuid → Device
-	lastDiscovery time.Time
-	app           *application.Application
-	currentDevice *Device
-	playingDev    Device // the speaker the current playback is on
+	mu             sync.Mutex
+	knownMu        sync.Mutex
+	known          map[string][]knownMember // who has been seen in each group (see known_members.go)
+	lastMembership Membership
+	hasMembership  bool
+	devices        map[string]Device // uuid → Device
+	lastDiscovery  time.Time
+	app            *application.Application
+	currentDevice  *Device
+	playingDev     Device // the speaker the current playback is on
 
 	// Pre-connect cache populated by PreConnect; consumed by the next playURL.
 	preApp *application.Application
@@ -523,15 +527,18 @@ func (m *Manager) loadWithRetry(dev Device, app *application.Application, url, c
 
 // Playback is what a speaker reported after being asked to play something.
 type Playback struct {
-	Speaker    string    `json:"speaker"`
-	Started    bool      `json:"started"`     // it reported PLAYING/BUFFERING and kept playing
-	State      string    `json:"state"`       // PLAYING, BUFFERING, IDLE, ...
-	IdleReason string    `json:"idle_reason"` // e.g. ERROR, when State is IDLE
-	Muted      bool      `json:"muted"`
-	Level      float32   `json:"level"` // 0..1
-	Warning    string    `json:"warning,omitempty"`
-	At         time.Time `json:"at"`
-	Session    int       `json:"-"` // the media session that is ours; 0 if unknown
+	Speaker    string  `json:"speaker"`
+	Started    bool    `json:"started"`     // it reported PLAYING/BUFFERING and kept playing
+	State      string  `json:"state"`       // PLAYING, BUFFERING, IDLE, ...
+	IdleReason string  `json:"idle_reason"` // e.g. ERROR, when State is IDLE
+	Muted      bool    `json:"muted"`
+	Level      float32 `json:"level"` // 0..1
+	Warning    string  `json:"warning,omitempty"`
+	// Members are the devices the speaker (a Cast group) is made of, each with
+	// its own volume; empty for a plain speaker.
+	Members []GroupMember `json:"members,omitempty"`
+	At      time.Time     `json:"at"`
+	Session int           `json:"-"` // the media session that is ours; 0 if unknown
 }
 
 // LastPlayback returns what the speaker reported after the latest play request.
@@ -580,6 +587,66 @@ func (m *Manager) loadAndVerify(app *application.Application, dev Device, url, c
 		Text:   fmt.Sprintf("%s is %s — volume %.2f%s", speaker, pb.State, pb.Level, mutedWord(pb.Muted)),
 		Fields: map[string]any{"state": pb.State, "volume": float64(pb.Level), "muted": pb.Muted, "warning": pb.Warning, "host": dev.Host}})
 	return pb, nil
+}
+
+// checkMembers looks at the devices a Cast group is made of. The group's own
+// volume says nothing about them: one member can be muted or at volume 0 while
+// the group reports itself audible, and the Athan then plays everywhere but
+// there. Best effort: a group that cannot be asked adds nothing.
+//
+// It is a separate step, run after a verified play (CheckGroupMembers), so the
+// Athan's own path keeps its single warm connection.
+func (m *Manager) checkMembers(dev Device, pb *Playback) {
+	members, err := GroupMembers(dev.Host, dev.Port)
+	if err != nil {
+		log.Printf("[chromecast] could not list the members of %q: %v", dev.Name, err)
+		return
+	}
+	if len(members) == 1 && strings.EqualFold(members[0].Name, dev.Name) {
+		return // a plain device lists itself
+	}
+	pb.Members = members
+	var warns []string
+	for _, mb := range members {
+		switch {
+		case mb.Muted:
+			warns = append(warns, fmt.Sprintf("%s (in %s) is MUTED — it will not be heard", mb.Name, dev.Name))
+		case mb.Level < 0.02:
+			warns = append(warns, fmt.Sprintf("%s (in %s) has its volume at %.2f — it will not be heard", mb.Name, dev.Name, mb.Level))
+		}
+	}
+	if len(warns) > 0 {
+		if pb.Warning != "" {
+			warns = append([]string{pb.Warning}, warns...)
+		}
+		pb.Warning = strings.Join(warns, "; ")
+	}
+}
+
+// CheckGroupMembers looks at the members of the speaker's group after the
+// Athan started, adds them to the last playback report and warns (in the log,
+// the timeline and the report) about a member that is muted or at volume 0.
+// Best effort and read-only; call it in the background.
+func (m *Manager) CheckGroupMembers() {
+	dev, err := m.resolveDevice()
+	if err != nil {
+		return
+	}
+	m.mu.Lock()
+	pb := m.lastPlayback
+	m.mu.Unlock()
+	before := pb.Warning
+	m.checkMembers(dev, &pb)
+	if pb.Members == nil {
+		return
+	}
+	m.mu.Lock()
+	m.lastPlayback.Members, m.lastPlayback.Warning = pb.Members, pb.Warning
+	m.mu.Unlock()
+	if pb.Warning != before {
+		log.Printf("[chromecast] WARNING: %s", pb.Warning)
+		trace.Warn(trace.SourceAgent, "member-silent", dev.Name, pb.Warning, "host", dev.Host)
+	}
 }
 
 // verifyPlayback asks the speaker, until it answers, what it is doing. Playback

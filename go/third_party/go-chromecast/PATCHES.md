@@ -36,6 +36,12 @@ being loaded delays the Athan.
    Test: `TestTVStaysMutedWhileTheAthanPlaysAndIsReleasedSecondsAfterItEnds` (the fake speaker
    answers like the real one).
 
+4. `application/application.go`, `Update` — no media request for an app without a transport
+   (`PATCHED`). While a group plays, a member reports the group's session with no `transportId`.
+   The old code sent CONNECT and media GET_STATUS to `dst=""`; the real Nest display answered CLOSE
+   and then nothing, so the Journal's watcher reported "lost contact" 3 s into the Athan (Isha
+   2026-11-02). Test: `TestAMembersWatcherKeepsWatchingWhileTheGroupPlays`.
+
 **Test.** `go/internal/chromecast/concurrent_requests_test.go` fails on the unpatched library
 (four concurrent connections lose replies in the first round) and passes with these patches.
 
