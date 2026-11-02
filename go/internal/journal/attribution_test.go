@@ -26,6 +26,8 @@ func TestChangesTheAgentCausedAreNotOutsideInterference(t *testing.T) {
 		{"app launched after our Load", []trace.Event{action(0, "load-sent", "10.0.0.5")}, "10.0.0.5", chg(2, "app-launched"), true},
 		{"playing after our Load", []trace.Event{action(0, "load-sent", "10.0.0.5")}, "10.0.0.5", chg(3, "player-state", "state", "PLAYING"), true},
 		{"app closed after our stop", []trace.Event{action(100, "stop-sent", "10.0.0.5")}, "10.0.0.5", chg(101, "app-closed"), true},
+		{"idle screen closed by our own Load (Isha 2026-11-02: Backdrop closed 10 ms after it)", []trace.Event{action(0, "load-sent", "10.0.0.5")}, "10.0.0.5", chg(0.01, "app-closed", "app", "Backdrop"), true},
+		{"the media receiver we launched closed by someone else, seconds after our Load", []trace.Event{action(0, "load-sent", "10.0.0.5")}, "10.0.0.5", chg(5, "app-closed", "app", "Default Media Receiver"), false},
 		{"cancelled after our stop", []trace.Event{action(100, "stop-sent", "10.0.0.5")}, "10.0.0.5", chg(101, "player-state", "state", "IDLE", "idle_reason", "CANCELLED"), true},
 		{"volume change after our volume command", []trace.Event{action(200, "volume-set", "10.0.0.9")}, "10.0.0.9", chg(201, "volume"), true},
 		{"app closed with no stop from us", []trace.Event{action(0, "load-sent", "10.0.0.5")}, "10.0.0.5", chg(50, "app-closed"), false},

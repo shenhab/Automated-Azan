@@ -15,6 +15,9 @@ var explains = map[string][]string{
 	"volume":       {"volume-set", "mute-sent", "unmute-sent"},
 }
 
+// mediaReceiverApp is the app the agent's Load launches on a speaker.
+const mediaReceiverApp = "Default Media Receiver"
+
 const (
 	actionLeadSlack = time.Second      // a device's clock-free report can only follow the action; allow for event ordering
 	actionWindow    = 20 * time.Second // how long after an action its effects may show
@@ -60,6 +63,13 @@ func (a *attribution) Caused(host string, c change) bool {
 	switch c.Kind {
 	case "initial-state":
 		return true
+	case "app-closed":
+		// Our Load launches the media receiver, which closes whatever was open
+		// (the idle screen, Backdrop): that is ours. The media receiver itself
+		// closing is not, unless we stopped it.
+		if app, _ := c.Fields["app"].(string); app != mediaReceiverApp {
+			kinds = []string{"stop-sent", "load-sent", "launch"}
+		}
 	case "player-state":
 		state, _ := c.Fields["state"].(string)
 		reason, _ := c.Fields["idle_reason"].(string)
