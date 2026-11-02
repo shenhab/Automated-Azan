@@ -32,3 +32,21 @@ func TestANewConfigFileHasNoSecretKey(t *testing.T) {
 		t.Errorf("a new config file would still contain secret_key:\n%s", out.String())
 	}
 }
+
+func TestANewInstallDefaultsToDublinAndTheAthanGroup(t *testing.T) {
+	c := &Config{}
+	c.setDefaults()
+	if c.Prayer.Location != "mai" || !IsValidLocation(c.Prayer.Location) {
+		t.Errorf("location = %q, want the live Dublin source", c.Prayer.Location)
+	}
+	if c.Speaker.GroupName != "athan" {
+		t.Errorf("speaker group = %q, want athan", c.Speaker.GroupName)
+	}
+}
+
+func TestAnExistingConfigKeepsItsOwnLocation(t *testing.T) {
+	// The default is for new installs only.
+	if got := decode(t, "[prayer]\nlocation = \"naas\"\n").Prayer.Location; got != "naas" {
+		t.Errorf("location = %q", got)
+	}
+}

@@ -145,7 +145,7 @@ func (j JobChannelsConfig) ForPrayer(name string) ChannelConfig {
 
 // PrayerConfig holds prayer scheduling settings.
 type PrayerConfig struct {
-	// Location is either a preloaded key ("naas","icci","newbridge")
+	// Location is either a preloaded key (see Locations)
 	// or "aladhan" to use the Aladhan API.
 	Location          string              `toml:"location"`
 	AladhanCity       string              `toml:"aladhan_city"`
@@ -230,7 +230,7 @@ func (c *Config) setDefaults() {
 	c.Speaker = SpeakerConfig{GroupName: DefaultSpeakerGroup}
 	defaultCh := ChannelConfig{Speaker: true, Local: false, Notify: false}
 	c.Prayer = PrayerConfig{
-		Location:       "naas",
+		Location:       "mai", // Dublin's live source
 		AladhanMethod:  3, // Muslim World League
 		PreFajrMinutes: 30,
 		Enabled: PrayerEnabledConfig{

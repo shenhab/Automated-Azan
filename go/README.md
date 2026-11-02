@@ -51,7 +51,7 @@ On first run, place `azan.toml` next to the binary (or set `AZAN_CONFIG_FILE`):
 group_name = "athan"
 
 [prayer]
-location = "naas"          # naas, mai, icci, newbridge, cork, galway or aladhan
+location = "mai"           # mai (Dublin), naas, icci, newbridge, cork, galway or aladhan
 pre_fajr_enabled = true
 pre_fajr_minutes = 30
 friday_kahf_enabled = false
