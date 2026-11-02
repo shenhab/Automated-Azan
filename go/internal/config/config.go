@@ -185,10 +185,9 @@ type AuthConfig struct {
 
 // WebConfig holds web server settings.
 type WebConfig struct {
-	Host      string     `toml:"host"`
-	Port      int        `toml:"port"`
-	SecretKey string     `toml:"secret_key"`
-	Auth      AuthConfig `toml:"auth"`
+	Host string     `toml:"host"`
+	Port int        `toml:"port"`
+	Auth AuthConfig `toml:"auth"`
 }
 
 // LogConfig holds logging settings.
@@ -243,7 +242,7 @@ func (c *Config) setDefaults() {
 			PreFajr: defaultCh, FridayKahf: defaultCh,
 		},
 	}
-	c.Web = WebConfig{Host: "0.0.0.0", Port: 28426, SecretKey: "automated-azan-secret-key"}
+	c.Web = WebConfig{Host: "0.0.0.0", Port: 28426}
 	c.TVPause = TVPauseConfig{Enabled: false, ResumeDelaySecs: 300}
 	c.Journal = JournalConfig{Enabled: true, RetentionDays: 30, MaxMB: 300, WatchTVs: true, NotifyOn: "problems"}
 	c.Log = LogConfig{
