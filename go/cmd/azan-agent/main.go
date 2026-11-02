@@ -480,6 +480,13 @@ func setupFirstRunAuth(cfg *config.Config) {
 }
 
 func main() {
+	// Answer version requests before anything else: everything below touches the
+	// disk or the service manager, and falling through would start a full agent.
+	if isVersionRequest(os.Args[1:]) {
+		fmt.Println("azan-agent " + version)
+		return
+	}
+
 	svcCfg := &service.Config{
 		Name:        "AzanAgent",
 		DisplayName: "Automated Azan Agent",
