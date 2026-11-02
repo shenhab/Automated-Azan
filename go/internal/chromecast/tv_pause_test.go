@@ -306,3 +306,104 @@ func TestOrdinaryTVStillGetsAPlainUnmute(t *testing.T) {
 		t.Errorf("volume = %v, want it untouched at 0.5", got)
 	}
 }
+
+// --- release driven by the speaker's playback, not by a timer ---
+
+func fastRelease(t *testing.T, settle, hold time.Duration) {
+	t.Helper()
+	oldSettle, oldPoll, oldHold, oldTimeout := releaseSettle, releasePoll, maxAthanHold, pollTimeout
+	releaseSettle, releasePoll, maxAthanHold, pollTimeout = settle, 100*time.Millisecond, hold, time.Second
+	t.Cleanup(func() {
+		releaseSettle, releasePoll, maxAthanHold, pollTimeout = oldSettle, oldPoll, oldHold, oldTimeout
+	})
+}
+
+// athanPlaying mutes the TVs and starts the Athan on the test speaker, then arms
+// the playback-driven release, exactly as the scheduler does.
+func athanPlaying(t *testing.T, r *tvRig) {
+	t.Helper()
+	r.tvp.PauseForAthan(nil, "Test Speaker")
+	if err := r.m.PlayAthan("Dhuhr", ""); err != nil {
+		t.Fatalf("PlayAthan: %v", err)
+	}
+	r.tvp.ScheduleResume(5 * time.Minute) // what the scheduler arms as a fallback
+	r.tvp.ReleaseWhenAthanEnds()
+}
+
+func TestTVStaysMutedWhileTheAthanPlaysAndIsReleasedSecondsAfterItEnds(t *testing.T) {
+	fastRelease(t, 400*time.Millisecond, time.Minute)
+	r := newTVRig(t, "Living Room TV")
+	tv := r.tvs["Living Room TV"]
+	athanPlaying(t, r)
+
+	time.Sleep(1200 * time.Millisecond)
+	if !muted(tv) {
+		t.Fatal("the TV was unmuted while the Athan was still playing")
+	}
+
+	ended := time.Now()
+	r.athan.FinishPlayback()
+	time.Sleep(150 * time.Millisecond)
+	if !muted(tv) {
+		t.Error("the TV was unmuted at once; it should wait a moment after the Athan ends")
+	}
+	eventually(t, "TV unmuted after the Athan ended", func() bool { return !muted(tv) })
+	if d := time.Since(ended); d < 400*time.Millisecond {
+		t.Errorf("TV unmuted %v after the end, before the %v settle time", d, 400*time.Millisecond)
+	}
+	if r.tvp.IsPaused() {
+		t.Error("still holding the TV after release")
+	}
+}
+
+func TestTVIsReleasedWhenTheAthanIsStoppedEarly(t *testing.T) {
+	fastRelease(t, 200*time.Millisecond, time.Minute)
+	r := newTVRig(t, "Living Room TV")
+	tv := r.tvs["Living Room TV"]
+	athanPlaying(t, r)
+	time.Sleep(600 * time.Millisecond)
+
+	if err := r.m.StopPlayback(); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "TV unmuted after a stop", func() bool { return !muted(tv) })
+}
+
+func TestTVIsReleasedAfterAConnectionDropMidAthan(t *testing.T) {
+	fastRelease(t, 200*time.Millisecond, time.Minute)
+	r := newTVRig(t, "Living Room TV")
+	tv := r.tvs["Living Room TV"]
+	athanPlaying(t, r)
+	time.Sleep(500 * time.Millisecond)
+
+	r.athan.DropConnections() // Wi-Fi blip: the watcher must reconnect and keep watching
+	time.Sleep(800 * time.Millisecond)
+	if !muted(tv) {
+		t.Fatal("a dropped connection released the TV while the Athan was still playing")
+	}
+	r.athan.FinishPlayback()
+	eventually(t, "TV unmuted after the Athan ended", func() bool { return !muted(tv) })
+}
+
+func TestTVIsNeverLeftMutedIfThePlaybackNeverEnds(t *testing.T) {
+	fastRelease(t, 100*time.Millisecond, 1500*time.Millisecond)
+	r := newTVRig(t, "Living Room TV")
+	tv := r.tvs["Living Room TV"]
+	athanPlaying(t, r)
+
+	start := time.Now()
+	eventually(t, "TV unmuted at the hold cap", func() bool { return !muted(tv) })
+	if d := time.Since(start); d < 1200*time.Millisecond {
+		t.Errorf("released after %v, before the hold cap", d)
+	}
+}
+
+func TestReleaseWhenAthanEndsWithNothingHeldDoesNothing(t *testing.T) {
+	fastRelease(t, 100*time.Millisecond, time.Minute)
+	r := newTVRig(t, "Living Room TV")
+	r.tvp.ReleaseWhenAthanEnds() // must not panic or start anything
+	time.Sleep(300 * time.Millisecond)
+	if r.tvp.IsPaused() {
+		t.Error("nothing was paused")
+	}
+}

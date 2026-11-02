@@ -317,6 +317,15 @@ func (s *Speaker) SetVolumeState(level float64, muted bool) {
 	s.volume, s.muted = level, muted
 }
 
+// FinishPlayback ends the current media the way a real receiver does when the
+// file has played to its end: the player goes IDLE with idleReason FINISHED
+// (seen in testdata/traces/athan-playback).
+func (s *Speaker) FinishPlayback() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.playerState, s.idleReason = "IDLE", "FINISHED"
+}
+
 // ToggleMuteTV makes the speaker behave like a TV whose Cast mute is a blind
 // toggle (see the toggling field). Only the mute and volume handling changes.
 func (s *Speaker) ToggleMuteTV() {
@@ -530,10 +539,16 @@ func (s *Speaker) handle(m *pb.CastMessage, req *request, send func(ns, src, dst
 					if s.toggling && *req.Volume.Muted != s.muted {
 						s.silent = !s.silent
 					}
+					changed := s.muted != *req.Volume.Muted
 					s.muted = *req.Volume.Muted
-					if s.muted {
+					// A real receiver reports a change, not every message that
+					// carries the flag (the Cast library puts muted:false in every
+					// volume command).
+					switch {
+					case !changed:
+					case s.muted:
 						s.addEventLocked("mute")
-					} else {
+					default:
 						s.addEventLocked("unmute")
 					}
 				}

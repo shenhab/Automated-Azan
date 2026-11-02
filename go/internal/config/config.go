@@ -159,7 +159,7 @@ type PrayerConfig struct {
 // TVPauseConfig controls pausing Cast-capable screens during Athan.
 type TVPauseConfig struct {
 	Enabled         bool     `toml:"enabled"`
-	ResumeDelaySecs int      `toml:"resume_delay_seconds"` // default 300 (5 min)
+	ResumeDelaySecs int      `toml:"resume_delay_seconds"` // backup if the Athan never starts; devices are normally released as the Athan ends. default 300 (5 min)
 	Devices         []string `toml:"devices"`              // UUIDs to pause; empty = all discovered
 }
 

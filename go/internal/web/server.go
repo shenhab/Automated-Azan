@@ -650,6 +650,7 @@ func (s *Server) handleAPITestWorkflow(w http.ResponseWriter, r *http.Request) {
 
 	// Step 2 — mute TVs if the feature is enabled
 	tvMuted := false
+	var pauseDone chan struct{}
 	if s.cfg.TVPause.Enabled {
 		log.Printf("[test-workflow] step 2/3: muting TVs")
 		delay := time.Duration(s.cfg.TVPause.ResumeDelaySecs) * time.Second
@@ -657,7 +658,9 @@ func (s *Server) handleAPITestWorkflow(w http.ResponseWriter, r *http.Request) {
 			delay = 5 * time.Minute
 		}
 		excludeSpeaker := s.cfg.Speaker.Resolve("athan")
+		pauseDone = make(chan struct{})
 		go func() {
+			defer close(pauseDone)
 			s.tvPause.PauseForAthan(s.cfg.TVPause.Devices, excludeSpeaker)
 			s.tvPause.ScheduleResume(delay)
 		}()
@@ -672,6 +675,10 @@ func (s *Server) handleAPITestWorkflow(w http.ResponseWriter, r *http.Request) {
 	if err := s.castMgr.PlayAthan(body.Prayer, filename); err != nil {
 		writeJSON(w, errResp(err))
 		return
+	}
+	if pauseDone != nil {
+		<-pauseDone // the TVs are muted (or failed to be) before the release is armed
+		s.tvPause.ReleaseWhenAthanEnds()
 	}
 
 	log.Printf("[test-workflow] complete — prayer=%s tv_muted=%v", body.Prayer, tvMuted)

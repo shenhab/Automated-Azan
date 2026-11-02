@@ -207,6 +207,9 @@ func (p *program) run() {
 		if ch.Speaker {
 			if err := castMgr.PlayAthan(prayerName, filename); err != nil {
 				log.Printf("[main] speaker athan (%s): %v", prayerName, err)
+			} else if cfg.TVPause.Enabled {
+				// The Athan is really playing: hand the TVs back when it stops.
+				tvPauseMgr.ReleaseWhenAthanEnds()
 			}
 		}
 		if ch.Local {

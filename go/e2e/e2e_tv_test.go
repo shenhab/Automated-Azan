@@ -72,17 +72,31 @@ func TestTVsAreQuietedForTheAthanAndRestored(t *testing.T) {
 				t.Errorf("TV was quieted %v before the Athan, want a few seconds before", lead)
 			}
 
-			// ...and restored after the configured delay.
-			deadline := time.Now().Add(resumeAfter*time.Second + 20*time.Second)
-			for len(tv.EventsOfKind(tc.after)) == 0 && time.Now().Before(deadline) {
-				time.Sleep(200 * time.Millisecond)
+			// The TV stays quiet for as long as the Athan is playing: the configured
+			// delay is only a fallback for an Athan that never started, so passing it
+			// must change nothing while the speaker is still playing.
+			time.Sleep(resumeAfter*time.Second + 4*time.Second)
+			if n := len(tv.EventsOfKind(tc.after)); n != 0 {
+				t.Fatalf("TV was restored (%d %q event) while the Athan was still playing (events: %v)", n, tc.after, tv.Events())
 			}
+
+			// ...and is restored a moment after the Athan really ends.
+			endedAt := time.Now()
+			sp.FinishPlayback()
+			deadline := time.Now().Add(20 * time.Second)
+			for len(tv.EventsOfKind(tc.after)) == 0 && time.Now().Before(deadline) {
+				time.Sleep(100 * time.Millisecond)
+			}
+			time.Sleep(2 * time.Second) // the release nudges the volume and puts it back; let it finish
 			after := tv.EventsOfKind(tc.after)
 			if len(after) != 1 {
-				t.Fatalf("TV got %d %q event(s), want 1 (events: %v)", len(after), tc.after, tv.Events())
+				t.Fatalf("TV got %d %q event(s) after the Athan ended, want 1 (events: %v)", len(after), tc.after, tv.Events())
 			}
-			if gap := after[0].At.Sub(before[0].At); gap < (resumeAfter-3)*time.Second || gap > (resumeAfter+15)*time.Second {
-				t.Errorf("TV restored %v after being quieted, want about %ds", gap, resumeAfter)
+			if lvl, _ := tv.Volume(); lvl != 0.5 {
+				t.Errorf("TV volume ends at %v, want it back at 0.5", lvl)
+			}
+			if gap := after[0].At.Sub(endedAt); gap < time.Second || gap > 8*time.Second {
+				t.Errorf("TV restored %v after the Athan ended, want about 2s", gap)
 			}
 			want := map[string]string{"mute": "unmuted", "pause": "PLAYING"}[tc.before]
 			if got := tc.endState(tv); got != want {
