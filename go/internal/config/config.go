@@ -231,7 +231,7 @@ func (c *Config) setDefaults() {
 	defaultCh := ChannelConfig{Speaker: true, Local: false, Notify: false}
 	c.Prayer = PrayerConfig{
 		Location:       "mai", // Dublin's live source
-		AladhanMethod:  3, // Muslim World League
+		AladhanMethod:  3,     // Muslim World League
 		PreFajrMinutes: 30,
 		Enabled: PrayerEnabledConfig{
 			Fajr: true, Dhuhr: true, Asr: true, Maghrib: true, Isha: true,
