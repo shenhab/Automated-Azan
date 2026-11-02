@@ -248,3 +248,15 @@ func TestMemberNamesSurviveBeingReadBackFromDisk(t *testing.T) {
 		t.Errorf("members = %v", res.Facts.Members)
 	}
 }
+
+func TestAMemberThatCouldNotBeReachedMakesTheAthanAWarning(t *testing.T) {
+	evs := memberEvents(played(3, "Nest display"), played(3, "Kitchen speaker"),
+		trace.Event{At: at(-90), Source: trace.SourceAgent, Kind: "member-offline", Device: "Playroom Speaker", Level: "warn"})
+	res := Analyze(athanSpec, evs, nil, true)
+	if res.Verdict != VerdictWarning || !strings.Contains(res.Headline, "Playroom Speaker could not be reached") {
+		t.Errorf("%s: %s", res.Verdict, res.Headline)
+	}
+	if strings.Join(res.Facts.MembersOffline, ",") != "Playroom Speaker" {
+		t.Errorf("offline = %v", res.Facts.MembersOffline)
+	}
+}

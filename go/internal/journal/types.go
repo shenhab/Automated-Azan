@@ -55,6 +55,7 @@ type Facts struct {
 	// The speaker's group. Empty for a plain speaker.
 	Members            []string `json:"members,omitempty"`             // configured into the group
 	MembersNotJoined   []string `json:"members_not_joined,omitempty"`  // configured, not in the group's session
+	MembersOffline     []string `json:"members_offline,omitempty"`     // seen in the group before, not answering now
 	MembersPlayed      []string `json:"members_played,omitempty"`      // seen showing the group's session
 	MembersUnconfirmed []string `json:"members_unconfirmed,omitempty"` // joined, never seen showing it
 	MemberWarnings     []string `json:"member_warnings,omitempty"`     // e.g. a member that is muted

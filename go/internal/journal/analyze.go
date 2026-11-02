@@ -36,6 +36,8 @@ func Analyze(spec Spec, events []trace.Event, healthIssues []string, ended bool)
 				f.Members, joined = fieldStrings(e, "configured"), fieldStrings(e, "joined")
 			case "member-not-joined":
 				f.MembersNotJoined = appendOnce(f.MembersNotJoined, e.Device)
+			case "member-offline":
+				f.MembersOffline = appendOnce(f.MembersOffline, e.Device)
 			case "member-silent":
 				f.MemberWarnings = appendOnce(f.MemberWarnings, e.Text)
 			case "load-sent":
@@ -179,6 +181,9 @@ func Analyze(spec Spec, events []trace.Event, healthIssues []string, ended bool)
 	}
 	for _, name := range f.MembersNotJoined {
 		warn = append(warn, name+" did not join the group")
+	}
+	for _, name := range f.MembersOffline {
+		warn = append(warn, name+" could not be reached")
 	}
 	warn = append(warn, f.MemberWarnings...)
 	warn = append(warn, healthIssues...)

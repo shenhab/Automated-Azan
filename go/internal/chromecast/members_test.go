@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -229,6 +231,7 @@ type memberRig struct {
 	sp     map[string]*fakecast.Speaker
 	groups map[string][]string // device name → the groups its status page lists
 	broken map[string]http.HandlerFunc
+	dir    string
 }
 
 func newMemberRig(t *testing.T, speakers ...string) *memberRig {
@@ -271,7 +274,16 @@ func newMemberRig(t *testing.T, speakers ...string) *memberRig {
 	t.Cleanup(func() { eurekaURL = old })
 
 	r.m = NewManager("athan")
+	r.dir = t.TempDir()
+	r.m.SetCacheDir(r.dir)
 	return r
+}
+
+// restart is the agent starting again, with whatever is on the network now.
+func (r *memberRig) restart() *Manager {
+	m := NewManager("athan")
+	m.SetCacheDir(r.dir)
+	return m
 }
 
 func deviceNames(ds []Device) string {
@@ -426,5 +438,158 @@ func TestEveryDeviceIsAskedOverTheEncryptedPort(t *testing.T) {
 	got := defaultEurekaURL(Device{Host: "192.168.86.61", Port: 32124})
 	if got != "https://192.168.86.61:8443/setup/eureka_info?params=multizone,name" {
 		t.Errorf("url = %s", got)
+	}
+}
+
+// The agent learns the group's members from discovery alone; nobody lists them.
+// An unplugged speaker answers nothing, so only that memory can tell it is missing.
+
+func learned(t *testing.T) *memberRig {
+	t.Helper()
+	r := newMemberRig(t, "Nest display", "Kitchen speaker", "Playroom Speaker")
+	r.groups["Nest display"] = []string{"athan"}
+	r.groups["Kitchen speaker"] = []string{"athan"}
+	r.groups["Playroom Speaker"] = []string{"athan"}
+	r.sp["Nest display"].JoinGroup(r.group)
+	r.sp["Kitchen speaker"].JoinGroup(r.group)
+	r.sp["Playroom Speaker"].JoinGroup(r.group)
+	if _, err := r.m.Membership(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func TestNothingIsOfflineWhileEveryKnownMemberAnswers(t *testing.T) {
+	r := learned(t)
+	ms, err := r.m.Membership(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ms.Offline) != 0 {
+		t.Errorf("offline = %s", deviceNames(ms.Offline))
+	}
+}
+
+func TestAnUnpluggedMemberIsNoticedFromWhatWasLearned(t *testing.T) {
+	r := learned(t)
+	r.sp["Playroom Speaker"].Close()
+	r.broken["Playroom Speaker"] = func(w http.ResponseWriter, q *http.Request) { w.WriteHeader(http.StatusBadGateway) }
+	ms, err := r.m.Membership(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := deviceNames(ms.Offline); got != "Playroom Speaker" {
+		t.Errorf("offline = %q, configured = %s", got, deviceNames(ms.Configured))
+	}
+	if !strings.Contains(ms.Summary(), "cannot be reached: Playroom Speaker") {
+		t.Errorf("summary = %s", ms.Summary())
+	}
+}
+
+func TestWhatWasLearnedSurvivesARestartEvenWhenTheMemberIsGoneFromDiscovery(t *testing.T) {
+	r := learned(t)
+	r.sp["Playroom Speaker"].Close()
+	host, port := r.group.Addr()
+	nh, np := r.sp["Nest display"].Addr()
+	kh, kp := r.sp["Kitchen speaker"].Addr()
+	t.Setenv("AZAN_STATIC_DEVICES", fmt.Sprintf("athan=%s:%d;Nest display=%s:%d;Kitchen speaker=%s:%d", host, port, nh, np, kh, kp))
+	ms, err := r.restart().Membership(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := deviceNames(ms.Offline); got != "Playroom Speaker" {
+		t.Errorf("offline = %q", got)
+	}
+}
+
+func TestAMemberThatComesBackIsNoLongerOffline(t *testing.T) {
+	r := learned(t)
+	playroom := r.sp["Playroom Speaker"]
+	host, port := playroom.Addr()
+	playroom.Close()
+	r.broken["Playroom Speaker"] = func(w http.ResponseWriter, q *http.Request) { w.WriteHeader(http.StatusBadGateway) }
+	if ms, _ := r.m.Membership(context.Background()); len(ms.Offline) != 1 {
+		t.Fatalf("offline = %s", deviceNames(ms.Offline))
+	}
+	back := fakecast.New("Playroom Speaker")
+	if err := back.StartOnPort(port); err != nil {
+		t.Skipf("port %s:%d not free again: %v", host, port, err)
+	}
+	t.Cleanup(back.Close)
+	delete(r.broken, "Playroom Speaker")
+	ms, err := r.m.Membership(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ms.Offline) != 0 {
+		t.Errorf("offline = %s", deviceNames(ms.Offline))
+	}
+}
+
+func TestAMemberTakenOutOfTheGroupIsForgotten(t *testing.T) {
+	// Its own page answers and no longer lists the group: that is a decision, not a fault.
+	r := learned(t)
+	r.groups["Playroom Speaker"] = []string{"Upstairs"}
+	r.sp["Playroom Speaker"].LeaveGroup(r.group)
+	ms, err := r.m.Membership(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ms.Offline) != 0 {
+		t.Errorf("offline = %s", deviceNames(ms.Offline))
+	}
+	// Unplugging it later must not raise anything.
+	r.sp["Playroom Speaker"].Close()
+	r.broken["Playroom Speaker"] = func(w http.ResponseWriter, q *http.Request) { w.WriteHeader(http.StatusBadGateway) }
+	if ms, _ := r.m.Membership(context.Background()); len(ms.Offline) != 0 {
+		t.Errorf("a member taken out of the group was reported offline: %s", deviceNames(ms.Offline))
+	}
+}
+
+func TestAMemberWhosePageFailsButThatAnswersIsNotOffline(t *testing.T) {
+	r := learned(t)
+	r.broken["Playroom Speaker"] = func(w http.ResponseWriter, q *http.Request) { w.WriteHeader(http.StatusForbidden) }
+	ms, err := r.m.Membership(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ms.Offline) != 0 {
+		t.Errorf("offline = %s", deviceNames(ms.Offline))
+	}
+}
+
+func TestAMemberGoneForAMonthIsForgotten(t *testing.T) {
+	// A speaker given away can never say it left; it must not warn at every prayer forever.
+	r := learned(t)
+	r.sp["Playroom Speaker"].Close()
+	r.broken["Playroom Speaker"] = func(w http.ResponseWriter, q *http.Request) { w.WriteHeader(http.StatusBadGateway) }
+	old := memberForgetAfter
+	memberForgetAfter = 0
+	t.Cleanup(func() { memberForgetAfter = old })
+	ms, err := r.m.Membership(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ms.Offline) != 0 {
+		t.Errorf("offline = %s", deviceNames(ms.Offline))
+	}
+}
+
+func TestADamagedMemoryFileIsIgnored(t *testing.T) {
+	r := newMemberRig(t, "Nest display")
+	r.groups["Nest display"] = []string{"athan"}
+	r.sp["Nest display"].JoinGroup(r.group)
+	if err := os.WriteFile(filepath.Join(r.dir, knownMembersFile), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ms, err := r.m.Membership(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deviceNames(ms.Joined) != "Nest display" || len(ms.Offline) != 0 {
+		t.Errorf("%+v", ms)
+	}
+	if _, err := os.Stat(filepath.Join(r.dir, knownMembersFile)); err != nil {
+		t.Error(err)
 	}
 }

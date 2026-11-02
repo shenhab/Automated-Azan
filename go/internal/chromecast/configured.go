@@ -100,6 +100,7 @@ type Membership struct {
 	LiveKnown  bool              `json:"live_known"`       // the group answered
 	Joined     []Device          `json:"joined"`           // the live members found on the network
 	NotJoined  []Device          `json:"not_joined"`       // configured but absent from the live list: will not play
+	Offline    []Device          `json:"offline"`          // members learned earlier that no longer answer: will not play
 	Unknown    []GroupMember     `json:"unknown"`          // live members discovery does not know: cannot be watched
 	Errors     map[string]string `json:"errors,omitempty"` // device name → why it could not be asked
 }
@@ -117,7 +118,7 @@ func (ms Membership) IsGroup() bool {
 			return true
 		}
 	}
-	return false
+	return len(ms.Offline) > 0
 }
 
 func sameEndpoint(a, b Device) bool { return a.Host == b.Host && a.Port == b.Port }
@@ -157,6 +158,7 @@ func (m *Manager) Membership(ctx context.Context) (Membership, error) {
 	ms := Membership{Group: speaker, CheckedAt: time.Now()}
 	devices := m.Devices()
 	var mu sync.Mutex
+	var answered []Device // devices whose page could be read
 	fail := func(name string, err error) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -179,11 +181,12 @@ func (m *Manager) Membership(ctx context.Context) (Membership, error) {
 				fail(d.Name, err)
 				return
 			}
+			mu.Lock()
+			answered = append(answered, d)
 			if listsGroup(groups, speaker) {
-				mu.Lock()
 				ms.Configured = append(ms.Configured, d)
-				mu.Unlock()
 			}
+			mu.Unlock()
 		}(d)
 	}
 	type liveReply struct {
@@ -222,9 +225,11 @@ func (m *Manager) Membership(ctx context.Context) (Membership, error) {
 			ms.Configured = []Device{speaker} // a plain speaker
 		}
 	}
+	m.reconcileKnownMembers(&ms, devices, answered)
 	sortDevices(ms.Configured)
 	sortDevices(ms.Joined)
 	sortDevices(ms.NotJoined)
+	sortDevices(ms.Offline)
 
 	m.mu.Lock()
 	m.lastMembership, m.hasMembership = ms, true
@@ -250,6 +255,9 @@ func (ms Membership) Summary() string {
 	}
 	if len(ms.NotJoined) > 0 {
 		s += " — NOT joined: " + joinNames(ms.NotJoined)
+	}
+	if len(ms.Offline) > 0 {
+		s += " — cannot be reached: " + joinNames(ms.Offline)
 	}
 	return s
 }

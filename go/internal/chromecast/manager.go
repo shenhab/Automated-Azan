@@ -60,6 +60,8 @@ type Manager struct {
 	cacheDir     string // data directory for devices.json cache
 
 	mu             sync.Mutex
+	knownMu        sync.Mutex
+	known          map[string][]knownMember // who has been seen in each group (see known_members.go)
 	lastMembership Membership
 	hasMembership  bool
 	devices        map[string]Device // uuid → Device

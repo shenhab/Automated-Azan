@@ -45,14 +45,15 @@ func journalTargets(cfg *config.Config, src deviceSource) []journal.Target {
 	if err == nil {
 		add(speaker, "speaker")
 		ms, merr := src.Membership(context.Background())
-		if merr == nil && (len(ms.Configured) > 0 || len(ms.Joined) > 0) {
+		if merr == nil && (len(ms.Configured) > 0 || len(ms.Joined) > 0 || len(ms.Offline) > 0) {
 			// Everyone configured into the group, or who the group says has
 			// joined, wherever they are on the network.
 			notJoined := map[string]bool{}
-			for _, d := range ms.NotJoined {
+			for _, d := range append(append([]chromecast.Device(nil), ms.NotJoined...), ms.Offline...) {
 				notJoined[d.Host+":"+itoa(d.Port)] = true
 			}
-			for _, d := range append(append([]chromecast.Device(nil), ms.Configured...), ms.Joined...) {
+			// Unreachable members stay watched, so that their return is seen.
+			for _, d := range append(append(append([]chromecast.Device(nil), ms.Configured...), ms.Joined...), ms.Offline...) {
 				before := len(out)
 				add(d, "member")
 				if len(out) > before {
@@ -109,7 +110,7 @@ func announceMembership(ms chromecast.Membership) {
 	for _, l := range ms.Live {
 		live[strings.ToLower(l.Name)] = l
 	}
-	var parts, configured, joined, notJoined []string
+	var parts, configured, joined, notJoined, offline []string
 	for _, d := range ms.Configured {
 		configured = append(configured, d.Name)
 		part := d.Name
@@ -140,6 +141,10 @@ func announceMembership(ms chromecast.Membership) {
 	for _, d := range ms.NotJoined {
 		notJoined = append(notJoined, d.Name)
 	}
+	for _, d := range ms.Offline {
+		offline = append(offline, d.Name)
+		parts = append(parts, d.Name+" (cannot be reached)")
+	}
 	var asked []string
 	for name := range ms.Errors {
 		asked = append(asked, name)
@@ -151,7 +156,11 @@ func announceMembership(ms chromecast.Membership) {
 		text += "; the group did not say who has joined"
 	}
 	trace.Agent("group-members", ms.Group.Name, text, "host", ms.Group.Host,
-		"configured", configured, "joined", joined, "not_joined", notJoined, "could_not_ask", asked)
+		"configured", configured, "joined", joined, "not_joined", notJoined, "offline", offline, "could_not_ask", asked)
+	for _, d := range ms.Offline {
+		trace.Warn(trace.SourceAgent, "member-offline", d.Name,
+			d.Name+" is in "+ms.Group.Name+" but cannot be reached — it will not play", "host", d.Host, "group", ms.Group.Name)
+	}
 	for _, d := range ms.NotJoined {
 		trace.Warn(trace.SourceAgent, "member-not-joined", d.Name,
 			d.Name+" is in "+ms.Group.Name+" but has not joined — it will not play", "host", d.Host, "group", ms.Group.Name)

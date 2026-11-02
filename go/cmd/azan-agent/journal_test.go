@@ -258,6 +258,42 @@ func TestTheOwnerIsToldBeforeTheCastWhoWillNotPlay(t *testing.T) {
 	}
 }
 
+func TestAMemberThatCannotBeReachedIsAnnouncedAndWatched(t *testing.T) {
+	l := recordEvents(t)
+	nest := dev("Nest display", "10.0.0.5", 8009, "n")
+	playroom := dev("Playroom Speaker", "10.0.0.7", 8009, "p")
+	ms := chromecast.Membership{
+		Group:      dev("athan", "10.0.0.5", 32067, "g"),
+		Configured: []chromecast.Device{nest},
+		Live:       []chromecast.GroupMember{{Name: "Nest display", Level: 0.5}},
+		LiveKnown:  true,
+		Joined:     []chromecast.Device{nest},
+		Offline:    []chromecast.Device{playroom},
+	}
+	announceMembership(ms)
+	gm := l.kind("group-members")
+	if len(gm) != 1 || !strings.Contains(gm[0].Text, "Playroom Speaker (cannot be reached)") {
+		t.Errorf("group-members = %+v", gm)
+	}
+	off := l.kind("member-offline")
+	if len(off) != 1 || off[0].Device != "Playroom Speaker" || off[0].Level != "warn" || !strings.Contains(off[0].Text, "will not play") {
+		t.Errorf("member-offline = %+v", off)
+	}
+
+	cfg := &config.Config{}
+	src := stubDevices{speaker: ms.Group, all: []chromecast.Device{ms.Group, nest}, ms: ms}
+	targets := journalTargets(cfg, src)
+	found := false
+	for _, x := range targets {
+		if x.Name == "Playroom Speaker" {
+			found = x.Role == "member" && x.NotJoined
+		}
+	}
+	if !found {
+		t.Errorf("targets = %+v: an unreachable member must stay watched, so its return is seen", targets)
+	}
+}
+
 func TestAPlainSpeakerIsNotAnnouncedAsAGroup(t *testing.T) {
 	l := recordEvents(t)
 	sp := dev("Kitchen speaker", "10.0.0.6", 8009, "k")

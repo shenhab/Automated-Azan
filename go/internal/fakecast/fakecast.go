@@ -364,6 +364,21 @@ func (s *Speaker) JoinGroup(g *Speaker) {
 	g.mu.Unlock()
 }
 
+// LeaveGroup takes this speaker out of group g.
+func (s *Speaker) LeaveGroup(g *Speaker) {
+	s.mu.Lock()
+	s.memberOf = nil
+	s.mu.Unlock()
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for i, j := range g.joined {
+		if j == s {
+			g.joined = append(g.joined[:i], g.joined[i+1:]...)
+			break
+		}
+	}
+}
+
 // playingSession is the session the group's members show: the group's app
 // session for as long as the group's app is open. That outlives the media: during
 // Isha 2026-11-02 the Nest display still showed it 2.5 minutes after FINISHED.
@@ -384,6 +399,12 @@ func (s *Speaker) multizoneDevices() []any {
 	s.mu.Unlock()
 	devs := []any{}
 	for _, j := range joined {
+		j.mu.Lock()
+		gone := j.closed // a member that is switched off drops out of the group's session
+		j.mu.Unlock()
+		if gone {
+			continue
+		}
 		level, muted := j.Volume()
 		raw = append(raw, GroupMember{DeviceID: j.DeviceID(), Name: j.Name, Level: level, Muted: muted})
 	}
