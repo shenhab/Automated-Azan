@@ -73,6 +73,17 @@ func (r *Recorder) Frames() []Frame {
 	return append([]Frame(nil), r.frames...)
 }
 
+// FramesSince returns the frames recorded after the first n, so a long recording
+// can be streamed to disk without copying everything each time.
+func (r *Recorder) FramesSince(n int) []Frame {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if n >= len(r.frames) {
+		return nil
+	}
+	return append([]Frame(nil), r.frames[n:]...)
+}
+
 func (r *Recorder) add(f Frame) {
 	r.mu.Lock()
 	r.frames = append(r.frames, f)

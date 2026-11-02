@@ -3,6 +3,7 @@ package castrecord
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -138,5 +139,22 @@ func TestScrubRemovesWhatIdentifiesAHousehold(t *testing.T) {
 	// The same id is replaced by the same token so sessions stay linkable.
 	if strings.Count(out, "session-1") != 2 {
 		t.Errorf("one session id should map to one token: %s", out)
+	}
+}
+
+func TestFramesSinceReturnsOnlyTheNewFrames(t *testing.T) {
+	r := New(nil)
+	for i := 0; i < 5; i++ {
+		r.add(Frame{Type: fmt.Sprint(i)})
+	}
+	if got := r.FramesSince(0); len(got) != 5 {
+		t.Errorf("since 0 = %d frames", len(got))
+	}
+	got := r.FramesSince(3)
+	if len(got) != 2 || got[0].Type != "3" || got[1].Type != "4" {
+		t.Errorf("since 3 = %+v", got)
+	}
+	if r.FramesSince(5) != nil || r.FramesSince(99) != nil {
+		t.Error("nothing new should return nil")
 	}
 }

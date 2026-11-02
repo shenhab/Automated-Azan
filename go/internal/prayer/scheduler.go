@@ -10,6 +10,7 @@ import (
 	"azan-agent/internal/clock"
 	"azan-agent/internal/config"
 	"azan-agent/internal/timesync"
+	"azan-agent/internal/trace"
 )
 
 // PlayFunc is called when it's time to play Athan.
@@ -29,7 +30,21 @@ type JobStatus struct {
 const (
 	warmupLeadTime = 60 * time.Second
 	muteLeadTime   = 2 * time.Second
+
+	// journalLeadTime is how long before a prayer its Journal session starts, so
+	// the recording shows the speaker's state before anything is asked of it.
+	journalLeadTime = 90 * time.Second
 )
+
+// sessionStartDelay is how long to wait before starting a prayer's Journal
+// session: the lead time before the prayer, or no wait if the agent is already
+// inside that lead (it started late, or was restarted just before a prayer).
+func sessionStartDelay(untilPrayer time.Duration) time.Duration {
+	if d := untilPrayer - journalLeadTime; d > 0 {
+		return d
+	}
+	return 0
+}
 
 // The day's prayer schedule is rebuilt at 00:05 local time every day.
 //
@@ -67,6 +82,8 @@ type Scheduler struct {
 	warmup    func() error // called warmupLeadTime before each event to pre-connect
 	mute      func() error // called muteLeadTime before each Athan to silence TVs
 
+	sessionStart func(prayer, label string, at time.Time) // called journalLeadTime before each job
+
 	mu          sync.Mutex
 	todayJobs   []JobStatus
 	timers      []*time.Timer
@@ -91,6 +108,14 @@ func (s *Scheduler) clock() time.Time {
 		return s.now()
 	}
 	return clock.Now()
+}
+
+// SetSessionStart registers a function called journalLeadTime before every job
+// (or at once if that moment has passed). The Journal uses it to start recording.
+func (s *Scheduler) SetSessionStart(f func(prayer, label string, at time.Time)) {
+	s.mu.Lock()
+	s.sessionStart = f
+	s.mu.Unlock()
 }
 
 // NewScheduler constructs a Scheduler.
@@ -362,6 +387,7 @@ func (s *Scheduler) scheduleTodayLocked() error {
 
 		timer := time.AfterFunc(delay, func() {
 			log.Printf("[scheduler] firing %s", label)
+			trace.From(trace.SourceSystem, "prayer-fired", "", "the scheduler fired "+label)
 			s.fire(prayer)
 			s.mu.Lock()
 			if idx < len(s.todayJobs) {
@@ -373,6 +399,16 @@ func (s *Scheduler) scheduleTodayLocked() error {
 		s.timers = append(s.timers, timer)
 		log.Printf("[scheduler] scheduled %s at %s (in %.0f min)", j.label, j.at.Format("15:04"), delay.Minutes())
 
+		// Start the Journal's recording of this job ahead of time.
+		if s.sessionStart != nil {
+			start, at := s.sessionStart, j.at
+			if d := sessionStartDelay(delay); d > 0 {
+				s.timers = append(s.timers, time.AfterFunc(d, func() { start(prayer, label, at) }))
+			} else {
+				go start(prayer, label, at)
+			}
+		}
+
 		// Schedule a pre-connect warmup warmupLeadTime before every job so
 		// the speaker connection is already established when the event fires.
 		if s.warmup != nil {
@@ -380,6 +416,7 @@ func (s *Scheduler) scheduleTodayLocked() error {
 				warmupLabel := label
 				warmupTimer := time.AfterFunc(warmupDelay, func() {
 					log.Printf("[scheduler] pre-connect warmup for %s", warmupLabel)
+					trace.From(trace.SourceSystem, "warmup", "", "pre-connect warm-up for "+warmupLabel)
 					if err := s.warmup(); err != nil {
 						log.Printf("[scheduler] warmup failed for %s: %v", warmupLabel, err)
 					}
@@ -397,6 +434,7 @@ func (s *Scheduler) scheduleTodayLocked() error {
 				muteLabel := label
 				muteTimer := time.AfterFunc(muteDelay, func() {
 					log.Printf("[scheduler] muting TVs for %s", muteLabel)
+					trace.From(trace.SourceSystem, "tv-mute-due", "", "time to mute the TVs for "+muteLabel)
 					if err := s.mute(); err != nil {
 						log.Printf("[scheduler] mute failed for %s: %v", muteLabel, err)
 					}
