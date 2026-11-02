@@ -15,6 +15,7 @@ WORKDIR /src
 
 # Dependencies first so this layer is cached until go.mod/go.sum change.
 COPY go.mod go.sum ./
+COPY third_party ./third_party
 RUN go mod download
 
 COPY . .
