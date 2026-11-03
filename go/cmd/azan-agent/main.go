@@ -480,6 +480,18 @@ func setupFirstRunAuth(cfg *config.Config) {
 }
 
 func main() {
+	// Settle the command line before anything else: everything below touches the
+	// disk or the service manager.
+	command, err := parseArgs(os.Args[1:], runtime.GOOS)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "azan-agent: %v\n\n%s\n", err, usage)
+		os.Exit(2)
+	}
+	if command == cmdVersion {
+		fmt.Println("azan-agent " + version)
+		return
+	}
+
 	svcCfg := &service.Config{
 		Name:        "AzanAgent",
 		DisplayName: "Automated Azan Agent",
@@ -522,36 +534,33 @@ func main() {
 	}
 
 	// Handle explicit service control commands: install, uninstall, start, stop
-	if len(os.Args) > 1 {
-		cmd := os.Args[1]
-		switch cmd {
-		case "install":
-			fmt.Println("Installing Azan Agent service...")
-			if err := svc.Install(); err != nil {
-				log.Fatalf("install: %v", err)
-			}
-			fmt.Println("Service installed. Run: azan-agent start")
-			return
-		case "uninstall":
-			fmt.Println("Uninstalling Azan Agent service...")
-			if err := svc.Uninstall(); err != nil {
-				log.Fatalf("uninstall: %v", err)
-			}
-			fmt.Println("Service uninstalled.")
-			return
-		case "start":
-			if err := svc.Start(); err != nil {
-				log.Fatalf("start: %v", err)
-			}
-			fmt.Println("Service started.")
-			return
-		case "stop":
-			if err := svc.Stop(); err != nil {
-				log.Fatalf("stop: %v", err)
-			}
-			fmt.Println("Service stopped.")
-			return
+	switch command {
+	case cmdInstall:
+		fmt.Println("Installing Azan Agent service...")
+		if err := svc.Install(); err != nil {
+			log.Fatalf("install: %v", err)
 		}
+		fmt.Println("Service installed. Run: azan-agent start")
+		return
+	case cmdUninstall:
+		fmt.Println("Uninstalling Azan Agent service...")
+		if err := svc.Uninstall(); err != nil {
+			log.Fatalf("uninstall: %v", err)
+		}
+		fmt.Println("Service uninstalled.")
+		return
+	case cmdStart:
+		if err := svc.Start(); err != nil {
+			log.Fatalf("start: %v", err)
+		}
+		fmt.Println("Service started.")
+		return
+	case cmdStop:
+		if err := svc.Stop(); err != nil {
+			log.Fatalf("stop: %v", err)
+		}
+		fmt.Println("Service stopped.")
+		return
 	}
 
 	// Running interactively (double-click or terminal launch)

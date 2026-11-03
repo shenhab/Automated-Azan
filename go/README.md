@@ -42,6 +42,8 @@ make build-all
 ./azan-agent uninstall  # removes
 ```
 
+`./azan-agent --version` prints the version and exits without starting anything. Any other argument is rejected with exit code 2 and the agent doesn't start.
+
 ## Configuration
 
 On first run, place `azan.toml` next to the binary (or set `AZAN_CONFIG_FILE`):
