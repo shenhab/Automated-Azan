@@ -341,6 +341,20 @@ func nextFireTime(minLead time.Duration) time.Time {
 	}
 }
 
+// quietTime returns a time today, half an hour from now, for tests where no
+// Athan should fire. Late in the evening that would be tomorrow, so it returns
+// half an hour ago instead: already past, so nothing fires either. It never
+// waits, because waiting for midnight can outlast the test run's time limit.
+func quietTime(now time.Time) time.Time {
+	now = now.In(dublin)
+	if later := now.Add(quietOffset); later.Day() == now.Day() {
+		return later
+	}
+	return now.Add(-quietOffset)
+}
+
+const quietOffset = 30 * time.Minute
+
 // ── the scenarios ────────────────────────────────────────────────────────────
 
 func TestScheduledAthanReachesSpeaker(t *testing.T) {
