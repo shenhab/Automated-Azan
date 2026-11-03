@@ -329,7 +329,7 @@ func TestTheJournalCanBeSwitchedOffAndItsSettingsAreChecked(t *testing.T) {
 	}
 	t.Cleanup(sp.Close)
 	home, cfgFile, webPort := t.TempDir(), filepath.Join(t.TempDir(), "azan.toml"), freePorts(t)
-	writeNaasTimetable(t, home, nextFireTime(10*time.Minute), "Asr")
+	writeNaasTimetable(t, home, quietTime(time.Now()), "Asr")
 	writeConfig(t, cfgFile, webPort, "Asr", "\n[journal]\nenabled = false\n")
 	startAgent(t, home, cfgFile, sp, withCredentials(testUser, testPass))
 	api := newClient(t, webPort)
@@ -376,7 +376,7 @@ func TestAPlayFromTheWebAppIsRecordedLikeAScheduledOne(t *testing.T) {
 	}
 	t.Cleanup(sp.Close)
 	home, cfgFile, webPort := t.TempDir(), filepath.Join(t.TempDir(), "azan.toml"), freePorts(t)
-	writeNaasTimetable(t, home, nextFireTime(30*time.Minute), "Asr")
+	writeNaasTimetable(t, home, quietTime(time.Now()), "Asr")
 	writeConfig(t, cfgFile, webPort, "Asr")
 	startAgent(t, home, cfgFile, sp, withCredentials(testUser, testPass))
 	api := newClient(t, webPort)
