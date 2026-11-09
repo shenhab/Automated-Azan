@@ -429,7 +429,7 @@ jobs:
           echo "Publishing $(echo "$actual" | wc -l) files:"; echo "$actual"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3.0.3
+        uses: softprops/action-gh-release@v3.0.4
         with:
           tag_name: ${{ needs.plan.outputs.tag }}
           name: "Automated Azan ${{ needs.plan.outputs.tag }}"
